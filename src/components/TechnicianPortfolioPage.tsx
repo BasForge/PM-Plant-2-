@@ -5,7 +5,8 @@ import {
   ArrowUpRight, Plus, FileText, Printer, ChevronRight, Layers,
   Lightbulb, ExternalLink, Activity, Image as ImageIcon, CheckCircle,
   ThumbsUp, Target, TrendingUp, Users, ZoomIn, UploadCloud, X,
-  FileSpreadsheet, Download, Loader2, Trash2, BookOpen, HelpCircle
+  FileSpreadsheet, Download, Loader2, Trash2, BookOpen, HelpCircle,
+  AlertTriangle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -191,19 +192,57 @@ export const TechnicianPortfolioPage: React.FC = () => {
   const techKaizenCount = allTechImprovements.filter(i => !i.category || i.category === 'KAIZEN').length;
   const techOPLCount = allTechImprovements.filter(i => i.category === 'OPL').length;
   const techFACount = allTechImprovements.filter(i => i.category === 'FA').length;
-  const techWhyWhyCount = allTechImprovements.filter(i => i.category === 'WHY_WHY').length;
+  const techKaizenWhyWhyCount = allTechImprovements.filter(i => i.category === 'WHY_WHY').length;
+
+  // Filter Repair logs for selected technician (all)
+  const allTechRepairs = repairs.filter(rep => {
+    return rep.technician === selectedTech || (rep.technicians && rep.technicians.includes(selectedTech));
+  });
+
+  // Repair logs that have Why-Why analysis
+  const allTechRepairWhyWhys = allTechRepairs.filter(rep => {
+    return Boolean(
+      (rep.why1 && rep.why1.trim() !== '') ||
+      (rep.why2 && rep.why2.trim() !== '') ||
+      (rep.why3 && rep.why3.trim() !== '') ||
+      (rep.why4 && rep.why4.trim() !== '') ||
+      (rep.why5 && rep.why5.trim() !== '') ||
+      (rep.excelFile && rep.excelFile.name.toLowerCase().includes('why'))
+    );
+  });
+
+  // Total Why-Why count (both Kaizen Why-Why + Repair Why-Why)
+  const totalTechWhyWhyCount = techKaizenWhyWhyCount + allTechRepairWhyWhys.length;
+
+  // Filtered Repair Why-Whys based on status & search
+  const techRepairWhyWhys = allTechRepairWhyWhys.filter(rep => {
+    if (statusFilter !== 'all') {
+      const repStatus = rep.status || 'ปิดงาน';
+      if (statusFilter === 'เสร็จแล้ว' && repStatus !== 'ปิดงาน') return false;
+      if (statusFilter === 'กำลังดำเนินการ' && repStatus !== 'กำลังซ่อม') return false;
+    }
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase();
+      const matchSymptoms = rep.symptoms?.toLowerCase().includes(q) || false;
+      const matchAction = rep.correctiveAction?.toLowerCase().includes(q) || false;
+      const matchMachine = rep.machineId?.toLowerCase().includes(q) || false;
+      const matchWhys = [rep.why1, rep.why2, rep.why3, rep.why4, rep.why5].some(w => w?.toLowerCase().includes(q));
+      const matchExcel = rep.excelFile?.name.toLowerCase().includes(q) || false;
+      return matchSymptoms || matchAction || matchMachine || matchWhys || matchExcel;
+    }
+    return true;
+  });
 
   // Filter Repair logs for selected technician
-  const techRepairs = repairs.filter(rep => {
-    const isTechInvolved = rep.technician === selectedTech || (rep.technicians && rep.technicians.includes(selectedTech));
-    if (!isTechInvolved) return false;
-
+  const techRepairs = allTechRepairs.filter(rep => {
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
       const matchSymptoms = rep.symptoms.toLowerCase().includes(q);
       const matchAction = rep.correctiveAction.toLowerCase().includes(q);
       const matchMachine = rep.machineId.toLowerCase().includes(q);
-      return matchSymptoms || matchAction || matchMachine;
+      const matchWhys = [rep.why1, rep.why2, rep.why3, rep.why4, rep.why5].some(w => w?.toLowerCase().includes(q));
+      const matchExcel = rep.excelFile?.name.toLowerCase().includes(q) || false;
+      return matchSymptoms || matchAction || matchMachine || matchWhys || matchExcel;
     }
     return true;
   });
@@ -1110,6 +1149,18 @@ export const TechnicianPortfolioPage: React.FC = () => {
               const isSelected = selectedTech === tech;
               const empInfo = employees.find(e => e.name === tech);
               const kaizenCount = improvements.filter(imp => imp.technician === tech || imp.technicians?.includes(tech)).length;
+              const repairWhyCount = repairs.filter(rep => {
+                const isInvolved = rep.technician === tech || rep.technicians?.includes(tech);
+                const hasWhy = Boolean(
+                  (rep.why1 && rep.why1.trim() !== '') ||
+                  (rep.why2 && rep.why2.trim() !== '') ||
+                  (rep.why3 && rep.why3.trim() !== '') ||
+                  (rep.why4 && rep.why4.trim() !== '') ||
+                  (rep.why5 && rep.why5.trim() !== '') ||
+                  (rep.excelFile && rep.excelFile.name.toLowerCase().includes('why'))
+                );
+                return isInvolved && hasWhy;
+              }).length;
 
               return (
                 <button
@@ -1133,11 +1184,13 @@ export const TechnicianPortfolioPage: React.FC = () => {
                     {empInfo && <p className={`text-[9px] font-normal leading-none mt-0.5 ${isSelected ? 'text-slate-800' : 'text-slate-400'}`}>{empInfo.position}</p>}
                   </div>
 
-                  {kaizenCount > 0 && (
-                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold ${
+                  {(kaizenCount > 0 || repairWhyCount > 0) && (
+                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold flex items-center gap-1 ${
                       isSelected ? 'bg-slate-950 text-cyan-400' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
                     }`}>
-                      {kaizenCount} Kaizen
+                      {kaizenCount > 0 && <span>{kaizenCount} Kaizen</span>}
+                      {kaizenCount > 0 && repairWhyCount > 0 && <span className="opacity-60">•</span>}
+                      {repairWhyCount > 0 && <span className={isSelected ? 'text-amber-300' : 'text-amber-400'}>{repairWhyCount} 5 Whys</span>}
                     </span>
                   )}
                 </button>
@@ -1176,7 +1229,7 @@ export const TechnicianPortfolioPage: React.FC = () => {
                 <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-400">
                   <span className="flex items-center gap-1 text-cyan-400 font-medium">
                     <Award size={13} />
-                    <span>เชี่ยวชาญ Kaizen & ปรับปรุงเครื่องจักร</span>
+                    <span>เชี่ยวชาญ Kaizen & วิเคราะห์ 5 Whys</span>
                   </span>
                   <span>•</span>
                   <span className="flex items-center gap-1 text-emerald-400 font-medium">
@@ -1190,9 +1243,9 @@ export const TechnicianPortfolioPage: React.FC = () => {
             {/* Quick Metrics Bar */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl shrink-0">
               <div className="text-center px-3 border-r border-slate-800/80 last:border-0">
-                <p className="text-[10px] text-slate-400 font-bold uppercase">ผลงาน Kaizen</p>
-                <p className="text-lg font-black text-cyan-400 mt-0.5">{totalKaizenProjects} <span className="text-[10px] text-slate-400 font-normal">งาน</span></p>
-                <p className="text-[9px] text-emerald-400 font-medium">เสร็จ {completedKaizen} งาน</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase">ผลงาน Kaizen & วิเคราะห์</p>
+                <p className="text-lg font-black text-cyan-400 mt-0.5">{totalKaizenProjects + allTechRepairWhyWhys.length} <span className="text-[10px] text-slate-400 font-normal">งาน</span></p>
+                <p className="text-[9px] text-amber-400 font-medium">{totalKaizenProjects} Kaizen | {allTechRepairWhyWhys.length} 5 Whys ซ่อม</p>
               </div>
 
               <div className="text-center px-3 border-r border-slate-800/80 last:border-0">
@@ -1319,7 +1372,7 @@ export const TechnicianPortfolioPage: React.FC = () => {
                 <PenTool size={16} />
               </div>
               <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                ผลงานพัฒนา Kaizen & วิศวกรรม ({techImprovements.length} รายการ)
+                ผลงานพัฒนา Kaizen & วิศวกรรม ({(kaizenCategoryFilter === 'all' ? techImprovements.length + techRepairWhyWhys.length : (kaizenCategoryFilter === 'WHY_WHY' ? (techImprovements.filter(i => i.category === 'WHY_WHY').length + techRepairWhyWhys.length) : techImprovements.filter(i => (i.category || 'KAIZEN') === kaizenCategoryFilter).length))} รายการ)
               </h3>
             </div>
 
@@ -1334,7 +1387,7 @@ export const TechnicianPortfolioPage: React.FC = () => {
                     : 'bg-slate-800 text-slate-400 hover:text-white'
                 }`}
               >
-                <span>ทั้งหมด ({allTechImprovements.length})</span>
+                <span>ทั้งหมด ({allTechImprovements.length + allTechRepairWhyWhys.length})</span>
               </button>
               <button
                 type="button"
@@ -1382,32 +1435,47 @@ export const TechnicianPortfolioPage: React.FC = () => {
                 }`}
               >
                 <HelpCircle size={12} />
-                <span>5 Whys ({techWhyWhyCount})</span>
+                <span>5 Whys ({totalTechWhyWhyCount})</span>
               </button>
             </div>
           </div>
 
-          {techImprovements.length === 0 ? (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
-              <Lightbulb className="mx-auto text-slate-600" size={36} />
-              <p className="text-xs text-slate-400 font-bold">ยังไม่มีข้อมูลโครงการ Kaizen สำหรับ {selectedTech}</p>
-              <p className="text-[11px] text-slate-500 max-w-md mx-auto">
-                กดปุ่ม "+ บันทึกผลงาน Kaizen ใหม่" ด้านบนเพื่อเพิ่มผลงานนวัตกรรมและการปรับปรุงเครื่องจักรสำหรับช่างคนนี้
-              </p>
-              <button
-                id="btn-add-first-kaizen"
-                onClick={() => setShowAddModal(true)}
-                className="bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs py-2 px-4 rounded-xl transition inline-flex items-center gap-1.5 mt-2"
-              >
-                <Plus size={14} />
-                <span>เริ่มเพิ่มผลงาน Kaizen แรก</span>
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {techImprovements.map((imp) => {
-                const logsTotalHours = imp.workLogs ? imp.workLogs.reduce((sum, w) => sum + w.hours, 0) : 0;
-                const cat = imp.category || 'KAIZEN';
+          {(() => {
+            const displayedImprovements = kaizenCategoryFilter === 'all' 
+              ? techImprovements 
+              : techImprovements.filter(imp => (imp.category || 'KAIZEN') === kaizenCategoryFilter);
+
+            const displayedRepairWhys = (kaizenCategoryFilter === 'all' || kaizenCategoryFilter === 'WHY_WHY')
+              ? techRepairWhyWhys 
+              : [];
+
+            const totalEngineeringItems = displayedImprovements.length + displayedRepairWhys.length;
+
+            if (totalEngineeringItems === 0) {
+              return (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
+                  <Lightbulb className="mx-auto text-slate-600" size={36} />
+                  <p className="text-xs text-slate-400 font-bold">ยังไม่มีข้อมูลโครงการ Kaizen หรือ 5 Whys สำหรับ {selectedTech}</p>
+                  <p className="text-[11px] text-slate-500 max-w-md mx-auto">
+                    กดปุ่ม "+ บันทึกผลงาน Kaizen ใหม่" ด้านบนเพื่อเพิ่มผลงานนวัตกรรม หรือบันทึกการวิเคราะห์ 5 Whys ในประวัติการซ่อมบำรุง
+                  </p>
+                  <button
+                    id="btn-add-first-kaizen"
+                    onClick={() => setShowAddModal(true)}
+                    className="bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs py-2 px-4 rounded-xl transition inline-flex items-center gap-1.5 mt-2"
+                  >
+                    <Plus size={14} />
+                    <span>เริ่มเพิ่มผลงาน Kaizen แรก</span>
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {displayedImprovements.map((imp) => {
+                  const logsTotalHours = imp.workLogs ? imp.workLogs.reduce((sum, w) => sum + w.hours, 0) : 0;
+                  const cat = imp.category || 'KAIZEN';
 
                 return (
                   <div 
@@ -1810,7 +1878,7 @@ export const TechnicianPortfolioPage: React.FC = () => {
                     <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500">
                       <span className="flex items-center gap-1 text-emerald-400 font-medium">
                         <CheckCircle size={12} />
-                        <span>ได้รับการอนุมัติและบันทึกในระบบ</span>
+                        <span>ได้รับการอนุมัติและบันทึกในระบบ Kaizen</span>
                       </span>
                       <span className="font-mono text-slate-600">ID: {imp.id}</span>
                     </div>
@@ -1818,8 +1886,179 @@ export const TechnicianPortfolioPage: React.FC = () => {
                   </div>
                 );
               })}
+
+              {/* 2. Why-Why Analyses from Repair Records */}
+              {displayedRepairWhys.map((rep) => {
+                const whySteps = [
+                  { label: 'ทำไมที่ 1 (Why 1)', text: rep.why1 },
+                  { label: 'ทำไมที่ 2 (Why 2)', text: rep.why2 },
+                  { label: 'ทำไมที่ 3 (Why 3)', text: rep.why3 },
+                  { label: 'ทำไมที่ 4 (Why 4)', text: rep.why4 },
+                  { label: 'ทำไมที่ 5 (Why 5 - Root Cause)', text: rep.why5 },
+                ].filter(w => w.text && w.text.trim() !== '');
+
+                const teamMembers = (rep.technicians && rep.technicians.length > 0) ? rep.technicians : [rep.technician];
+
+                return (
+                  <div 
+                    key={`repair-why-${rep.id}`} 
+                    className="bg-slate-900 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-5 shadow-lg transition space-y-4 flex flex-col justify-between relative overflow-hidden"
+                  >
+                    <div className="space-y-3">
+                      {/* Top Header */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold border bg-amber-500/20 text-amber-300 border-amber-500/30 flex items-center gap-1">
+                              <HelpCircle size={11} /> 5 Whys Root Cause Analysis (จากประวัติซ่อม)
+                            </span>
+                            <span className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-cyan-400 inline-block">
+                              ⚙️ {getMachineName(rep.machineId)}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-bold text-white leading-snug">{rep.symptoms}</h4>
+                        </div>
+
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold shrink-0 border ${
+                          (rep.status === 'ปิดงาน' || !rep.status)
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
+                        }`}>
+                          {(rep.status === 'ปิดงาน' || !rep.status) ? '✓ ปิดงานสำเร็จ' : 'กำลังซ่อม'}
+                        </span>
+                      </div>
+
+                      {/* Phenomenon / Symptoms */}
+                      <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-850 space-y-1">
+                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+                          <AlertTriangle size={12} /> อาการเสีย / ปรากฏการณ์หน้างาน (Phenomenon):
+                        </p>
+                        <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                          {rep.symptoms}
+                        </p>
+                      </div>
+
+                      {/* 5 Whys Analysis Flow */}
+                      {whySteps.length > 0 && (
+                        <div className="bg-amber-950/20 border border-amber-900/40 p-3 rounded-xl space-y-2">
+                          <p className="text-[10px] font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1">
+                            <HelpCircle size={12} /> ลำดับขั้นตอนวิเคราะห์ 5 Whys:
+                          </p>
+                          <div className="space-y-1.5">
+                            {whySteps.map((step, idx) => (
+                              <div key={idx} className={`p-2 rounded-lg text-xs flex items-start gap-2 ${
+                                idx === whySteps.length - 1 
+                                  ? 'bg-amber-500/10 border border-amber-500/30 text-amber-200 font-medium' 
+                                  : 'bg-slate-950/70 border border-slate-800 text-slate-300'
+                              }`}>
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono shrink-0 ${
+                                  idx === whySteps.length - 1 ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'
+                                }`}>
+                                  Why {idx + 1}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] text-slate-400 font-bold">{step.label}</p>
+                                  <p className="text-[11px] leading-tight mt-0.5">{step.text}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Corrective Action */}
+                      <div className="bg-emerald-950/30 p-3 rounded-xl border border-emerald-900/40 space-y-1">
+                        <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                          <Shield size={12} /> มาตรการแก้ไขและป้องกันการเกิดซ้ำ (Countermeasure):
+                        </p>
+                        <p className="text-xs text-slate-200 leading-relaxed">
+                          {rep.correctiveAction || 'แก้ไขปัญหาหน้างานตามขั้นตอนมาตรฐาน'}
+                        </p>
+                      </div>
+
+                      {/* Evidence Photo */}
+                      {rep.photo && (
+                        <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                              <ImageIcon size={12} className="text-amber-400" />
+                              <span>หลักฐานแนบการซ่อม (ภาพถ่ายชิ้นส่วน/หน้างาน):</span>
+                            </p>
+                            <span className="text-[10px] text-slate-500">คลิกเพื่อดูรูปขยาย</span>
+                          </div>
+                          <div 
+                            className="w-48 h-28 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden cursor-pointer relative group"
+                            onClick={() => setLightboxData({
+                              url: rep.photo!,
+                              title: rep.symptoms,
+                              subtitle: `เครื่องจักร: ${getMachineName(rep.machineId)} | วันที่: ${rep.date}`,
+                              badge: '📸 ภาพหลักฐานงานซ่อม',
+                              type: 'before'
+                            })}
+                          >
+                            <img src={rep.photo} alt="หลักฐานการซ่อม" className="w-full h-full object-cover group-hover:scale-105 transition" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition text-xs font-bold text-white gap-1">
+                              <ZoomIn size={14} />
+                              <span>ขยายรูปภาพ</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Excel Attachment */}
+                      {rep.excelFile && (
+                        <div className="bg-emerald-950/20 border border-emerald-900/40 p-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg shrink-0">
+                              <FileSpreadsheet size={20} />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-bold text-emerald-300">ไฟล์แนบประกอบใบงาน</p>
+                              <p className="text-[10px] text-slate-400 font-mono truncate max-w-xs" title={rep.excelFile.name}>
+                                {rep.excelFile.name}
+                              </p>
+                            </div>
+                          </div>
+                          <a
+                            href={rep.excelFile.content.startsWith('data:') ? rep.excelFile.content : `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${rep.excelFile.content}`}
+                            download={rep.excelFile.name}
+                            className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] px-3.5 py-1.5 rounded-lg transition shadow-md whitespace-nowrap cursor-pointer shrink-0"
+                          >
+                            <Download size={13} />
+                            <span>ดาวน์โหลดไฟล์แนบ</span>
+                          </a>
+                        </div>
+                      )}
+
+                      {/* Involved Technicians */}
+                      <div className="pt-2 border-t border-slate-800/80 flex items-center gap-2 flex-wrap text-xs">
+                        <span className="text-[11px] text-slate-400 font-bold flex items-center gap-1">
+                          <Users size={12} className="text-cyan-400" /> ทีมช่างเทคนิคผู้เข้าปฏิบัติการณ์:
+                        </span>
+                        {teamMembers.map(t => (
+                          <span key={t} className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded-lg text-[10px] text-slate-200 font-medium flex items-center gap-1">
+                            <Wrench size={10} className="text-slate-400" /> {t}
+                          </span>
+                        ))}
+                      </div>
+
+                    </div>
+
+                    {/* Footer Info */}
+                    <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                      <span className="flex items-center gap-1 text-slate-400 font-mono">
+                        <Calendar size={11} /> วันที่: {rep.date}
+                      </span>
+                      <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 font-mono font-bold rounded border border-amber-500/20">
+                        ⏱ MTTR: {rep.duration} นาที
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -1843,43 +2082,122 @@ export const TechnicianPortfolioPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3">
-              {techRepairs.map((rep) => (
-                <div key={rep.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-md">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded font-mono text-[10px] font-bold">
-                        {rep.machineId}
-                      </span>
-                      <h4 className="text-xs font-bold text-white">{rep.symptoms}</h4>
+              {techRepairs.map((rep) => {
+                const whySteps = [
+                  { label: 'Why 1', text: rep.why1 },
+                  { label: 'Why 2', text: rep.why2 },
+                  { label: 'Why 3', text: rep.why3 },
+                  { label: 'Why 4', text: rep.why4 },
+                  { label: 'Why 5', text: rep.why5 },
+                ].filter(w => w.text && w.text.trim() !== '');
+
+                const teamMembers = (rep.technicians && rep.technicians.length > 0) ? rep.technicians : [rep.technician];
+
+                return (
+                  <div key={rep.id} className="bg-slate-900 border border-slate-800 hover:border-slate-750 rounded-2xl p-4 space-y-3 shadow-md transition">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded font-mono text-[10px] font-bold">
+                          {rep.machineId} - {getMachineName(rep.machineId)}
+                        </span>
+                        <h4 className="text-xs font-bold text-white">{rep.symptoms}</h4>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-[11px]">
+                        <span className="text-slate-400 font-mono">วันที่: {rep.date}</span>
+                        <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 font-mono font-bold rounded border border-amber-500/20">
+                          MTTR: {rep.duration} นาที
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-3 text-[11px]">
-                      <span className="text-slate-400 font-mono">วันที่: {rep.date}</span>
-                      <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 font-mono font-bold rounded border border-amber-500/20">
-                        MTTR: {rep.duration} นาที
-                      </span>
+                    {/* Why-Why & Corrective Action */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                      <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-850 space-y-1.5">
+                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+                          <HelpCircle size={11} /> การวิเคราะห์สาเหตุ 5 Whys Analysis:
+                        </p>
+                        {whySteps.length > 0 ? (
+                          <div className="space-y-1">
+                            {whySteps.map((step, sIdx) => (
+                              <div key={sIdx} className="text-[11px] text-slate-300 flex items-start gap-1.5 leading-tight">
+                                <span className="text-amber-400 font-mono font-bold shrink-0">{step.label}:</span>
+                                <span>{step.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-slate-300 text-[11px] leading-relaxed">
+                            {rep.why5 || rep.why1 || "วิเคราะห์แก้ไขปัญหาเฉพาะหน้าหน้างานสำเร็จ"}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-850 space-y-1.5 flex flex-col justify-between">
+                        <div>
+                          <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                            <Shield size={11} /> มาตรการแก้ไขและป้องกันเกิดซ้ำ:
+                          </p>
+                          <p className="text-slate-300 text-[11px] leading-relaxed mt-1">
+                            {rep.correctiveAction || 'แก้ไขและปรับตั้งตามมาตรฐานการซ่อมบำรุง'}
+                          </p>
+                        </div>
+
+                        {/* Excel Attachment Download in Repairs list */}
+                        {rep.excelFile && (
+                          <div className="mt-2 bg-emerald-950/20 border border-emerald-900/40 p-2 rounded-lg flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <FileSpreadsheet className="text-emerald-400 shrink-0" size={16} />
+                              <span className="text-[10px] text-slate-300 font-mono truncate max-w-[180px]" title={rep.excelFile.name}>
+                                {rep.excelFile.name}
+                              </span>
+                            </div>
+                            <a
+                              href={rep.excelFile.content.startsWith('data:') ? rep.excelFile.content : `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${rep.excelFile.content}`}
+                              download={rep.excelFile.name}
+                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold flex items-center gap-1 shrink-0"
+                            >
+                              <Download size={11} /> ดาวน์โหลด
+                            </a>
+                          </div>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Photos & Team in repair card */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/60 text-xs">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                          <Users size={11} className="text-cyan-400" /> ทีมช่าง:
+                        </span>
+                        {teamMembers.map(t => (
+                          <span key={t} className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] text-slate-300">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+
+                      {rep.photo && (
+                        <button
+                          type="button"
+                          onClick={() => setLightboxData({
+                            url: rep.photo!,
+                            title: rep.symptoms,
+                            subtitle: `เครื่องจักร: ${getMachineName(rep.machineId)} | วันที่: ${rep.date}`,
+                            badge: '📸 ภาพหลักฐานงานซ่อม',
+                            type: 'before'
+                          })}
+                          className="text-[10px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1"
+                        >
+                          <ImageIcon size={12} />
+                          <span>ดูรูปถ่ายหลักฐานแนบ</span>
+                        </button>
+                      )}
+                    </div>
+
                   </div>
-
-                  {/* Why-Why & Corrective Action */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                    <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-850 space-y-1">
-                      <p className="text-[10px] font-bold text-amber-400 uppercase">วิเคราะห์สาเหตุเชิงลึก (Why-Why):</p>
-                      <p className="text-slate-300 text-[11px] leading-relaxed">
-                        {rep.why5 || rep.why1 || "วิเคราะห์แก้ไขปัญหาเฉพาะหน้าหน้างานสำเร็จ"}
-                      </p>
-                    </div>
-
-                    <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-850 space-y-1">
-                      <p className="text-[10px] font-bold text-emerald-400 uppercase">มาตรการแก้ไขและป้องกันเกิดซ้ำ:</p>
-                      <p className="text-slate-300 text-[11px] leading-relaxed">
-                        {rep.correctiveAction}
-                      </p>
-                    </div>
-                  </div>
-
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
