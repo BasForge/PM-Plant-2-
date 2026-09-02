@@ -1,0 +1,8 @@
+{
+  "name": "Remix: FoodFab Maintenance Manager",
+  "description": "Thai-language tool for tracking maintenance tasks, emergency repairs, and technician workload in food manufacturing facilities using local storage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
