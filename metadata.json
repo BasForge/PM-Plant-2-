@@ -1,6 +1,6 @@
 {
   "name": "Remix: FoodFab Maintenance Manager",
-  "description": "Thai-language tool for tracking maintenance tasks, emergency repairs, and technician workload in food manufacturing facilities using local storage.",
+  "description": "Thai-language tool for tracking maintenance tasks, emergency repairs, and technician workload in food manufacturing facilities with Firebase Cloud Firestore real-time sync.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

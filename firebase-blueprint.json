@@ -1,0 +1,176 @@
+{
+  "title": "Maintenance Management System (PM/TPM) Database Blueprint",
+  "description": "Cloud Firestore schema for factory maintenance management, machine registry, PM planning, repair logging, spare parts, and Kaizen.",
+  "entities": {
+    "machines": {
+      "title": "Machines",
+      "description": "Factory machinery and equipment registry from CPRAM F-QMS-011 form",
+      "properties": {
+        "id": { "type": "string", "description": "Unique machine code" },
+        "orderNo": { "type": "number", "description": "Display order index" },
+        "name": { "type": "string", "description": "Machine name" },
+        "model": { "type": "string", "description": "Model number or description" },
+        "power": { "type": "string", "description": "Power consumption (kW/HP)" },
+        "installDate": { "type": "string", "description": "Installation date" },
+        "vendor": { "type": "string", "description": "Machine vendor or distributor" },
+        "location": { "type": "string", "description": "Production room or location" },
+        "lineGroup": { "type": "string", "description": "Production line or group" },
+        "serialNumber": { "type": "string", "description": "Equipment serial number" },
+        "remark": { "type": "string", "description": "Additional notes" },
+        "status": { "type": "string", "description": "Status (ปกติ, ซ่อม, ยกเลิกใช้)" }
+      },
+      "required": ["id", "name"]
+    },
+    "pmPlans": {
+      "title": "PM Plans",
+      "description": "Preventive maintenance master inspection plans",
+      "properties": {
+        "id": { "type": "string", "description": "PM plan ID" },
+        "machineId": { "type": "string", "description": "Primary machine code" },
+        "machineIds": { "type": "array", "description": "Associated machine codes" },
+        "title": { "type": "string", "description": "PM task title" },
+        "frequency": { "type": "string", "description": "Frequency (รายวัน, รายสัปดาห์, รายเดือน, ราย 3 เดือน, รายปี)" },
+        "estimatedTime": { "type": "number", "description": "Estimated duration in minutes" },
+        "items": { "type": "array", "description": "Checklist items" },
+        "status": { "type": "string", "description": "Status (active, inactive)" }
+      },
+      "required": ["id", "title"]
+    },
+    "schedules": {
+      "title": "Schedules",
+      "description": "PM executions, work orders, and technician dispatch shifts",
+      "properties": {
+        "id": { "type": "string", "description": "Schedule/Dispatch ID" },
+        "type": { "type": "string", "description": "Task type (PM, Repair, Operation, Setup, Kaizen)" },
+        "technician": { "type": "string", "description": "Primary technician assigned" },
+        "technicians": { "type": "array", "description": "All technicians assigned" },
+        "date": { "type": "string", "description": "Scheduled date YYYY-MM-DD" },
+        "machineId": { "type": "string", "description": "Associated machine ID" },
+        "pmPlanId": { "type": "string", "description": "Associated PM plan ID" },
+        "status": { "type": "string", "description": "Status (รอดำเนินการ, กำลังทำ, เสร็จสิ้น, ยกเลิก)" },
+        "duration": { "type": "number", "description": "Scheduled duration in minutes" },
+        "actualDuration": { "type": "number", "description": "Actual duration in minutes" },
+        "usedParts": { "type": "array", "description": "Spare parts consumed" },
+        "otherCost": { "type": "number", "description": "Other expenses" }
+      },
+      "required": ["id", "type", "date"]
+    },
+    "repairs": {
+      "title": "Repairs",
+      "description": "Breakdown repair logs and 5-Why root cause analyses",
+      "properties": {
+        "id": { "type": "string", "description": "Repair log ID" },
+        "machineId": { "type": "string", "description": "Defective machine ID" },
+        "technician": { "type": "string", "description": "Assigned technician" },
+        "technicians": { "type": "array", "description": "All assisting technicians" },
+        "date": { "type": "string", "description": "Date of repair" },
+        "breakdownTime": { "type": "string", "description": "Breakdown timestamp" },
+        "repairDoneTime": { "type": "string", "description": "Repair completion timestamp" },
+        "symptoms": { "type": "string", "description": "Reported issue and symptoms" },
+        "why1": { "type": "string", "description": "1st Why" },
+        "why2": { "type": "string", "description": "2nd Why" },
+        "why3": { "type": "string", "description": "3rd Why" },
+        "why4": { "type": "string", "description": "4th Why" },
+        "why5": { "type": "string", "description": "5th Why" },
+        "correctiveAction": { "type": "string", "description": "Corrective action taken" },
+        "duration": { "type": "number", "description": "Duration in minutes" },
+        "status": { "type": "string", "description": "Status (เปิดงาน, กำลังซ่อม, ปิดงาน)" }
+      },
+      "required": ["id", "machineId", "symptoms"]
+    },
+    "spareParts": {
+      "title": "Spare Parts",
+      "description": "Spare parts inventory and warehouse stock tracking",
+      "properties": {
+        "id": { "type": "string", "description": "Part code or ID" },
+        "name": { "type": "string", "description": "Part name" },
+        "category": { "type": "string", "description": "Part category" },
+        "stock": { "type": "number", "description": "Current quantity in stock" },
+        "minStock": { "type": "number", "description": "Minimum safety stock level" },
+        "unit": { "type": "string", "description": "Measurement unit" },
+        "price": { "type": "number", "description": "Unit price" },
+        "machineId": { "type": "string", "description": "Target machine code" }
+      },
+      "required": ["id", "name"]
+    },
+    "improvements": {
+      "title": "Improvements",
+      "description": "Kaizen suggestions, One Point Lessons (OPL), and small group activities",
+      "properties": {
+        "id": { "type": "string", "description": "Improvement ID" },
+        "title": { "type": "string", "description": "Kaizen title" },
+        "author": { "type": "string", "description": "Submitter name" },
+        "category": { "type": "string", "description": "Category (Safety, Quality, Cost, Delivery)" },
+        "status": { "type": "string", "description": "Status" }
+      },
+      "required": ["id", "title"]
+    },
+    "technicians": {
+      "title": "Technicians",
+      "description": "Technician list and skill matrix",
+      "properties": {
+        "id": { "type": "string", "description": "Technician ID or Name" },
+        "name": { "type": "string", "description": "Full name" },
+        "role": { "type": "string", "description": "Position / Job title" }
+      },
+      "required": ["id", "name"]
+    },
+    "employees": {
+      "title": "Employees",
+      "description": "Staff access and login credentials",
+      "properties": {
+        "id": { "type": "string", "description": "Employee ID (e.g. ENG-001)" },
+        "name": { "type": "string", "description": "Staff name" },
+        "position": { "type": "string", "description": "Position" }
+      },
+      "required": ["id", "name"]
+    },
+    "setupLogs": {
+      "title": "Setup Logs",
+      "description": "Machine changeover, line setting, and mold replacement records",
+      "properties": {
+        "id": { "type": "string", "description": "Setup log ID" },
+        "machineId": { "type": "string", "description": "Machine code" },
+        "date": { "type": "string", "description": "Date" }
+      },
+      "required": ["id", "machineId"]
+    },
+    "leaves": {
+      "title": "Leaves",
+      "description": "Technician leave, absence, and vacation tracking",
+      "properties": {
+        "id": { "type": "string", "description": "Leave record ID" },
+        "technician": { "type": "string", "description": "Technician name" },
+        "date": { "type": "string", "description": "Leave date" },
+        "type": { "type": "string", "description": "Leave type" }
+      },
+      "required": ["id", "technician", "date"]
+    },
+    "cd5Projects": {
+      "title": "Cost Down 5 Projects",
+      "description": "Energy reduction, material waste, and maintenance cost down projects",
+      "properties": {
+        "id": { "type": "string", "description": "Project ID" },
+        "title": { "type": "string", "description": "Project title" }
+      },
+      "required": ["id", "title"]
+    },
+    "settings": {
+      "title": "Settings",
+      "description": "System settings, LINE notification keys, and operating hours",
+      "properties": {
+        "id": { "type": "string", "description": "Settings doc ID" }
+      },
+      "required": ["id"]
+    },
+    "systemSync": {
+      "title": "System Sync",
+      "description": "Realtime synchronization bundle and snapshot state",
+      "properties": {
+        "id": { "type": "string", "description": "Snapshot ID" },
+        "updatedAt": { "type": "string", "description": "Last update ISO timestamp" }
+      },
+      "required": ["id"]
+    }
+  }
+}

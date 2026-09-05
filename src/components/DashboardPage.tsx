@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { getTodayDateString } from '../utils/pmAlerts';
 import { 
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, 
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
@@ -21,14 +22,14 @@ export const DashboardPage: React.FC = () => {
   // Tab control: 'overview' for the rich industrial analysis, 'live-control' for Live work / workload / TTM / MTTR
   const [activeTab, setActiveTab] = useState<'overview' | 'live-control'>('live-control');
 
-  // Selector for active analytical month (defaults to June 2026/2569)
-  const [selectedMonth, setSelectedMonth] = useState<string>("2026-06");
+  // Selector for active analytical month (defaults to current month)
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getTodayDateString().slice(0, 7));
 
   // Search input for technician workload
   const [techSearch, setTechSearch] = useState<string>('');
 
-  // Target Date represent TODAY in context (defaults to "2026-06-10", tracks changes automatically)
-  const [todayStr, setTodayStr] = useState<string>("2026-06-10");
+  // Target Date represent TODAY in context (defaults to actual today, tracks changes automatically)
+  const [todayStr, setTodayStr] = useState<string>(() => getTodayDateString());
 
   // Auto-update todayStr when repairs or schedules update, to make newly added items immediately visible
   React.useEffect(() => {
@@ -38,8 +39,9 @@ export const DashboardPage: React.FC = () => {
       const uniqueDates = Array.from(new Set(dates)).sort((a: string, b: string) => b.localeCompare(a));
       if (uniqueDates.length > 0) {
         const newestDate = uniqueDates[0];
-        // If the newest date is more recent than the default 2026-06-10, auto-switch to show it
-        if (newestDate > "2026-06-10") {
+        // If the newest date is more recent than today, auto-switch to show it
+        const currentToday = getTodayDateString();
+        if (newestDate > currentToday) {
           setTodayStr(newestDate);
         }
       }
@@ -1527,14 +1529,14 @@ export const DashboardPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700/50 text-center">
-                  {machines.slice(0, 10).map(m => {
+                  {machines.slice(0, 10).map((m, idx) => {
                     const machReps = repairs.filter(r => r.machineId === m.id && r.date.startsWith(selectedMonth));
                     const totalMins = machReps.reduce((sum, r) => sum + r.duration, 0);
                     const percentBd = parseFloat(((totalMins / 60 / operatingHoursFactor) * 100).toFixed(2)) || 0;
                     const mtbfVal = parseFloat((daysInMonth / (machReps.length + 1)).toFixed(1));
 
                     return (
-                      <tr key={m.id} className="hover:bg-slate-700/20">
+                      <tr key={`${m.id}-${m.orderNo || idx}`} className="hover:bg-slate-700/20">
                         <td className="py-3 px-4 font-mono font-bold text-cyan-400 text-left">{m.id}</td>
                         <td className="py-3 px-4 text-slate-200 text-left font-sans truncate max-w-[150px]">{m.name}</td>
                         <td className="py-3 px-3 font-mono font-semibold text-rose-400">{percentBd}%</td>

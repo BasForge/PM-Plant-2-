@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Allow application read/write for maintenance management entities
+    match /{collection}/{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

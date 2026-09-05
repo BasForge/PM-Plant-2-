@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { notifyRepairOpened, notifyRepairClosed, sendLineNotification } from '../utils/lineNotify';
 import { compressImageFile } from '../utils/imageUtils';
+import { getTodayDateString } from '../utils/pmAlerts';
 import * as XLSX from 'xlsx';
 
 export const RepairPage: React.FC = () => {
@@ -56,8 +57,8 @@ export const RepairPage: React.FC = () => {
 
   // Form Inputs
   const [formMachine, setFormMachine] = useState(machines[0]?.id || '');
-  const [formBreakdown, setFormBreakdown] = useState('2026-06-10T09:00');
-  const [formDone, setFormDone] = useState('2026-06-10T11:30');
+  const [formBreakdown, setFormBreakdown] = useState(() => `${getTodayDateString()}T09:00`);
+  const [formDone, setFormDone] = useState(() => `${getTodayDateString()}T11:30`);
   const [formSymptoms, setFormSymptoms] = useState('');
   const [formTechnician, setFormTechnician] = useState(technicians[0] || 'ช่าง 1');
   const [formTechnicians, setFormTechnicians] = useState<string[]>([]);
@@ -864,8 +865,8 @@ export const RepairPage: React.FC = () => {
               setEditingId(null);
               setPartSearchQuery('');
               setFormMachine(machines[0]?.id || '');
-              setFormBreakdown('2026-06-10T09:00');
-              setFormDone('2026-06-10T11:30');
+              setFormBreakdown(`${getTodayDateString()}T09:00`);
+              setFormDone(`${getTodayDateString()}T11:30`);
               setFormSymptoms('');
               setFormTechnician(technicians[0] || 'ช่าง 1');
               setFormTechnicians([technicians[0] || 'ช่าง 1']);

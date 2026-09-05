@@ -10,24 +10,61 @@ import {
   Trash2, UserX
 } from 'lucide-react';
 
+// Helper to get current Thailand Date in noon to avoid timezone/DST issues
+const getNowInThailand = (): Date => {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const thTime = new Date(utc + (3600000 * 7));
+  return new Date(thTime.getFullYear(), thTime.getMonth(), thTime.getDate(), 12, 0, 0);
+};
+
+const formatHyphenDate = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+// Get start of the week (Monday)
+const getMondayOfDate = (d: Date): Date => {
+  const copy = new Date(d.getTime());
+  const day = copy.getDay();
+  const diff = copy.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday being 0
+  return new Date(copy.setDate(diff));
+};
+
+const getWeekDays = (monday: Date): Date[] => {
+  const days: Date[] = [];
+  for (let i = 0; i < 7; i++) {
+    const nextDay = new Date(monday.getTime());
+    nextDay.setDate(monday.getDate() + i);
+    days.push(nextDay);
+  }
+  return days;
+};
+
 export const SchedulePage: React.FC = () => {
   const { 
     schedules, setSchedules, 
     technicians, pmPlans, machines, 
     repairs, setRepairs,
     improvements, setImprovements,
-    setupLogs,
+    setupLogs, setSetupLogs,
     leaves, setLeaves,
     settings 
   } = useApp();
 
-  // Navigation and date states
-  // Current local time: 2026-06-10 is a Wednesday (week of Monday June 8th, 2026 to Sunday June 14th, 2026)
-  const [currentDate, setCurrentDate] = useState<Date>(new Date("2026-06-10"));
+  // Navigation and date states (defaults to today and current week)
+  const [currentDate, setCurrentDate] = useState<Date>(getNowInThailand);
   const [viewMode, setViewMode] = useState<'weekly' | 'monthly' | 'leave_stats'>('weekly');
-  const [selectedMonth, setSelectedMonth] = useState<string>("2026-06"); // YYYY-MM
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const d = getNowInThailand();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [monthlySubTab, setMonthlySubTab] = useState<'calendar' | 'hours_summary'>('calendar');
   const [quickMngTask, setQuickMngTask] = useState<PMScheduleItem | null>(null);
+  const [quickMngOp, setQuickMngOp] = useState<OperationScheduleItem | null>(null);
+  const [isConfirmingDeleteOp, setIsConfirmingDeleteOp] = useState(false);
 
   // Quick PM management states (controlled components sync)
   const [qmTech, setQmTech] = useState<string>('');
@@ -122,34 +159,9 @@ export const SchedulePage: React.FC = () => {
 
   // FORM STATES: 🛌 Leave Stats Tab direct input
   const [quickLeaveTech, setQuickLeaveTech] = useState(technicians[0] || 'ช่าง 1');
-  const [quickLeaveDate, setQuickLeaveDate] = useState('2026-06-10');
+  const [quickLeaveDate, setQuickLeaveDate] = useState(() => formatHyphenDate(getNowInThailand()));
   const [quickLeaveType, setQuickLeaveType] = useState<'ลากิจ' | 'ลาป่วย' | 'ลาพักร้อน' | 'วันหยุดประจำสัปดาห์' | 'ลาอื่น ๆ'>('ลากิจ');
   const [quickLeaveNote, setQuickLeaveNote] = useState('');
-
-  // Get start of the week (Monday)
-  const getMondayOfDate = (d: Date): Date => {
-    const copy = new Date(d.getTime());
-    const day = copy.getDay();
-    const diff = copy.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday being 0
-    return new Date(copy.setDate(diff));
-  };
-
-  const getWeekDays = (monday: Date): Date[] => {
-    const days: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      const nextDay = new Date(monday.getTime());
-      nextDay.setDate(monday.getDate() + i);
-      days.push(nextDay);
-    }
-    return days;
-  };
-
-  const formatHyphenDate = (d: Date): string => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
 
   const weekMonday = getMondayOfDate(currentDate);
   const weekDays = getWeekDays(weekMonday);
@@ -171,13 +183,17 @@ export const SchedulePage: React.FC = () => {
     "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
     "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
   ];
+  const thShortMonths = [
+    "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+  ];
 
   const getThaiDateLabel = (d: Date): string => {
     return `${d.getDate()} ${thMonths[d.getMonth()]} ${d.getFullYear() + 543}`;
   };
 
   const isToday = (d: Date): boolean => {
-    const today = new Date("2026-06-10");
+    const today = getNowInThailand();
     return d.getDate() === today.getDate() &&
            d.getMonth() === today.getMonth() &&
            d.getFullYear() === today.getFullYear();
@@ -588,14 +604,21 @@ export const SchedulePage: React.FC = () => {
       </div>
 
       {(() => {
-        // PM Overdue (due before 2026-06-10 with status not completed)
+        const todayRef = getNowInThailand();
+        const todayStr = formatHyphenDate(todayRef);
+
+        const threeDaysAhead = new Date(todayRef.getTime());
+        threeDaysAhead.setDate(todayRef.getDate() + 3);
+        const threeDaysAheadStr = formatHyphenDate(threeDaysAhead);
+
+        // PM Overdue (due before today with status not completed)
         const overduePmSchedules = schedules.filter(s => {
-          return s.type === 'PM' && s.date < '2026-06-10' && s.status !== 'เสร็จสิ้น';
+          return s.type === 'PM' && s.date < todayStr && s.status !== 'เสร็จสิ้น';
         }) as PMScheduleItem[];
 
-        // PM Upcoming (due from 2026-06-10 to 2026-06-13 with status not completed)
+        // PM Upcoming (due from today to 3 days ahead with status not completed)
         const upcomingPmSchedules = schedules.filter(s => {
-          return s.type === 'PM' && s.date >= '2026-06-10' && s.date <= '2026-06-13' && s.status !== 'เสร็จสิ้น';
+          return s.type === 'PM' && s.date >= todayStr && s.date <= threeDaysAheadStr && s.status !== 'เสร็จสิ้น';
         }) as PMScheduleItem[];
 
         // Predictive Frequency Violations (past frequency limit relative to last completed)
@@ -627,7 +650,7 @@ export const SchedulePage: React.FC = () => {
               if (completedSchedulesForPlan.length > 0) {
                 const latestDateStr = completedSchedulesForPlan[0].date;
                 const latestDateObj = new Date(latestDateStr);
-                const referenceTodayObj = new Date("2026-06-10");
+                const referenceTodayObj = todayRef;
                 const diffTime = referenceTodayObj.getTime() - latestDateObj.getTime();
                 const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
                 
@@ -648,13 +671,19 @@ export const SchedulePage: React.FC = () => {
                 let lastDate = "";
                 if (plan.id === 'plan-pm-01') { // RIM01 weekly
                   assumedDays = 11;
-                  lastDate = "2026-05-30";
+                  const dPast = new Date(todayRef.getTime());
+                  dPast.setDate(todayRef.getDate() - 11);
+                  lastDate = formatHyphenDate(dPast);
                 } else if (plan.id === 'plan-pm-02') { // VAC01 monthly
                   assumedDays = 45;
-                  lastDate = "2026-04-26";
+                  const dPast = new Date(todayRef.getTime());
+                  dPast.setDate(todayRef.getDate() - 45);
+                  lastDate = formatHyphenDate(dPast);
                 } else if (plan.id === 'plan-pm-03') { // FFS01 weekly
                   assumedDays = 9;
-                  lastDate = "2026-06-01";
+                  const dPast = new Date(todayRef.getTime());
+                  dPast.setDate(todayRef.getDate() - 9);
+                  lastDate = formatHyphenDate(dPast);
                 }
 
                 if (assumedDays > limitDays) {
@@ -695,7 +724,7 @@ export const SchedulePage: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[9px] font-bold font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/10">
-                  REF DATE: 2026-06-10
+                  REF DATE: {todayStr}
                 </span>
                 <span className="text-[9px] font-bold font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/10 animate-pulse">
                   ⚠️ มี {totalAlertsCount} รายการเฝ้าระวัง
@@ -734,8 +763,8 @@ export const SchedulePage: React.FC = () => {
                           </div>
                           <button
                             onClick={() => {
-                              setSchedules(prev => prev.map(s => s.id === pm.id ? { ...s, date: '2026-06-10' } : s));
-                              alert(` Rescheduled: ปรับคิวเลื่อนงาน PM เครื่อง ${pm.machineId} มาปฏิบัติการหลักในวันนี้เรียบร้อย!`);
+                              setSchedules(prev => prev.map(s => s.id === pm.id ? { ...s, date: todayStr } : s));
+                              alert(`Rescheduled: ปรับคิวเลื่อนงาน PM เครื่อง ${pm.machineId} มาปฏิบัติการหลักในวันนี้เรียบร้อย!`);
                             }}
                             className="text-[9.5px] font-bold bg-red-400 hover:bg-red-350 text-slate-950 px-2 py-1 rounded transition"
                           >
@@ -826,14 +855,14 @@ export const SchedulePage: React.FC = () => {
                                 id: `sched-${Date.now()}-${idx}`,
                                 type: 'PM',
                                 technician: 'ช่าง 1',
-                                date: '2026-06-10',
+                                date: todayStr,
                                 machineId: alertItem.machineId,
                                 pmPlanId: pmPlans.find(plan => plan.machineId === alertItem.machineId)?.id || 'plan-pm-01',
                                 status: 'รอดำเนินการ',
                                 duration: 45
                               };
                               setSchedules(prev => [...prev, newPM]);
-                              alert(`📅 ได้เพิ่มใบสั่งงานบำรุงเร่งด่วนสำหรับเครื่อง ${alertItem.machineId} ในวันนี้ (2026-06-10) สำเร็จ!`);
+                              alert(`📅 ได้เพิ่มใบสั่งงานบำรุงเร่งด่วนสำหรับเครื่อง ${alertItem.machineId} ในวันนี้ (${todayStr}) สำเร็จ!`);
                             }}
                             className="mt-1 self-end text-[8.5px] font-extrabold bg-purple-500 hover:bg-purple-450 text-slate-950 px-2 py-0.5 rounded transition"
                           >
@@ -856,7 +885,10 @@ export const SchedulePage: React.FC = () => {
           <>
             <div id="pm-week-nav-label-wrapper" className="flex items-center gap-1.5 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700/40">
               <Calendar className="text-cyan-400" size={16} />
-              <span className="text-xs text-slate-300 font-medium">สัปดาห์ปัจจุบัน: {getThaiDateLabel(weekMonday)} - {getThaiDateLabel(weekDays[6])}</span>
+              <span className="text-xs text-slate-300 font-medium">
+                {weekDays.some(d => isToday(d)) ? 'สัปดาห์ปัจจุบัน: ' : 'สัปดาห์: '}
+                {getThaiDateLabel(weekMonday)} - {getThaiDateLabel(weekDays[6])}
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -867,7 +899,7 @@ export const SchedulePage: React.FC = () => {
                 <ChevronLeft size={16} />
               </button>
               <button
-                onClick={() => setCurrentDate(new Date("2026-06-10"))}
+                onClick={() => setCurrentDate(getNowInThailand())}
                 className="bg-slate-900 hover:bg-slate-950 border border-slate-700 px-3 py-1.5 rounded-lg text-xs text-slate-300 hover:text-cyan-400 font-semibold"
               >
                 สัปดาห์นี้
@@ -894,9 +926,20 @@ export const SchedulePage: React.FC = () => {
                 onChange={(e) => setSelectedMonth(e.target.value)}
                 className="bg-slate-900 border border-slate-700 rounded-lg text-xs px-3 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
               >
-                <option value="2026-05">พฤษภาคม 2569</option>
-                <option value="2026-06">มิถุนายน 2569</option>
-                <option value="2026-07">กรกฎาคม 2569</option>
+                {(() => {
+                  const curYear = getNowInThailand().getFullYear();
+                  const options: { val: string; label: string }[] = [];
+                  for (let yr = curYear - 1; yr <= curYear + 1; yr++) {
+                    for (let m = 1; m <= 12; m++) {
+                      const val = `${yr}-${String(m).padStart(2, '0')}`;
+                      const label = `${thMonths[m - 1]} ${yr + 543}`;
+                      options.push({ val, label });
+                    }
+                  }
+                  return options.map(opt => (
+                    <option key={opt.val} value={opt.val}>{opt.label}</option>
+                  ));
+                })()}
               </select>
             </div>
           </>
@@ -926,7 +969,9 @@ export const SchedulePage: React.FC = () => {
                 {weekDays.map((day, i) => (
                   <div key={i} className={`col-span-1 border-l border-slate-700/60 py-1 ${isToday(day) ? 'bg-cyan-500/10 rounded-t-md text-cyan-400' : ''}`}>
                     <p className="font-bold text-xs">{thDays[i]}</p>
-                    <p className="text-[10px] text-slate-400 mt-1 font-mono">{day.getDate()} มิ.ย. 69</p>
+                    <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                      {day.getDate()} {thShortMonths[day.getMonth()]} {(day.getFullYear() + 543) % 100}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -979,9 +1024,8 @@ export const SchedulePage: React.FC = () => {
 
                         // Check overdue PM: scheduled < today, status != เสร็จสิ้น
                         const overduePMCount = pmList.filter(pm => {
-                          const pmDateObj = new Date(pm.date);
-                          const todayObj = new Date("2026-06-10");
-                          return pmDateObj < todayObj && pm.status !== 'เสร็จสิ้น';
+                          const todayStr = formatHyphenDate(getNowInThailand());
+                          return pm.date < todayStr && pm.status !== 'เสร็จสิ้น';
                         }).length;
 
                         return (
@@ -1042,7 +1086,8 @@ export const SchedulePage: React.FC = () => {
 
                               {/* PM chips */}
                               {pmList.map(pm => {
-                                const isOverdue = new Date(pm.date) < new Date("2026-06-10") && pm.status !== 'เสร็จสิ้น';
+                                const todayStr = formatHyphenDate(getNowInThailand());
+                                const isOverdue = pm.date < todayStr && pm.status !== 'เสร็จสิ้น';
                                 const plan = pmPlans.find(p => p.id === pm.pmPlanId);
                                 return (
                                   <div 
@@ -1051,21 +1096,37 @@ export const SchedulePage: React.FC = () => {
                                       e.stopPropagation();
                                       setQuickMngTask(pm);
                                     }}
-                                    className={`text-[9.5px] px-2 py-1.5 rounded-lg text-left shrink-0 truncate transition-all duration-150 font-sans cursor-pointer hover:scale-[1.03] active:scale-95 border ${
+                                    className={`group text-[9.5px] px-2 py-1.5 rounded-lg text-left shrink-0 truncate transition-all duration-150 font-sans cursor-pointer hover:scale-[1.03] active:scale-95 border ${
                                       isOverdue 
                                         ? 'bg-rose-500/10 border-rose-500/80 text-rose-300 hover:border-rose-450 shadow-sm font-bold' 
                                         : pm.status === 'เสร็จสิ้น'
                                           ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-300 line-through hover:opacity-100 opacity-75 font-medium'
                                           : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300 hover:border-indigo-400 shadow-sm font-bold'
                                     }`}
-                                    title={`คลิกแก้ไข: PM ${pm.machineId} (${pm.duration} นาที) Assigned: ${pm.technicians ? pm.technicians.join(', ') : pm.technician}`}
+                                    title={`คลิกแก้ไขหรือลบ: PM ${pm.machineId} (${pm.duration} นาที) Assigned: ${pm.technicians ? pm.technicians.join(', ') : pm.technician}`}
                                   >
                                     <div className="flex justify-between items-center font-bold">
                                       <span>⚙️ {pm.machineId}</span>
-                                      <span className="text-[7.5px] scale-90 px-1 rounded bg-black/40 text-slate-350" title={pm.technicians ? pm.technicians.join(', ') : pm.technician}>
-                                        {pm.technician.slice(-2)}
-                                        {(pm.technicians && pm.technicians.length > 1) ? `+${pm.technicians.length - 1}` : ''}
-                                      </span>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[7.5px] scale-90 px-1 rounded bg-black/40 text-slate-350" title={pm.technicians ? pm.technicians.join(', ') : pm.technician}>
+                                          {pm.technician.slice(-2)}
+                                          {(pm.technicians && pm.technicians.length > 1) ? `+${pm.technicians.length - 1}` : ''}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (window.confirm(`ต้องการลบแผนงาน PM เครื่อง ${pm.machineId} (${plan?.title || 'บำรุงรักษา'}) ออกจากตารางงานใช่หรือไม่?`)) {
+                                              setSchedules(prev => prev.filter(s => s.id !== pm.id));
+                                              setToast({ text: `ลบแผน PM เครื่อง ${pm.machineId} เรียบร้อยแล้ว`, type: 'success' });
+                                            }
+                                          }}
+                                          className="opacity-0 group-hover:opacity-100 hover:text-rose-300 text-slate-400 p-0.5 rounded text-[10px] transition font-bold leading-none"
+                                          title="ลบงาน PM นี้ออกจากตาราง"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
                                     </div>
                                     <p className="text-[8px] mt-0.5 truncate opacity-90">{plan?.title || "บำรุงรักษา"}</p>
                                   </div>
@@ -1076,10 +1137,28 @@ export const SchedulePage: React.FC = () => {
                               {opList.map(op => (
                                 <div 
                                   key={op.id}
-                                  className="text-[9px] px-1.5 py-1 rounded text-left shrink-0 truncate border bg-amber-500/10 border-amber-500/20 text-amber-300 font-sans font-medium"
-                                  title={`Line: ${op.line} (${op.startTime} - ${op.endTime})`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setQuickMngOp(op);
+                                  }}
+                                  className="group text-[9px] px-1.5 py-1 rounded text-left shrink-0 truncate border bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/25 hover:border-amber-500/50 text-amber-300 font-sans font-medium cursor-pointer transition-all flex items-center justify-between gap-1"
+                                  title={`Line: ${op.line} (${op.startTime} - ${op.endTime}) - คลิกเพื่อดูรายละเอียดหรือลบงาน`}
                                 >
-                                  🟡 Line {op.line}
+                                  <span className="truncate">🟡 Line {op.line}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (window.confirm(`ต้องการลบงานคุมไลน์ "${op.line}" (${op.startTime}-${op.endTime}) ของช่าง ${op.technicians?.join(', ') || op.technician} ออกจากตารางงานใช่หรือไม่?`)) {
+                                        setSchedules(prev => prev.filter(s => s.id !== op.id));
+                                        setToast({ text: `ลบงานคุมไลน์ ${op.line} เรียบร้อยแล้ว`, type: 'success' });
+                                      }
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 hover:text-rose-300 text-amber-400/80 p-0.5 rounded text-[10px] transition font-bold leading-none shrink-0"
+                                    title="ลบงานคุมไลน์นี้"
+                                  >
+                                    ✕
+                                  </button>
                                 </div>
                               ))}
 
@@ -1087,10 +1166,24 @@ export const SchedulePage: React.FC = () => {
                               {repairList.map(rep => (
                                 <div 
                                   key={rep.id}
-                                  className="text-[9px] px-1.5 py-1 rounded text-left shrink-0 truncate border bg-rose-500/15 border-rose-500/30 text-rose-300 font-sans font-bold"
+                                  className="group text-[9px] px-1.5 py-1 rounded text-left shrink-0 truncate border bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/30 text-rose-300 font-sans font-bold flex items-center justify-between gap-1 transition-all"
                                   title={`ซ่อมด่วน: เครื่อง ${rep.machineId} (${rep.symptoms})`}
                                 >
-                                  🚨 ซ่อม: {rep.machineId}
+                                  <span className="truncate">🚨 ซ่อม: {rep.machineId}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (window.confirm(`ต้องการลบรายการซ่อมเครื่อง ${rep.machineId} (${rep.symptoms}) ใช่หรือไม่?`)) {
+                                        setRepairs(prev => prev.filter(r => r.id !== rep.id));
+                                        setToast({ text: `ลบรายการซ่อมเครื่อง ${rep.machineId} เรียบร้อยแล้ว`, type: 'success' });
+                                      }
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 hover:text-rose-200 text-rose-400 p-0.5 rounded text-[10px] transition font-bold leading-none shrink-0"
+                                    title="ลบรายการซ่อมนี้"
+                                  >
+                                    ✕
+                                  </button>
                                 </div>
                               ))}
 
@@ -1098,10 +1191,24 @@ export const SchedulePage: React.FC = () => {
                               {activeImprovements.map(imp => (
                                 <div 
                                   key={imp.projId}
-                                  className="text-[9px] px-1.5 py-1 rounded text-left shrink-0 truncate border bg-purple-500/15 border-purple-500/30 text-purple-300 font-sans font-medium"
+                                  className="group text-[9px] px-1.5 py-1 rounded text-left shrink-0 truncate border bg-purple-500/15 hover:bg-purple-500/25 border-purple-500/30 text-purple-300 font-sans font-medium flex items-center justify-between gap-1 transition-all"
                                   title={`Kaizen: ${imp.title}`}
                                 >
-                                  ✨ Kaizen: {imp.title}
+                                  <span className="truncate">✨ Kaizen: {imp.title}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (window.confirm(`ต้องการลบงาน Kaizen "${imp.title}" ออกจากตารางงานใช่หรือไม่?`)) {
+                                        setImprovements(prev => prev.filter(i => i.id !== imp.projId));
+                                        setToast({ text: `ลบงาน Kaizen "${imp.title}" เรียบร้อยแล้ว`, type: 'success' });
+                                      }
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 hover:text-purple-200 text-purple-400 p-0.5 rounded text-[10px] transition font-bold leading-none shrink-0"
+                                    title="ลบงาน Kaizen นี้"
+                                  >
+                                    ✕
+                                  </button>
                                 </div>
                               ))}
 
@@ -1109,10 +1216,24 @@ export const SchedulePage: React.FC = () => {
                               {setupList.map(setup => (
                                 <div 
                                   key={setup.id}
-                                  className="text-[9px] px-1.5 py-1 rounded text-left shrink-0 truncate border bg-cyan-500/10 border-cyan-500/25 text-cyan-300 font-sans font-medium"
+                                  className="group text-[9px] px-1.5 py-1 rounded text-left shrink-0 truncate border bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/25 text-cyan-300 font-sans font-medium flex items-center justify-between gap-1 transition-all"
                                   title={`เซ็ตเครื่อง: ${setup.machineId}`}
                                 >
-                                  🔧 เซ็ตติ้ง: {setup.machineId}
+                                  <span className="truncate">🔧 เซ็ตติ้ง: {setup.machineId}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (window.confirm(`ต้องการลบรายการเซ็ตติ้งเครื่อง ${setup.machineId} ใช่หรือไม่?`)) {
+                                        setSetupLogs(prev => prev.filter(s => s.id !== setup.id));
+                                        setToast({ text: `ลบรายการเซ็ตติ้งเครื่อง ${setup.machineId} เรียบร้อยแล้ว`, type: 'success' });
+                                      }
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 hover:text-cyan-200 text-cyan-400 p-0.5 rounded text-[10px] transition font-bold leading-none shrink-0"
+                                    title="ลบรายการเซ็ตติ้งนี้"
+                                  >
+                                    ✕
+                                  </button>
                                 </div>
                               ))}
 
@@ -1292,7 +1413,7 @@ export const SchedulePage: React.FC = () => {
                   💡 คำแนะนำ: เจาะจงคลิก <strong className="text-cyan-400">ช่องวันที่ใดๆ</strong> บนปฏิทินเพื่อเพิ่มคิวงาน PM ใหม่ หรือจิ้ม <strong className="text-indigo-400">การ์ด PM แถบสี</strong> เพื่อสลับช่าง ถอน หรือเลื่อนวันบำรุงรักษา
                 </span>
                 <span id="pm-calendar-ref-date-badge" className="text-[10px] font-mono text-slate-400 whitespace-nowrap bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                  วันอ้างอิง: 2026-06-10
+                  วันอ้างอิง: {formatHyphenDate(getNowInThailand())}
                 </span>
               </div>
 
@@ -1308,6 +1429,7 @@ export const SchedulePage: React.FC = () => {
               {/* Calendars boxes */}
               <div className="grid grid-cols-7 gap-2">
                 {(() => {
+                  const todayStr = formatHyphenDate(getNowInThailand());
                   const [yStr, mStr] = selectedMonth.split('-');
                   const calYear = parseInt(yStr);
                   const calMonth = parseInt(mStr);
@@ -1326,7 +1448,7 @@ export const SchedulePage: React.FC = () => {
                   // Active days rendering
                   for (let dNum = 1; dNum <= daysInMonthCalculated; dNum++) {
                     const dayDateStr = `${yStr}-${mStr}-${String(dNum).padStart(2, '0')}`;
-                    const isTodayRef = dayDateStr === "2026-06-10";
+                    const isTodayRef = dayDateStr === todayStr;
 
                     // Retrieve PM jobs for this exact date
                     const dayPmTasks = schedules.filter(s => s.type === 'PM' && s.date === dayDateStr) as PMScheduleItem[];
@@ -1378,7 +1500,7 @@ export const SchedulePage: React.FC = () => {
                             </div>
                           ) : (
                             dayPmTasks.map(task => {
-                              const isOverdue = task.status !== 'เสร็จสิ้น' && dayDateStr < '2026-06-10';
+                              const isOverdue = task.status !== 'เสร็จสิ้น' && dayDateStr < todayStr;
                               const statusStyles = isOverdue
                                 ? 'bg-rose-500/15 border border-rose-500/40 text-rose-300 font-bold'
                                 : task.status === 'เสร็จสิ้น'
@@ -2495,6 +2617,121 @@ export const SchedulePage: React.FC = () => {
                 )}
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK OPERATION MANAGEMENT & DELETE MODAL */}
+      {quickMngOp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-750 w-full max-w-md rounded-2xl shadow-2xl p-5 space-y-5">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <span className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300 text-sm">
+                  🟡
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">รายละเอียดงานคุมไลน์ผลิต</h3>
+                  <p className="text-[11px] text-slate-400">จัดการหรือลบงานคุมกะที่มอบหมายให้ช่าง</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickMngOp(null);
+                  setIsConfirmingDeleteOp(false);
+                }}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content Details */}
+            <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 space-y-2.5 text-xs">
+              <div className="flex justify-between items-center text-slate-400">
+                <span>ไลน์การผลิต:</span>
+                <span className="font-bold text-amber-300 text-sm">{quickMngOp.line}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400">
+                <span>ช่างผู้รับผิดชอบ:</span>
+                <span className="font-bold text-slate-200">{quickMngOp.technician}</span>
+              </div>
+              {quickMngOp.technicians && quickMngOp.technicians.length > 1 && (
+                <div className="flex justify-between items-center text-slate-400">
+                  <span>ช่างร่วมปฏิบัติการ:</span>
+                  <span className="text-slate-300">{quickMngOp.technicians.join(', ')}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center text-slate-400">
+                <span>เวลาทำงาน:</span>
+                <span className="font-mono text-slate-200">{quickMngOp.startTime} - {quickMngOp.endTime} ({quickMngOp.duration} นาที)</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400">
+                <span>วันที่เริ่มต้น:</span>
+                <span className="font-mono text-slate-300">{quickMngOp.date}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400">
+                <span>ลักษณะการจ่ายงาน:</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                  {quickMngOp.isWeeklyRecurring ? '🔄 วนซ้ำทุกสัปดาห์ (จันทร์-ศุกร์)' : '📅 เฉพาะวันที่กำหนด'}
+                </span>
+              </div>
+            </div>
+
+            {/* Delete Confirmation or Buttons */}
+            <div className="pt-2 border-t border-slate-800 flex flex-col space-y-3">
+              {isConfirmingDeleteOp ? (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in duration-200">
+                  <p className="text-[11px] text-rose-300 font-bold leading-snug">
+                    ⚠️ ยืนยันต้องการลบงานคุมไลน์นี้ออกจากตารางงานช่างใช่หรือไม่?
+                  </p>
+                  <div className="flex gap-1.5 w-full sm:w-auto shrink-0 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingDeleteOp(false)}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSchedules(prev => prev.filter(s => s.id !== quickMngOp.id));
+                        setQuickMngOp(null);
+                        setIsConfirmingDeleteOp(false);
+                        setToast({ text: `ลบงานคุมไลน์ ${quickMngOp.line} ของช่าง ${quickMngOp.technician} เรียบร้อยแล้ว`, type: 'success' });
+                      }}
+                      className="bg-rose-600 hover:bg-rose-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
+                    >
+                      ใช่, ลบเลย
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3 w-full">
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingDeleteOp(true)}
+                    className="bg-rose-500/10 border border-rose-500/25 hover:bg-rose-500/20 text-rose-400 text-xs px-3.5 py-2.5 rounded-xl transition font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Trash2 size={14} />
+                    ลบงานคุมไลน์นี้ (ถอนจ่ายงาน)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuickMngOp(null);
+                      setIsConfirmingDeleteOp(false);
+                    }}
+                    className="border border-slate-700 hover:bg-slate-800 text-slate-300 text-xs px-4 py-2.5 rounded-xl transition font-bold cursor-pointer"
+                  >
+                    ปิด
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

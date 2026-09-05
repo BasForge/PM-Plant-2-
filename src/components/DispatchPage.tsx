@@ -11,6 +11,7 @@ import {
   Search, Info, Lock, Unlock, HelpCircle, SlidersHorizontal, Check
 } from 'lucide-react';
 import { notifyPMDispatched, notifyRepairOpened, notifyRepairClosed } from '../utils/lineNotify';
+import { getTodayDateString } from '../utils/pmAlerts';
 
 export const DispatchPage: React.FC = () => {
   const { 
@@ -18,13 +19,13 @@ export const DispatchPage: React.FC = () => {
     technicians, pmPlans, machines, setMachines,
     repairs, setRepairs,
     improvements, setImprovements,
-    setupLogs,
+    setupLogs, setSetupLogs,
     settings,
     spareParts, setSpareParts
   } = useApp();
 
-  // Active Date selector for dispatching and tracking (defaults to today 2026-06-10)
-  const [selectedDate, setSelectedDate] = useState<string>("2026-06-10");
+  // Active Date selector for dispatching and tracking (defaults to actual today)
+  const [selectedDate, setSelectedDate] = useState<string>(() => getTodayDateString());
   const [activeFormTab, setActiveFormTab] = useState<'Operation' | 'PM' | 'Repair' | 'Improvement'>('Operation');
 
   // --- MASTER VIEW TABS - CHOOSE CREATOR OR SUMMARY TAB ---
@@ -90,6 +91,7 @@ export const DispatchPage: React.FC = () => {
   const [scheduleToDelete, setScheduleToDelete] = useState<string | null>(null);
   const [repairToDelete, setRepairToDelete] = useState<string | null>(null);
   const [improvementToDelete, setImprovementToDelete] = useState<string | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<{ id: string; type: string; label: string; tech: string; duration?: number; isRecurring?: boolean } | null>(null);
 
   // Multi-Form Validation Status / Success Feedback
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -849,15 +851,20 @@ export const DispatchPage: React.FC = () => {
 
   // --- CALC TECHNICIAN LOADS TODAY (To help dispatching logic) ---
   const getTechnicianLoadsMap = () => {
-    const tracker: Record<string, { total: number, capacity: number, percent: number, list: string[] }> = {};
-    const dayOfWeek = new Date(selectedDate).getDay();
+    const tracker: Record<string, { 
+      total: number; 
+      capacity: number; 
+      percent: number; 
+      list: { id: string; type: 'Operation' | 'PM' | 'Repair' | 'Improvement' | 'Setup'; label: string; duration?: number; tech: string; isRecurring?: boolean }[] 
+    }> = {};
+    const dayOfWeek = new Date(selectedDate + 'T12:00:00').getDay();
 
     technicians.forEach(tech => {
       let pmMins = 0;
       let opMins = 0;
       let repMins = 0;
       let impMins = 0;
-      const tasksList: string[] = [];
+      const tasksList: { id: string; type: 'Operation' | 'PM' | 'Repair' | 'Improvement' | 'Setup'; label: string; duration?: number; tech: string; isRecurring?: boolean }[] = [];
 
       // 1. PM and Operations
       schedules.forEach(s => {
@@ -865,15 +872,35 @@ export const DispatchPage: React.FC = () => {
         if (!isMySchedule) return;
         if (s.type === 'PM' && s.date === selectedDate) {
           pmMins += s.duration;
-          tasksList.push(`🔵 PM: ${s.machineId}`);
+          tasksList.push({
+            id: s.id,
+            type: 'PM',
+            label: `🔵 PM: ${s.machineId}`,
+            duration: s.duration,
+            tech
+          });
         } else if (s.type === 'Operation') {
           const op = s as OperationScheduleItem;
           if (op.date === selectedDate) {
             opMins += op.duration;
-            tasksList.push(`🟡 คุมไลน์ ${op.line}`);
+            tasksList.push({
+              id: op.id,
+              type: 'Operation',
+              label: `🟡 คุมไลน์ ${op.line}`,
+              duration: op.duration,
+              tech,
+              isRecurring: false
+            });
           } else if (op.isWeeklyRecurring && op.recurringDays.includes(dayOfWeek) && op.date <= selectedDate) {
             opMins += op.duration;
-            tasksList.push(`🟡 คุมกะสัปดาห์ ${op.line}`);
+            tasksList.push({
+              id: op.id,
+              type: 'Operation',
+              label: `🟡 คุมกะสัปดาห์ ${op.line}`,
+              duration: op.duration,
+              tech,
+              isRecurring: true
+            });
           }
         }
       });
@@ -883,7 +910,13 @@ export const DispatchPage: React.FC = () => {
         const isMyRepair = r.technicians ? r.technicians.includes(tech) : r.technician === tech;
         if (isMyRepair && r.date === selectedDate) {
           repMins += r.duration;
-          tasksList.push(`🔴 ซ่อม: ${r.machineId}`);
+          tasksList.push({
+            id: r.id,
+            type: 'Repair',
+            label: `🔴 ซ่อม: ${r.machineId}`,
+            duration: r.duration,
+            tech
+          });
         }
       });
 
@@ -894,7 +927,13 @@ export const DispatchPage: React.FC = () => {
         p.workLogs.forEach(wl => {
           if (wl.date === selectedDate) {
             impMins += wl.hours * 60;
-            tasksList.push(`🟣 Kaizen: ${p.title.substring(0, 15)}...`);
+            tasksList.push({
+              id: p.id,
+              type: 'Improvement',
+              label: `🟣 Kaizen: ${p.title.substring(0, 15)}...`,
+              duration: wl.hours * 60,
+              tech
+            });
           }
         });
       });
@@ -906,7 +945,13 @@ export const DispatchPage: React.FC = () => {
           const isMySetup = s.technicians && s.technicians.includes(tech);
           if (isMySetup && s.date === selectedDate) {
             setupMins += s.totalDuration;
-            tasksList.push(`⚙️ ${s.type === 'Setupก่อนผลิต' ? 'เซ็ต' : 'จูน'}: ${s.machineId} (${s.totalDuration}m)`);
+            tasksList.push({
+              id: s.id,
+              type: 'Setup',
+              label: `⚙️ ${s.type === 'Setupก่อนผลิต' ? 'เซ็ต' : 'จูน'}: ${s.machineId} (${s.totalDuration}m)`,
+              duration: s.totalDuration,
+              tech
+            });
           }
         });
       }
@@ -1707,15 +1752,26 @@ export const DispatchPage: React.FC = () => {
 
                       {/* Micro tasks bullets list */}
                       {tasks.length > 0 ? (
-                        <div className="flex flex-wrap gap-1 mt-1 shrink-0">
+                        <div className="flex flex-wrap gap-1.5 mt-1.5 shrink-0">
                           {tasks.map((task, i) => (
-                            <span 
-                              key={i} 
-                              className="text-[8.5px] px-2 py-0.5 bg-slate-950 font-bold border border-slate-800 rounded text-slate-400 block max-w-[125px] truncate"
-                              title={task}
+                            <div 
+                              key={`${task.id}-${i}`} 
+                              className="group text-[9px] px-2 py-0.5 bg-slate-950 font-bold border border-slate-800 hover:border-rose-500/50 rounded-md text-slate-300 flex items-center gap-1.5 transition-all shadow-sm"
+                              title={`${task.label}${task.duration ? ` (${task.duration} นาที)` : ''} - คลิกปุ่มถังขยะเพื่อลบงานที่จ่ายให้ช่าง`}
                             >
-                              {task}
-                            </span>
+                              <span className="truncate max-w-[130px]">{task.label}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTaskToDelete(task);
+                                }}
+                                className="text-slate-500 hover:text-rose-400 p-0.5 rounded transition cursor-pointer hover:bg-rose-500/15"
+                                title="ลบงานที่จ่ายให้ช่างรายการนี้"
+                              >
+                                <Trash2 size={10} />
+                              </button>
+                            </div>
                           ))}
                         </div>
                       ) : (
@@ -3606,36 +3662,133 @@ export const DispatchPage: React.FC = () => {
         </div>
       )}
 
-      {/* CONFIRMATION FOR CANCELING SCHEDULE TASK */}
-      {scheduleToDelete && (
+      {/* CONFIRMATION FOR CANCELING DISPATCHED TECH TASK FROM WORKLOAD CARD */}
+      {taskToDelete && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4 animate-in fade-in duration-100">
-          <div id="dispatch-sched-delete-modal" className="bg-slate-900 border border-slate-750 rounded-2xl max-w-sm w-full p-6 space-y-5 shadow-2xl">
+          <div id="dispatch-task-delete-modal" className="bg-slate-900 border border-slate-750 rounded-2xl max-w-sm w-full p-6 space-y-5 shadow-2xl">
             <div className="flex flex-col items-center text-center space-y-3">
-              <div className="w-12 h-12 rounded-full bg-rose-500/15 flex items-center justify-center text-rose-450">
+              <div className="w-12 h-12 rounded-full bg-rose-500/15 flex items-center justify-center text-rose-450 border border-rose-500/20">
                 <Trash2 size={24} />
               </div>
-              <h3 className="text-sm font-bold text-slate-100">ถอนตารางงานสั่งการ?</h3>
-              <p className="text-[11px] text-slate-400">คุณแน่ใจหรือไม่ที่จะถอนหรือยกเลิกสิทธิ์ตารางงานสั่งการช่างรายการนี้?</p>
+              <h3 className="text-sm font-bold text-slate-100">ยืนยันลบงานที่จ่ายให้ช่าง?</h3>
+              
+              <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 text-left w-full space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-400">
+                  <span>ช่างผู้รับผิดชอบ:</span>
+                  <span className="font-bold text-slate-100">{taskToDelete.tech}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>งานที่มอบหมาย:</span>
+                  <span className="font-bold text-amber-300">{taskToDelete.label}</span>
+                </div>
+                {taskToDelete.duration && (
+                  <div className="flex justify-between text-slate-400">
+                    <span>ระยะเวลา:</span>
+                    <span className="font-mono text-slate-300">{taskToDelete.duration} นาที</span>
+                  </div>
+                )}
+                {taskToDelete.isRecurring && (
+                  <p className="text-[10px] text-cyan-400 mt-1 border-t border-slate-800/80 pt-1">
+                    🔄 หมายเหตุ: งานนี้เป็นตารางงานวนซ้ำประจำสัปดาห์ การลบจะถอนตารางกะนี้ออกจากระบบ
+                  </p>
+                )}
+              </div>
+
+              <p className="text-[11px] text-slate-400">คุณแน่ใจหรือไม่ที่จะถอนหรือยกเลิกการจ่ายงานรายการนี้ให้ช่าง?</p>
             </div>
             <div className="flex gap-3 justify-end text-xs font-bold">
               <button
                 type="button"
-                onClick={() => setScheduleToDelete(null)}
-                className="w-1/2 bg-slate-805 border border-slate-700 text-slate-350 py-2.5 rounded-xl cursor-pointer"
+                onClick={() => setTaskToDelete(null)}
+                className="w-1/2 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-350 py-2.5 rounded-xl cursor-pointer transition"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
-                onClick={confirmDeleteScheduleTask}
-                className="w-1/2 bg-rose-600 hover:bg-rose-500 text-white py-2.5 rounded-xl cursor-pointer"
+                onClick={() => {
+                  if (taskToDelete.type === 'Operation' || taskToDelete.type === 'PM') {
+                    setSchedules(prev => prev.filter(s => s.id !== taskToDelete.id));
+                  } else if (taskToDelete.type === 'Repair') {
+                    setRepairs(prev => prev.filter(r => r.id !== taskToDelete.id));
+                  } else if (taskToDelete.type === 'Improvement') {
+                    setImprovements(prev => prev.filter(i => i.id !== taskToDelete.id));
+                  } else if (taskToDelete.type === 'Setup') {
+                    setSetupLogs(prev => prev.filter(s => s.id !== taskToDelete.id));
+                  }
+                  showFeedback('success', `ลบงาน '${taskToDelete.label}' ของ ${taskToDelete.tech} เรียบร้อยแล้ว`);
+                  setTaskToDelete(null);
+                }}
+                className="w-1/2 bg-rose-600 hover:bg-rose-500 text-white py-2.5 rounded-xl cursor-pointer transition font-bold"
               >
-                ยืนยันถอนงาน
+                ยืนยันลบงาน
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* CONFIRMATION FOR CANCELING SCHEDULE TASK */}
+      {scheduleToDelete && (() => {
+        const targetSched = schedules.find(s => s.id === scheduleToDelete);
+        const opTarget = targetSched?.type === 'Operation' ? (targetSched as OperationScheduleItem) : null;
+        const pmTarget = targetSched?.type === 'PM' ? (targetSched as PMScheduleItem) : null;
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4 animate-in fade-in duration-100">
+            <div id="dispatch-sched-delete-modal" className="bg-slate-900 border border-slate-750 rounded-2xl max-w-sm w-full p-6 space-y-5 shadow-2xl">
+              <div className="flex flex-col items-center text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-rose-500/15 flex items-center justify-center text-rose-450 border border-rose-500/20">
+                  <Trash2 size={24} />
+                </div>
+                <h3 className="text-sm font-bold text-slate-100">ถอนตารางงานสั่งการ?</h3>
+                
+                {targetSched && (
+                  <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 text-left w-full space-y-1 text-xs">
+                    <div className="flex justify-between text-slate-400">
+                      <span>ประเภทงาน:</span>
+                      <span className="font-bold text-slate-200">{targetSched.type === 'Operation' ? '🟡 คุมไลน์ผลิต' : '🔵 บำรุงรักษา PM'}</span>
+                    </div>
+                    {opTarget && (
+                      <div className="flex justify-between text-slate-400">
+                        <span>ไลน์ผลิต:</span>
+                        <span className="font-bold text-amber-300">{opTarget.line}</span>
+                      </div>
+                    )}
+                    {pmTarget && (
+                      <div className="flex justify-between text-slate-400">
+                        <span>เครื่องจักร:</span>
+                        <span className="font-bold text-indigo-300">{pmTarget.machineId}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-slate-400">
+                      <span>ช่างผู้ปฏิบัติการ:</span>
+                      <span className="text-slate-200">{targetSched.technicians?.join(', ') || targetSched.technician}</span>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-[11px] text-slate-400">คุณแน่ใจหรือไม่ที่จะถอนหรือยกเลิกสิทธิ์ตารางงานสั่งการช่างรายการนี้?</p>
+              </div>
+              <div className="flex gap-3 justify-end text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setScheduleToDelete(null)}
+                  className="w-1/2 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-350 py-2.5 rounded-xl cursor-pointer transition"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteScheduleTask}
+                  className="w-1/2 bg-rose-600 hover:bg-rose-500 text-white py-2.5 rounded-xl cursor-pointer transition font-bold"
+                >
+                  ยืนยันถอนงาน
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* CONFIRMATION FOR DELETING REPAIR LOG */}
       {repairToDelete && (

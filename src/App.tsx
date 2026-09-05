@@ -20,11 +20,11 @@ import { getOverdueAndRescheduledSummary, getTodayDateString } from './utils/pmA
 import { 
   Wrench, Activity, CalendarDays, ClipboardList, PenTool, 
   BarChart3, Settings, Menu, ChevronLeft, ChevronRight, Clock, ShieldCheck, Send, Presentation, Users,
-  Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell
+  Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell, Cloud
 } from 'lucide-react';
 
 function AppContent() {
-  const { schedules } = useApp();
+  const { schedules, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow } = useApp();
   // Sidebar navigation active page state [1 to 6]
   const [activePage, setActivePage] = useState<number>(3); // Default to Page 3 (📅 ตารางงานช่าง) as requested as master planner
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true); // Collapsible fixed 220px
@@ -276,6 +276,42 @@ function AppContent() {
               <p className="text-[8px] text-slate-500 leading-none uppercase font-bold text-right">CALENDAR DATE</p>
               <p className="text-[10px] text-slate-350 leading-none mt-1">{liveDate}</p>
             </div>
+
+            {/* Cloud Firestore Live Status & Sync Button */}
+            <button
+              id="btn-cloud-firestore-sync"
+              onClick={async () => {
+                await syncWithFirebaseNow();
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-all cursor-pointer shadow-md ${
+                firebaseStatus === 'connected'
+                  ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/40 hover:border-emerald-500/50'
+                  : firebaseStatus === 'syncing'
+                  ? 'bg-amber-950/40 border-amber-500/30 text-amber-300 hover:bg-amber-900/40'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+              }`}
+              title={`Cloud Firestore: ${
+                firebaseStatus === 'connected'
+                  ? `เชื่อมต่อเรียลไทม์แล้ว (${lastFirebaseSync ? `ซิงค์ล่าสุด ${lastFirebaseSync}` : 'ออนไลน์'})`
+                  : firebaseStatus === 'syncing'
+                  ? 'กำลังซิงค์ข้อมูลกับ Cloud Firestore...'
+                  : 'ออฟไลน์ / ใช้ฐานข้อมูลเครื่องนี้'
+              } (คลิกเพื่อซิงค์ข้อมูลกับคลาวด์ทันที)`}
+            >
+              <span className="relative flex h-2 w-2">
+                {firebaseStatus === 'connected' && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                )}
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                  firebaseStatus === 'connected' ? 'bg-emerald-500' :
+                  firebaseStatus === 'syncing' ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'
+                }`}></span>
+              </span>
+              <Cloud size={14} className={firebaseStatus === 'syncing' ? 'animate-spin text-amber-400' : ''} />
+              <span className="font-semibold text-[11px] hidden sm:inline">
+                {firebaseStatus === 'connected' ? 'Cloud Live' : firebaseStatus === 'syncing' ? 'ซิงค์...' : 'Offline'}
+              </span>
+            </button>
 
             {/* Overdue PM Alert Trigger Button */}
             <button

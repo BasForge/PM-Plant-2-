@@ -40,7 +40,7 @@ export const PMHistoryPage: React.FC = () => {
   // Form Inputs
   const [formMachine, setFormMachine] = useState(machines[0]?.id || '');
   const [formPlan, setFormPlan] = useState('');
-  const [formDate, setFormDate] = useState('2026-06-10');
+  const [formDate, setFormDate] = useState(todayStr);
   const [formTechnician, setFormTechnician] = useState(technicians[0] || 'ช่าง 1');
   const [formTechnicians, setFormTechnicians] = useState<string[]>([]);
   const [formDuration, setFormDuration] = useState<number>(30); // Std duration

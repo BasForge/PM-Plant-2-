@@ -450,7 +450,7 @@ export const MachinePage: React.FC = () => {
                   const isExpanded = expandedMachineId === m.id;
 
                   return (
-                    <React.Fragment key={m.id}>
+                    <React.Fragment key={`${m.id}-${m.orderNo || index}`}>
                       <tr 
                         id={`row-${m.id}`}
                         className={`hover:bg-slate-700/30 transition-colors ${isExpanded ? 'bg-slate-700/20' : ''}`}
@@ -796,7 +796,7 @@ export const MachinePage: React.FC = () => {
                           </thead>
                           <tbody className="divide-y divide-slate-700/60 bg-slate-950/40">
                             {pdfParseResult.machines.slice(0, 5).map((m, idx) => (
-                              <tr key={m.id}>
+                              <tr key={`${m.id}-${m.orderNo || idx}`}>
                                 <td className="p-2 font-mono">{m.orderNo || idx + 1}</td>
                                 <td className="p-2 font-mono font-bold text-cyan-400">{m.id}</td>
                                 <td className="p-2 font-medium">{m.name}</td>

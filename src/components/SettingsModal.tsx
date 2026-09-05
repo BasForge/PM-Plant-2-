@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { Settings, Users, Clock, AlertTriangle, FileJson, RefreshCw, X, Wrench, Upload, Bell } from 'lucide-react';
+import { Settings, Users, Clock, AlertTriangle, FileJson, RefreshCw, X, Wrench, Upload, Bell, Cloud, Database, CheckCircle2 } from 'lucide-react';
 import { sendLineNotification } from '../utils/lineNotify';
 
 interface SettingsModalProps {
@@ -12,11 +12,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
     technicians, setTechnicians, 
     setSchedules, setRepairs, setImprovements,
     settings, setSettings, 
+    firebaseStatus, lastFirebaseSync, syncWithFirebaseNow,
     resetToDefaults, exportData, importData 
   } = useApp();
 
   // Active sub-tab inside settings
-  const [subTab, setSubTab] = useState<'techs' | 'hours' | 'std-mttr' | 'export-import' | 'line-notify'>('techs');
+  const [subTab, setSubTab] = useState<'techs' | 'hours' | 'std-mttr' | 'export-import' | 'line-notify' | 'firebase'>('techs');
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [cloudSyncMsg, setCloudSyncMsg] = useState<string | null>(null);
 
   // LINE Notify state
   const [lineEnabled, setLineEnabled] = useState<boolean>(settings.lineNotifyEnabled || false);
@@ -323,6 +326,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
             >
               <Bell size={14} />
               ตั้งค่าแจ้งเตือน LINE
+            </button>
+
+            <button
+              id="sub-tab-firebase"
+              onClick={() => setSubTab('firebase')}
+              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
+                subTab === 'firebase' ? 'bg-cyan-500 text-slate-950 font-bold shadow' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+              }`}
+            >
+              <Cloud size={14} />
+              คลาวด์ Firebase
             </button>
 
             <div className="pt-4 border-t border-slate-800 mt-6 shrink-0">
@@ -716,6 +730,122 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                   >
                     บันทึกการตั้งค่าระบบแจ้งเตือน
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* Sub-tab: Firebase Cloud Sync */}
+            {subTab === 'firebase' && (
+              <div className="space-y-4 animate-in fade-in duration-150" id="panel-settings-firebase">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                    <Cloud className="text-cyan-400" size={18} />
+                    ฐานข้อมูลคลาวด์ Firebase Firestore (Cloud Database)
+                  </h4>
+                  <p className="text-slate-400 text-xs mt-1">
+                    เชื่อมต่อฐานข้อมูล Google Cloud Firestore เพื่อให้ช่างและหัวหน้างานเปิดดูหรือบันทึกข้อมูลพร้อมกันได้แบบเรียลไทม์ (Multi-device Realtime Sync)
+                  </p>
+                </div>
+
+                {/* Status card */}
+                <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
+                  firebaseStatus === 'connected'
+                    ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                    : firebaseStatus === 'syncing'
+                    ? 'bg-amber-950/30 border-amber-500/40 text-amber-300'
+                    : 'bg-slate-800/80 border-slate-700 text-slate-300'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full shrink-0 ${
+                      firebaseStatus === 'connected'
+                        ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)] animate-pulse'
+                        : firebaseStatus === 'syncing'
+                        ? 'bg-amber-400 animate-spin'
+                        : 'bg-slate-500'
+                    }`} />
+                    <div>
+                      <p className="font-bold text-xs text-white">
+                        {firebaseStatus === 'connected' && 'สถานะ: เชื่อมต่อ Firebase Cloud สำเร็จ (ออนไลน์)'}
+                        {firebaseStatus === 'syncing' && 'สถานะ: กำลังซิงค์ข้อมูลกับคลาวด์...'}
+                        {firebaseStatus === 'offline' && 'สถานะ: โหมดออฟไลน์ (ใช้งานฐานข้อมูลเครื่องนี้)'}
+                        {firebaseStatus === 'error' && 'สถานะ: มีข้อผิดพลาดในการเชื่อมต่อ'}
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {lastFirebaseSync ? `ซิงค์ล่าสุดเมื่อเวลา ${lastFirebaseSync}` : 'ยังไม่มีประวัติการซิงค์ล่าสุด'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    id="btn-modal-manual-firebase-sync"
+                    disabled={isSyncingCloud}
+                    onClick={async () => {
+                      setIsSyncingCloud(true);
+                      setCloudSyncMsg(null);
+                      try {
+                        const ok = await syncWithFirebaseNow();
+                        if (ok) {
+                          setCloudSyncMsg('ซิงค์ข้อมูลกับ Cloud Firestore เรียบร้อยแล้ว!');
+                        } else {
+                          setCloudSyncMsg('ซิงค์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+                        }
+                      } catch {
+                        setCloudSyncMsg('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+                      } finally {
+                        setIsSyncingCloud(false);
+                      }
+                    }}
+                    className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 text-xs shadow disabled:opacity-50 cursor-pointer shrink-0"
+                  >
+                    <RefreshCw size={12} className={isSyncingCloud ? 'animate-spin' : ''} />
+                    {isSyncingCloud ? 'กำลังซิงค์...' : 'บังคับซิงค์เดี๋ยวนี้'}
+                  </button>
+                </div>
+
+                {cloudSyncMsg && (
+                  <div className="p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 text-xs flex items-center gap-2 animate-in fade-in">
+                    <CheckCircle2 size={14} className="text-cyan-400 shrink-0" />
+                    <span>{cloudSyncMsg}</span>
+                  </div>
+                )}
+
+                {/* Cloud Config Details */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-3.5 space-y-2.5">
+                  <h5 className="text-[11px] font-bold uppercase tracking-wider text-cyan-400">
+                    ข้อมูลการเชื่อมต่อโครงการ (Firebase Project Details)
+                  </h5>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">PROJECT ID</span>
+                      <span className="font-mono text-slate-200 font-bold">bold-watch-k98sv</span>
+                    </div>
+                    <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">DATABASE ENGINE</span>
+                      <span className="font-mono text-slate-200 font-bold">Cloud Firestore</span>
+                    </div>
+                    <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">SECURITY RULES</span>
+                      <span className="text-emerald-400 font-bold">Deployed (Active)</span>
+                    </div>
+                    <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-400 block text-[10px]">FREE QUOTA TIER</span>
+                      <span className="text-cyan-300 font-bold">ฟรี (Free Spark Tier)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Benefits & Quota explanation */}
+                <div className="bg-slate-850/50 border border-slate-800 rounded-2xl p-3.5 text-[11px] space-y-1.5 text-slate-350">
+                  <p className="font-bold text-slate-200 flex items-center gap-1.5">
+                    <Database size={13} className="text-cyan-400" />
+                    คุณสมบัติและการทำงานของระบบคลาวด์:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-slate-400 pl-1">
+                    <li><strong className="text-slate-350">ซิงค์อัตโนมัติ 3 ทาง:</strong> บันทึกลงเครื่อง (LocalStorage) + เซิร์ฟเวอร์ LAN + Google Cloud Firestore ทุกครั้งที่มีการแก้ไข</li>
+                    <li><strong className="text-slate-350">ทำงานร่วมกันแบบ Real-time:</strong> เมื่อช่างท่านอื่นเพิ่มงานซ่อม หรืออัปเดตสถานะ PM หน้าจอของท่านจะอัปเดตอัตโนมัติ</li>
+                    <li><strong className="text-slate-350">ไม่มีค่าใช้จ่ายรายเดือน:</strong> ใช้งานภายใต้โควต้าฟรีของ Google Cloud (เขียน 20,000 ครั้ง/วัน, อ่าน 50,000 ครั้ง/วัน) ซึ่งเกินพอสำหรับโรงงาน</li>
+                    <li><strong className="text-slate-350">ความปลอดภัย:</strong> ป้องกันข้อมูลสูญหายแม้คอมพิวเตอร์พัง ล้างแคชเบราว์เซอร์ หรือเปลี่ยนอุปกรณ์</li>
+                  </ul>
                 </div>
               </div>
             )}
