@@ -6,10 +6,50 @@ import {
   TrendingDown, Plus, Search, Printer, Trash2, Edit3, Eye, 
   ShieldCheck, CheckCircle2, DollarSign, Clock, Layers, 
   FileSpreadsheet, Check, X, Calculator, SlidersHorizontal, Scale,
-  Calendar, History
+  Calendar, History, AlertTriangle
 } from 'lucide-react';
 import { CD5LifespanMeter } from './cd5/CD5LifespanMeter';
 import { CD5UsageHistoryModal } from './cd5/CD5UsageHistoryModal';
+
+// Helper to compress uploaded images to prevent Firestore/LocalStorage quota errors
+const compressImage = (file: File, maxWidth = 1000, quality = 0.75): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth || height > maxWidth) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxWidth) / height);
+            height = maxWidth;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressed);
+      };
+      img.onerror = () => resolve(e.target?.result as string);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+};
 
 export const CostDown5Page: React.FC = () => {
   const { cd5Projects, setCd5Projects, machines, technicians } = useApp();
@@ -21,12 +61,22 @@ export const CostDown5Page: React.FC = () => {
   const [machineFilter, setMachineFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
-  // Modals
+  // Modals & Action States
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [editingProject, setEditingProject] = useState<CD5Project | null>(null);
   const [viewingProject, setViewingProject] = useState<CD5Project | null>(null);
   const [historyTrackingProject, setHistoryTrackingProject] = useState<CD5Project | null>(null);
   const [zoomedImage, setZoomedImage] = useState<{ url: string; title: string } | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Auto-dismiss notification
+  React.useEffect(() => {
+    if (!notification) return;
+    const t = setTimeout(() => setNotification(null), 4000);
+    return () => clearTimeout(t);
+  }, [notification]);
 
   // Form State for Add / Edit
   const [formTitle, setFormTitle] = useState<string>('');
@@ -152,9 +202,10 @@ export const CostDown5Page: React.FC = () => {
   const handleSaveProject = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim() || !formPartName.trim()) {
-      alert('กรุณากรอกชื่อโครงการ และชื่อชิ้นส่วนอะไหล่');
+      setFormError('กรุณากรอกชื่อโครงการ และชื่อชิ้นส่วนอะไหล่ให้ครบถ้วน');
       return;
     }
+    setFormError(null);
 
     const origPrice = Math.max(0, Number(formOrigPrice) || 0);
     const newPrice = Math.max(0, Number(formNewPrice) || 0);
@@ -208,8 +259,21 @@ export const CostDown5Page: React.FC = () => {
 
       setCd5Projects(prev => prev.map(item => item.id === updated.id ? updated : item));
       if (viewingProject?.id === updated.id) setViewingProject(updated);
+      setNotification({
+        type: 'success',
+        message: `บันทึกการแก้ไขโครงการ "${updated.title}" สำเร็จเรียบร้อยแล้ว`
+      });
     } else {
-      const newId = `CD5-${new Date().getFullYear()}-${String(cd5Projects.length + 1).padStart(3, '0')}`;
+      // Calculate strictly unique sequential ID without duplicate risk
+      const currentYear = new Date().getFullYear();
+      const existingNums = cd5Projects.map(p => {
+        const match = p.id.match(/CD5-\d+-(\d+)/);
+        return match ? parseInt(match[1], 10) : 0;
+      });
+      const maxNum = existingNums.length > 0 ? Math.max(...existingNums) : 0;
+      const nextSeq = maxNum + 1;
+      const newId = `CD5-${currentYear}-${String(nextSeq).padStart(3, '0')}`;
+
       const newProj: CD5Project = {
         id: newId,
         title: formTitle.trim(),
@@ -265,6 +329,10 @@ export const CostDown5Page: React.FC = () => {
       };
 
       setCd5Projects(prev => [newProj, ...prev]);
+      setNotification({
+        type: 'success',
+        message: `บันทึกโครงการ Cost Down 5 ใหม่ "${newProj.title}" (รหัส: ${newProj.id}) เรียบร้อยแล้ว`
+      });
     }
 
     setShowAddModal(false);
@@ -279,22 +347,35 @@ export const CostDown5Page: React.FC = () => {
     }
   };
 
-  // Delete project
+  // Delete project trigger
   const handleDeleteProject = (id: string, title: string) => {
-    if (window.confirm(`ยืนยันการลบโครงการ Cost Down 5: "${title}" หรือไม่?`)) {
-      setCd5Projects(prev => prev.filter(p => p.id !== id));
-      if (viewingProject?.id === id) setViewingProject(null);
-    }
+    setProjectToDelete({ id, title });
   };
 
-  // Image Upload helper
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
+  // Confirmed Delete execution
+  const handleConfirmDelete = () => {
+    if (!projectToDelete) return;
+    const { id, title } = projectToDelete;
+    setCd5Projects(prev => prev.filter(p => p.id !== id));
+    if (viewingProject?.id === id) {
+      setViewingProject(null);
+    }
+    setProjectToDelete(null);
+    setNotification({
+      type: 'success',
+      message: `ลบโครงการ "${title}" (${id}) ออกจากระบบแล้ว`
+    });
+  };
+
+  // Image Upload helper with automatic smart compression
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert('ไฟล์รูปภาพมีขนาดใหญ่เกิน 2MB');
-        return;
-      }
+    if (!file) return;
+    try {
+      const compressedDataUrl = await compressImage(file, 1000, 0.75);
+      setter(compressedDataUrl);
+    } catch (err) {
+      console.warn("Error compressing image, fallback to standard reader:", err);
       const reader = new FileReader();
       reader.onload = (uploadEvent) => {
         if (uploadEvent.target?.result) {
@@ -1152,6 +1233,14 @@ export const CostDown5Page: React.FC = () => {
             {/* Form */}
             <form onSubmit={handleSaveProject} className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-5 text-xs">
               
+              {/* Form Validation Error Banner */}
+              {formError && (
+                <div className="p-3.5 bg-rose-950/80 border border-rose-500/70 rounded-xl text-rose-200 flex items-center gap-2.5 text-xs font-semibold shadow-lg shadow-rose-950/40 animate-in fade-in duration-200">
+                  <AlertTriangle size={18} className="text-rose-400 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
               {/* SECTION 1: PROJECT OVERVIEW */}
               <div>
                 <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
@@ -1651,17 +1740,45 @@ export const CostDown5Page: React.FC = () => {
 
             </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
+            {/* Modal Footer with Edit and Delete options */}
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-slate-400">
                 ผู้เสนอโครงการ: <b className="text-slate-200">{viewingProject.proposerTechnician}</b>
               </span>
-              <button
-                onClick={() => setViewingProject(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-semibold transition"
-              >
-                ปิดหน้าต่าง
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const toDelete = viewingProject;
+                    handleDeleteProject(toDelete.id, toDelete.title);
+                  }}
+                  className="px-3 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 rounded-lg font-semibold transition flex items-center gap-1.5"
+                  title="ลบโครงการนี้"
+                >
+                  <Trash2 size={14} />
+                  <span>ลบโครงการ</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const toEdit = viewingProject;
+                    setViewingProject(null);
+                    handleOpenEditModal(toEdit);
+                  }}
+                  className="px-3 py-2 bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-800/50 rounded-lg font-semibold transition flex items-center gap-1.5"
+                  title="แก้ไขข้อมูลโครงการ"
+                >
+                  <Edit3 size={14} />
+                  <span>แก้ไขข้อมูล</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingProject(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-semibold transition"
+                >
+                  ปิดหน้าต่าง
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1694,6 +1811,64 @@ export const CostDown5Page: React.FC = () => {
               className="max-h-[75vh] max-w-full object-contain p-2"
             />
           </div>
+        </div>
+      )}
+
+      {/* 9. CUSTOM IN-APP DELETE CONFIRMATION MODAL (No window.confirm!) */}
+      {projectToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-800/60 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-5 border-b border-rose-950/60 bg-rose-950/30 flex items-center gap-3">
+              <div className="p-2.5 bg-rose-600/20 text-rose-400 border border-rose-600/30 rounded-xl">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">ยืนยันการลบโครงการ Cost Down 5</h3>
+                <span className="text-xs text-rose-400 font-mono font-semibold">{projectToDelete.id}</span>
+              </div>
+            </div>
+            <div className="p-5 space-y-3 text-xs">
+              <p className="text-slate-200 font-medium leading-relaxed">
+                คุณต้องการลบโครงการ <span className="text-rose-300 font-bold">"{projectToDelete.title}"</span> ออกจากระบบใช่หรือไม่?
+              </p>
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-slate-400 text-[11px] leading-relaxed">
+                ⚠️ ข้อมูลโครงการ การคำนวณเงินประหยัด และประวัติรอบการใช้งานอะไหล่ทั้งหมดจะถูกลบออกจากฐานข้อมูลอย่างถาวร
+              </div>
+            </div>
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setProjectToDelete(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-semibold transition"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-bold shadow-lg shadow-rose-600/30 transition flex items-center gap-1.5"
+              >
+                <Trash2 size={15} />
+                <span>ยืนยันลบโครงการ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 10. SUCCESS / NOTIFICATION TOAST */}
+      {notification && (
+        <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl border shadow-2xl flex items-center gap-3 text-xs font-bold transition-all duration-300 animate-in slide-in-from-top ${
+          notification.type === 'success' 
+            ? 'bg-emerald-950/95 border-emerald-500/60 text-emerald-200' 
+            : 'bg-rose-950/95 border-rose-500/60 text-rose-200'
+        }`}>
+          {notification.type === 'success' ? (
+            <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+          ) : (
+            <AlertTriangle size={18} className="text-rose-400 shrink-0" />
+          )}
+          <span>{notification.message}</span>
         </div>
       )}
 

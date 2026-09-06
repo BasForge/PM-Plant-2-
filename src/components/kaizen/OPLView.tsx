@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { ImprovementProject, Machine } from '../../types';
+import React, { useState, useRef } from 'react';
+import { ImprovementProject, Machine, isExcelAttachment, MediaPhotoItem, PDFFileAttachment } from '../../types';
 import { 
-  BookOpen, Plus, FileText, Download, Printer, CheckCircle2, 
-  AlertTriangle, Wrench, Clock, Users, ShieldAlert, Sparkles, ExternalLink, Image as ImageIcon, Trash2, Edit3 
+  BookOpen, Plus, FileText, FileSpreadsheet, Download, Printer, CheckCircle2, 
+  AlertTriangle, Wrench, Clock, Users, ShieldAlert, Sparkles, ExternalLink, Image as ImageIcon, Trash2, Edit3, Upload 
 } from 'lucide-react';
+import { compressImageFile } from '../../utils/imageUtils';
 
 interface OPLViewProps {
   oplList: ImprovementProject[];
@@ -13,6 +14,8 @@ interface OPLViewProps {
   onOpenPhoto: (photo: any) => void;
   onOpenCreateModal: () => void;
   onDeleteProject: (id: string) => void;
+  onEditProject: (proj: ImprovementProject) => void;
+  onUpdateProject?: (proj: ImprovementProject) => void;
 }
 
 export const OPLView: React.FC<OPLViewProps> = ({
@@ -22,10 +25,96 @@ export const OPLView: React.FC<OPLViewProps> = ({
   onOpenPDF,
   onOpenPhoto,
   onOpenCreateModal,
-  onDeleteProject
+  onDeleteProject,
+  onEditProject,
+  onUpdateProject
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeOPLModal, setActiveOPLModal] = useState<ImprovementProject | null>(null);
+
+  const oplPhotoInputRef = useRef<HTMLInputElement>(null);
+  const oplFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync active modal with updated project from oplList
+  const currentOPLModal = activeOPLModal 
+    ? (oplList.find(o => o.id === activeOPLModal.id) || activeOPLModal) 
+    : null;
+
+  const handleQuickAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!currentOPLModal || !onUpdateProject) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newPhotos: MediaPhotoItem[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const compressed = await compressImageFile(file);
+        newPhotos.push({
+          id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+          url: compressed,
+          caption: file.name.replace(/\.[^/.]+$/, ""),
+          uploadedAt: new Date().toISOString().split('T')[0],
+          type: 'evidence'
+        });
+      } catch (err) {
+        console.error('Failed to compress photo', err);
+      }
+    }
+
+    if (newPhotos.length > 0) {
+      const updated: ImprovementProject = {
+        ...currentOPLModal,
+        photos: [...(currentOPLModal.photos || []), ...newPhotos]
+      };
+      onUpdateProject(updated);
+      setActiveOPLModal(updated);
+    }
+    if (e.target) e.target.value = '';
+  };
+
+  const handleQuickAddFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!currentOPLModal || !onUpdateProject) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newDocs: PDFFileAttachment[] = [];
+    let completedCount = 0;
+
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        const sizeFormatted = file.size > 1024 * 1024 
+          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.round(file.size / 1024)} KB`;
+
+        const isExcel = isExcelAttachment({ name: file.name });
+
+        newDocs.push({
+          id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          name: file.name,
+          size: sizeFormatted,
+          uploadedAt: new Date().toISOString().split('T')[0],
+          content: content,
+          fileType: isExcel ? 'excel' : 'pdf'
+        });
+
+        completedCount++;
+        if (completedCount === files.length) {
+          const updated: ImprovementProject = {
+            ...currentOPLModal,
+            pdfFiles: [...(currentOPLModal.pdfFiles || []), ...newDocs]
+          };
+          onUpdateProject(updated);
+          setActiveOPLModal(updated);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    if (e.target) e.target.value = '';
+  };
 
   const getMachineName = (machineId?: string) => {
     if (!machineId) return 'เครื่องจักรทั่วไป';
@@ -217,17 +306,55 @@ export const OPLView: React.FC<OPLViewProps> = ({
                         </button>
                       )}
 
-                      {/* PDF badge */}
-                      {hasPdf && opl.pdfFiles && opl.pdfFiles[0] && (
+                      {/* Additional Photos badge */}
+                      {opl.photos && opl.photos.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => onOpenPDF(opl.pdfFiles![0])}
-                          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold transition-all"
+                          onClick={() => onOpenPhoto({
+                            url: opl.photos![0].url,
+                            title: opl.title,
+                            subtitle: opl.photos![0].caption || 'ภาพประกอบ OPL',
+                            badge: `รูปภาพ (${opl.photos!.length})`
+                          })}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition-all shrink-0"
+                          title={`ดูรูปภาพประกอบเพิ่มเติม (${opl.photos.length} รูป)`}
                         >
-                          <FileText size={13} />
-                          เอกสาร PDF
+                          <ImageIcon size={13} />
+                          +{opl.photos.length} รูป
                         </button>
                       )}
+
+                      {/* Excel & PDF badges */}
+                      {opl.pdfFiles && opl.pdfFiles.length > 0 && (() => {
+                        const excelFiles = opl.pdfFiles.filter(isExcelAttachment);
+                        const pdfFiles = opl.pdfFiles.filter(f => !isExcelAttachment(f));
+                        return (
+                          <div className="ml-auto flex items-center gap-1.5">
+                            {excelFiles.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenPDF(excelFiles[0])}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold transition-all"
+                                title={`เปิดตาราง Excel: ${excelFiles[0].name}`}
+                              >
+                                <FileSpreadsheet size={13} />
+                                Excel ({excelFiles.length})
+                              </button>
+                            )}
+                            {pdfFiles.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenPDF(pdfFiles[0])}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold transition-all"
+                                title={`เปิดไฟล์ PDF: ${pdfFiles[0].name}`}
+                              >
+                                <FileText size={13} />
+                                PDF ({pdfFiles.length})
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -242,6 +369,14 @@ export const OPLView: React.FC<OPLViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => onEditProject(opl)}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 shadow-sm"
+                      title="แก้ไขข้อมูล, แนบไฟล์, รูปภาพเพิ่มเติม"
+                    >
+                      <Edit3 size={12} className="text-amber-400" />
+                      แก้ไข
+                    </button>
                     <button
                       onClick={() => setActiveOPLModal(opl)}
                       className="px-2.5 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
@@ -266,10 +401,28 @@ export const OPLView: React.FC<OPLViewProps> = ({
       </div>
 
       {/* Official OPL Sheet Printable Modal */}
-      {activeOPLModal && (
+      {currentOPLModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
             
+            {/* Hidden file & photo inputs for quick upload */}
+            <input
+              ref={oplPhotoInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleQuickAddPhotos}
+              className="hidden"
+            />
+            <input
+              ref={oplFileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,application/pdf"
+              multiple
+              onChange={handleQuickAddFiles}
+              className="hidden"
+            />
+
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900 shrink-0">
               <div className="flex items-center gap-3">
@@ -284,11 +437,23 @@ export const OPLView: React.FC<OPLViewProps> = ({
 
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => {
+                    const proj = currentOPLModal;
+                    setActiveOPLModal(null);
+                    onEditProject(proj);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold transition-all shadow-sm"
+                  title="แก้ไขข้อมูลทั้งหมด แนบไฟล์ หรือรูปภาพเพิ่มเติม"
+                >
+                  <Edit3 size={14} />
+                  แก้ไขข้อมูล
+                </button>
+                <button
                   onClick={() => window.print()}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg"
                 >
                   <Printer size={14} />
-                  พิมพ์ (Print)
+                  พิมพ์
                 </button>
                 <button
                   onClick={() => setActiveOPLModal(null)}
@@ -306,56 +471,138 @@ export const OPLView: React.FC<OPLViewProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-900 p-4 rounded-xl border border-slate-800 text-xs">
                 <div>
                   <span className="text-slate-500 block">หมวดหมู่ OPL:</span>
-                  <span className="text-blue-400 font-bold">{activeOPLModal.oplData?.category || 'Basic'}</span>
+                  <span className="text-blue-400 font-bold">{currentOPLModal.oplData?.category || 'Basic'}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">เครื่องจักร:</span>
-                  <span className="text-white font-semibold">{getMachineName(activeOPLModal.machineId)}</span>
+                  <span className="text-white font-semibold">{getMachineName(currentOPLModal.machineId)}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">ผู้จัดทำ (ช่าง):</span>
-                  <span className="text-white font-semibold">{activeOPLModal.technician}</span>
+                  <span className="text-white font-semibold">{currentOPLModal.technician}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">เอกสารอ้างอิง:</span>
-                  <span className="text-amber-400 font-mono font-bold">{activeOPLModal.oplData?.sopDocumentRef || '-'}</span>
+                  <span className="text-amber-400 font-mono font-bold">{currentOPLModal.oplData?.sopDocumentRef || '-'}</span>
                 </div>
               </div>
 
               {/* Title & Purpose */}
               <div className="space-y-2 bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <h4 className="text-sm font-bold text-white">หัวข้อ: {activeOPLModal.title}</h4>
+                <div className="flex items-start justify-between gap-2">
+                  <h4 className="text-sm font-bold text-white">หัวข้อ: {currentOPLModal.title}</h4>
+                  <button
+                    onClick={() => {
+                      const proj = currentOPLModal;
+                      setActiveOPLModal(null);
+                      onEditProject(proj);
+                    }}
+                    className="text-xs text-amber-400 hover:underline flex items-center gap-1 shrink-0"
+                  >
+                    <Edit3 size={11} />
+                    แก้ไขเนื้อหา
+                  </button>
+                </div>
                 <p className="text-xs text-slate-300">
-                  <span className="text-blue-400 font-semibold">วัตถุประสงค์:</span> {activeOPLModal.oplData?.purpose || activeOPLModal.description}
+                  <span className="text-blue-400 font-semibold">วัตถุประสงค์:</span> {currentOPLModal.oplData?.purpose || currentOPLModal.description}
                 </p>
-                {activeOPLModal.oplData?.targetAudience && (
+                {currentOPLModal.oplData?.targetAudience && (
                   <p className="text-xs text-slate-400">
-                    <span className="text-slate-500">กลุ่มเป้าหมายการฝึกอบรม:</span> {activeOPLModal.oplData.targetAudience}
+                    <span className="text-slate-500">กลุ่มเป้าหมายการฝึกอบรม:</span> {currentOPLModal.oplData.targetAudience}
                   </p>
                 )}
               </div>
 
               {/* Photos: Incorrect vs Correct */}
-              {(activeOPLModal.photoBefore || activeOPLModal.photoAfter) && (
+              {(currentOPLModal.photoBefore || currentOPLModal.photoAfter) && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {activeOPLModal.photoBefore && (
+                  {currentOPLModal.photoBefore && (
                     <div className="bg-slate-900 p-3 rounded-xl border border-rose-500/30 flex flex-col items-center">
                       <span className="text-xs font-bold text-rose-400 mb-2 flex items-center gap-1">
                         ✕ วิธีปฏิบัติที่ไม่ถูกต้อง (Don&apos;t / Incorrect)
                       </span>
-                      <img src={activeOPLModal.photoBefore} alt="Incorrect" className="w-full h-44 object-cover rounded-lg border border-slate-800" />
+                      <button
+                        type="button"
+                        onClick={() => onOpenPhoto({
+                          url: currentOPLModal.photoBefore!,
+                          title: currentOPLModal.title,
+                          subtitle: 'วิธีปฏิบัติที่ไม่ถูกต้อง',
+                          badge: 'INCORRECT'
+                        })}
+                        className="w-full text-left cursor-pointer group/photo overflow-hidden rounded-lg border border-slate-800"
+                      >
+                        <img src={currentOPLModal.photoBefore} alt="Incorrect" className="w-full h-48 object-cover group-hover/photo:scale-105 transition-transform" />
+                      </button>
                     </div>
                   )}
-                  {activeOPLModal.photoAfter && (
+                  {currentOPLModal.photoAfter && (
                     <div className="bg-slate-900 p-3 rounded-xl border border-emerald-500/30 flex flex-col items-center">
                       <span className="text-xs font-bold text-emerald-400 mb-2 flex items-center gap-1">
                         ✓ วิธีปฏิบัติที่ถูกต้องตามมาตรฐาน (Do / Standard)
                       </span>
-                      <img src={activeOPLModal.photoAfter} alt="Correct" className="w-full h-44 object-cover rounded-lg border border-slate-800" />
+                      <button
+                        type="button"
+                        onClick={() => onOpenPhoto({
+                          url: currentOPLModal.photoAfter!,
+                          title: currentOPLModal.title,
+                          subtitle: 'วิธีปฏิบัติที่ถูกต้องตามมาตรฐาน',
+                          badge: 'CORRECT'
+                        })}
+                        className="w-full text-left cursor-pointer group/photo overflow-hidden rounded-lg border border-slate-800"
+                      >
+                        <img src={currentOPLModal.photoAfter} alt="Correct" className="w-full h-48 object-cover group-hover/photo:scale-105 transition-transform" />
+                      </button>
                     </div>
                   )}
                 </div>
               )}
+
+              {/* Additional Photos Gallery in OPL */}
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                    <ImageIcon size={14} />
+                    รูปภาพประกอบขั้นตอน & ตัวอย่างเพิ่มเติม ({currentOPLModal.photos?.length || 0} รูป)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => oplPhotoInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  >
+                    <Plus size={12} />
+                    + แนบรูปภาพเพิ่ม
+                  </button>
+                </div>
+
+                {currentOPLModal.photos && currentOPLModal.photos.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {currentOPLModal.photos.map((photo, pIdx) => (
+                      <button
+                        key={photo.id || pIdx}
+                        type="button"
+                        onClick={() => onOpenPhoto({
+                          url: photo.url,
+                          title: currentOPLModal.title,
+                          subtitle: photo.caption || `ภาพขั้นตอน ${pIdx + 1}`,
+                          badge: 'OPL PHOTO'
+                        })}
+                        className="group/thumb relative rounded-lg overflow-hidden border border-slate-800 hover:border-cyan-500/60 bg-slate-950 text-left transition-all"
+                      >
+                        <img
+                          src={photo.url}
+                          alt={photo.caption || 'OPL illustration'}
+                          className="w-full h-24 object-cover group-hover/thumb:scale-105 transition-transform"
+                        />
+                        <div className="p-1.5 bg-slate-900/90 text-[10px] text-slate-300 truncate">
+                          {photo.caption || `รูปที่ ${pIdx + 1}`}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 py-1">ยังไม่มีรูปภาพประกอบขั้นตอนเพิ่มเติม (กดปุ่ม &quot;+ แนบรูปภาพเพิ่ม&quot; เพื่ออัปโหลด)</p>
+                )}
+              </div>
 
               {/* Key Points & Reasons */}
               <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
@@ -364,12 +611,12 @@ export const OPLView: React.FC<OPLViewProps> = ({
                   จุดสำคัญและเหตุผล (Key Points & Principles):
                 </h5>
                 <div className="space-y-2">
-                  {activeOPLModal.oplData?.keyPoints?.map((kp, idx) => (
+                  {currentOPLModal.oplData?.keyPoints?.map((kp, idx) => (
                     <div key={idx} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 text-xs text-slate-300">
                       <p className="font-semibold text-white">{kp}</p>
-                      {activeOPLModal.oplData?.reasons?.[idx] && (
+                      {currentOPLModal.oplData?.reasons?.[idx] && (
                         <p className="text-[11px] text-slate-400 mt-1 pl-3 border-l-2 border-blue-500">
-                          เหตุผล: {activeOPLModal.oplData.reasons[idx]}
+                          เหตุผล: {currentOPLModal.oplData.reasons[idx]}
                         </p>
                       )}
                     </div>
@@ -378,49 +625,90 @@ export const OPLView: React.FC<OPLViewProps> = ({
               </div>
 
               {/* Caution & Don'ts */}
-              {activeOPLModal.oplData?.cautionPoints && (
+              {currentOPLModal.oplData?.cautionPoints && (
                 <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 space-y-1">
                   <div className="font-bold flex items-center gap-1.5 text-rose-400">
                     <ShieldAlert size={15} />
                     ข้อควรระวัง / สิ่งที่ห้ามทำโดยเด็ดขาด:
                   </div>
-                  <p>{activeOPLModal.oplData.cautionPoints}</p>
+                  <p>{currentOPLModal.oplData.cautionPoints}</p>
                 </div>
               )}
 
-              {/* PDF Documents */}
-              {activeOPLModal.pdfFiles && activeOPLModal.pdfFiles.length > 0 && (
-                <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2">
-                  <h5 className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              {/* Excel & PDF Documents */}
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                    <FileSpreadsheet size={14} className="text-emerald-400" />
                     <FileText size={14} className="text-rose-400" />
-                    เอกสาร PDF แนบประกอบ:
+                    เอกสารแนบประกอบ ({currentOPLModal.pdfFiles?.length || 0} ไฟล์):
                   </h5>
-                  <div className="flex flex-wrap gap-2">
-                    {activeOPLModal.pdfFiles.map(pdf => (
-                      <button
-                        key={pdf.id}
-                        onClick={() => onOpenPDF(pdf)}
-                        className="flex items-center gap-2 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-lg text-xs text-rose-300 font-semibold transition-all"
-                      >
-                        <FileText size={14} />
-                        {pdf.name} ({pdf.size || 'PDF'})
-                      </button>
-                    ))}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => oplFileInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  >
+                    <Plus size={12} />
+                    + แนบไฟล์เอกสาร
+                  </button>
                 </div>
-              )}
+
+                {currentOPLModal.pdfFiles && currentOPLModal.pdfFiles.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {currentOPLModal.pdfFiles.map(file => {
+                      const isExcel = isExcelAttachment(file);
+                      return (
+                        <button
+                          key={file.id}
+                          onClick={() => onOpenPDF(file)}
+                          className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-semibold transition-all ${
+                            isExcel
+                              ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                              : 'bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/30 text-rose-300'
+                          }`}
+                        >
+                          {isExcel ? <FileSpreadsheet size={14} /> : <FileText size={14} />}
+                          <span>{file.name}</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              isExcel ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                            }`}
+                          >
+                            {isExcel ? 'EXCEL' : 'PDF'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 py-1">ยังไม่มีเอกสารแนบ (กดปุ่ม &quot;+ แนบไฟล์เอกสาร&quot; เพื่อแนบไฟล์ Excel หรือ PDF)</p>
+                )}
+              </div>
 
             </div>
 
             {/* Footer */}
             <div className="px-6 py-3 border-t border-slate-800 bg-slate-900 flex justify-between items-center text-xs text-slate-400">
               <span>อนุมัติและเผยแพร่มาตรฐาน OPL สำหรับโรงงานอาหาร</span>
-              <button
-                onClick={() => setActiveOPLModal(null)}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold"
-              >
-                ปิด
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const proj = currentOPLModal;
+                    setActiveOPLModal(null);
+                    onEditProject(proj);
+                  }}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white border border-slate-700 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                >
+                  <Edit3 size={13} />
+                  แก้ไขข้อมูล & ไฟล์แนบ
+                </button>
+                <button
+                  onClick={() => setActiveOPLModal(null)}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold"
+                >
+                  ปิด
+                </button>
+              </div>
             </div>
 
           </div>

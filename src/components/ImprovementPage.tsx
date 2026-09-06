@@ -100,11 +100,15 @@ export const ImprovementPage: React.FC = () => {
   const handleSaveProject = (projData: Partial<ImprovementProject>) => {
     if (editingProject) {
       // Update existing
-      const updated: ImprovementProject = {
+      const rawUpdated = {
         ...editingProject,
         ...projData,
         id: editingProject.id
-      } as ImprovementProject;
+      };
+      // Clean undefined values
+      const updated = Object.fromEntries(
+        Object.entries(rawUpdated).filter(([_, v]) => v !== undefined)
+      ) as unknown as ImprovementProject;
 
       setImprovements(prev => prev.map(p => p.id === editingProject.id ? updated : p));
       setEditingProject(null);
@@ -127,14 +131,11 @@ export const ImprovementPage: React.FC = () => {
         category: projData.category || 'KAIZEN',
         title: projData.title || 'งานพัฒนาใหม่',
         description: projData.description || '',
-        machineId: projData.machineId,
         startDate: projData.startDate || new Date().toISOString().split('T')[0],
         plannedEndDate: projData.plannedEndDate || new Date().toISOString().split('T')[0],
         technician: projData.technician || technicians[0] || 'ช่าง 1',
         technicians: projData.technicians || [projData.technician || 'ช่าง 1'],
         status: projData.status || 'กำลังดำเนินการ',
-        photoBefore: projData.photoBefore,
-        photoAfter: projData.photoAfter,
         pdfFiles: projData.pdfFiles || [],
         photos: projData.photos || [],
         workLogs: [
@@ -145,9 +146,12 @@ export const ImprovementPage: React.FC = () => {
             note: 'เริ่มต้นบันทึกและจัดทำเอกสาร'
           }
         ],
-        oplData: projData.oplData,
-        faData: projData.faData,
-        whyWhyData: projData.whyWhyData
+        ...(projData.machineId ? { machineId: projData.machineId } : {}),
+        ...(projData.photoBefore ? { photoBefore: projData.photoBefore } : {}),
+        ...(projData.photoAfter ? { photoAfter: projData.photoAfter } : {}),
+        ...(projData.oplData ? { oplData: projData.oplData } : {}),
+        ...(projData.faData ? { faData: projData.faData } : {}),
+        ...(projData.whyWhyData ? { whyWhyData: projData.whyWhyData } : {})
       };
 
       setImprovements(prev => [newProj, ...prev]);
@@ -185,7 +189,7 @@ export const ImprovementPage: React.FC = () => {
             งานพัฒนา Kaizen & คลังความรู้วิศวกรรม
           </h1>
           <p className="text-xs text-slate-400 max-w-3xl leading-relaxed">
-            ศูนย์รวมผลงาน Kaizen หน้างาน, เอกสารบทเรียนจุดเดียว (One Point Lesson), รายงานวิเคราะห์ชิ้นส่วนชำรุด (Failure Analysis) และการสืบค้นรากเหง้า (Why-Why Analysis) พร้อมแนบไฟล์ PDF และภาพถ่ายประกอบ
+            ศูนย์รวมผลงาน Kaizen หน้างาน, เอกสารบทเรียนจุดเดียว (One Point Lesson), รายงานวิเคราะห์ชิ้นส่วนชำรุด (Failure Analysis) และการสืบค้นรากเหง้า (Why-Why Analysis) พร้อมแนบไฟล์ Excel (.xlsx, .xls), PDF และภาพถ่ายประกอบ
           </p>
         </div>
 

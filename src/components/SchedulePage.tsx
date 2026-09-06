@@ -434,13 +434,12 @@ export const SchedulePage: React.FC = () => {
   };
 
   const handleDeleteTask = (taskId: string, type: 'Schedule' | 'Repair') => {
-    if (window.confirm('คุณยืนยันที่จะลบงานช่างนี้ออกจากตารางหรือไม่?')) {
-      if (type === 'Schedule') {
-        setSchedules(prev => prev.filter(s => s.id !== taskId));
-      } else {
-        setRepairs(prev => prev.filter(r => r.id !== taskId));
-      }
+    if (type === 'Schedule') {
+      setSchedules(prev => prev.filter(s => s.id !== taskId));
+    } else {
+      setRepairs(prev => prev.filter(r => r.id !== taskId));
     }
+    setToast({ text: 'ลบงานออกจากตารางเรียบร้อยแล้ว', type: 'success' });
   };
 
   // AUTO ASSIGN PM ALGORITHM (Round-Robin)
@@ -1116,10 +1115,8 @@ export const SchedulePage: React.FC = () => {
                                           type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            if (window.confirm(`ต้องการลบแผนงาน PM เครื่อง ${pm.machineId} (${plan?.title || 'บำรุงรักษา'}) ออกจากตารางงานใช่หรือไม่?`)) {
-                                              setSchedules(prev => prev.filter(s => s.id !== pm.id));
-                                              setToast({ text: `ลบแผน PM เครื่อง ${pm.machineId} เรียบร้อยแล้ว`, type: 'success' });
-                                            }
+                                            setSchedules(prev => prev.filter(s => s.id !== pm.id));
+                                            setToast({ text: `ลบแผน PM เครื่อง ${pm.machineId} (${plan?.title || 'บำรุงรักษา'}) ออกจากตารางแล้ว`, type: 'success' });
                                           }}
                                           className="opacity-0 group-hover:opacity-100 hover:text-rose-300 text-slate-400 p-0.5 rounded text-[10px] transition font-bold leading-none"
                                           title="ลบงาน PM นี้ออกจากตาราง"
@@ -1149,10 +1146,8 @@ export const SchedulePage: React.FC = () => {
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (window.confirm(`ต้องการลบงานคุมไลน์ "${op.line}" (${op.startTime}-${op.endTime}) ของช่าง ${op.technicians?.join(', ') || op.technician} ออกจากตารางงานใช่หรือไม่?`)) {
-                                        setSchedules(prev => prev.filter(s => s.id !== op.id));
-                                        setToast({ text: `ลบงานคุมไลน์ ${op.line} เรียบร้อยแล้ว`, type: 'success' });
-                                      }
+                                      setSchedules(prev => prev.filter(s => s.id !== op.id));
+                                      setToast({ text: `ลบงานคุมไลน์ ${op.line} เรียบร้อยแล้ว`, type: 'success' });
                                     }}
                                     className="opacity-0 group-hover:opacity-100 hover:text-rose-300 text-amber-400/80 p-0.5 rounded text-[10px] transition font-bold leading-none shrink-0"
                                     title="ลบงานคุมไลน์นี้"
@@ -1174,10 +1169,8 @@ export const SchedulePage: React.FC = () => {
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (window.confirm(`ต้องการลบรายการซ่อมเครื่อง ${rep.machineId} (${rep.symptoms}) ใช่หรือไม่?`)) {
-                                        setRepairs(prev => prev.filter(r => r.id !== rep.id));
-                                        setToast({ text: `ลบรายการซ่อมเครื่อง ${rep.machineId} เรียบร้อยแล้ว`, type: 'success' });
-                                      }
+                                      setRepairs(prev => prev.filter(r => r.id !== rep.id));
+                                      setToast({ text: `ลบรายการซ่อมเครื่อง ${rep.machineId} เรียบร้อยแล้ว`, type: 'success' });
                                     }}
                                     className="opacity-0 group-hover:opacity-100 hover:text-rose-200 text-rose-400 p-0.5 rounded text-[10px] transition font-bold leading-none shrink-0"
                                     title="ลบรายการซ่อมนี้"
@@ -1199,10 +1192,8 @@ export const SchedulePage: React.FC = () => {
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (window.confirm(`ต้องการลบงาน Kaizen "${imp.title}" ออกจากตารางงานใช่หรือไม่?`)) {
-                                        setImprovements(prev => prev.filter(i => i.id !== imp.projId));
-                                        setToast({ text: `ลบงาน Kaizen "${imp.title}" เรียบร้อยแล้ว`, type: 'success' });
-                                      }
+                                      setImprovements(prev => prev.filter(i => i.id !== imp.projId));
+                                      setToast({ text: `ลบงาน Kaizen "${imp.title}" เรียบร้อยแล้ว`, type: 'success' });
                                     }}
                                     className="opacity-0 group-hover:opacity-100 hover:text-purple-200 text-purple-400 p-0.5 rounded text-[10px] transition font-bold leading-none shrink-0"
                                     title="ลบงาน Kaizen นี้"
@@ -1224,10 +1215,8 @@ export const SchedulePage: React.FC = () => {
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (window.confirm(`ต้องการลบรายการเซ็ตติ้งเครื่อง ${setup.machineId} ใช่หรือไม่?`)) {
-                                        setSetupLogs(prev => prev.filter(s => s.id !== setup.id));
-                                        setToast({ text: `ลบรายการเซ็ตติ้งเครื่อง ${setup.machineId} เรียบร้อยแล้ว`, type: 'success' });
-                                      }
+                                      setSetupLogs(prev => prev.filter(s => s.id !== setup.id));
+                                      setToast({ text: `ลบรายการเซ็ตติ้งเครื่อง ${setup.machineId} เรียบร้อยแล้ว`, type: 'success' });
                                     }}
                                     className="opacity-0 group-hover:opacity-100 hover:text-cyan-200 text-cyan-400 p-0.5 rounded text-[10px] transition font-bold leading-none shrink-0"
                                     title="ลบรายการเซ็ตติ้งนี้"

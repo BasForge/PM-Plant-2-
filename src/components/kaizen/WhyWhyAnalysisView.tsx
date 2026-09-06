@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { ImprovementProject, Machine } from '../../types';
+import React, { useState, useRef } from 'react';
+import { ImprovementProject, Machine, isExcelAttachment, MediaPhotoItem, PDFFileAttachment } from '../../types';
 import { 
-  HelpCircle, Plus, FileText, Wrench, CheckCircle2, 
+  HelpCircle, Plus, FileText, FileSpreadsheet, Wrench, CheckCircle2, 
   ArrowDown, GitCommit, ShieldAlert, Sparkles, Trash2, ExternalLink,
-  Layers, AlertTriangle, Image as ImageIcon
+  Layers, AlertTriangle, Image as ImageIcon, Edit3, Upload
 } from 'lucide-react';
+import { compressImageFile } from '../../utils/imageUtils';
 
 interface WhyWhyAnalysisViewProps {
   whyList: ImprovementProject[];
@@ -14,6 +15,8 @@ interface WhyWhyAnalysisViewProps {
   onOpenPhoto: (photo: any) => void;
   onOpenCreateModal: () => void;
   onDeleteProject: (id: string) => void;
+  onEditProject: (proj: ImprovementProject) => void;
+  onUpdateProject?: (proj: ImprovementProject) => void;
 }
 
 export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
@@ -23,9 +26,95 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
   onOpenPDF,
   onOpenPhoto,
   onOpenCreateModal,
-  onDeleteProject
+  onDeleteProject,
+  onEditProject,
+  onUpdateProject
 }) => {
   const [activeWhyModal, setActiveWhyModal] = useState<ImprovementProject | null>(null);
+
+  const whyPhotoInputRef = useRef<HTMLInputElement>(null);
+  const whyFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync active modal with updated project from whyList
+  const currentWhyModal = activeWhyModal 
+    ? (whyList.find(w => w.id === activeWhyModal.id) || activeWhyModal) 
+    : null;
+
+  const handleQuickAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!currentWhyModal || !onUpdateProject) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newPhotos: MediaPhotoItem[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const compressed = await compressImageFile(file);
+        newPhotos.push({
+          id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+          url: compressed,
+          caption: file.name.replace(/\.[^/.]+$/, ""),
+          uploadedAt: new Date().toISOString().split('T')[0],
+          type: 'evidence'
+        });
+      } catch (err) {
+        console.error('Failed to compress photo', err);
+      }
+    }
+
+    if (newPhotos.length > 0) {
+      const updated: ImprovementProject = {
+        ...currentWhyModal,
+        photos: [...(currentWhyModal.photos || []), ...newPhotos]
+      };
+      onUpdateProject(updated);
+      setActiveWhyModal(updated);
+    }
+    if (e.target) e.target.value = '';
+  };
+
+  const handleQuickAddFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!currentWhyModal || !onUpdateProject) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newDocs: PDFFileAttachment[] = [];
+    let completedCount = 0;
+
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        const sizeFormatted = file.size > 1024 * 1024 
+          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.round(file.size / 1024)} KB`;
+
+        const isExcel = isExcelAttachment({ name: file.name });
+
+        newDocs.push({
+          id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          name: file.name,
+          size: sizeFormatted,
+          uploadedAt: new Date().toISOString().split('T')[0],
+          content: content,
+          fileType: isExcel ? 'excel' : 'pdf'
+        });
+
+        completedCount++;
+        if (completedCount === files.length) {
+          const updated: ImprovementProject = {
+            ...currentWhyModal,
+            pdfFiles: [...(currentWhyModal.pdfFiles || []), ...newDocs]
+          };
+          onUpdateProject(updated);
+          setActiveWhyModal(updated);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    if (e.target) e.target.value = '';
+  };
 
   const getMachineName = (machineId?: string) => {
     if (!machineId) return 'เครื่องจักรทั่วไป';
@@ -176,16 +265,55 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                         </button>
                       )}
 
-                      {hasPdf && item.pdfFiles && item.pdfFiles[0] && (
+                      {/* Additional Photos badge */}
+                      {item.photos && item.photos.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => onOpenPDF(item.pdfFiles![0])}
-                          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold transition-all"
+                          onClick={() => onOpenPhoto({
+                            url: item.photos![0].url,
+                            title: item.title,
+                            subtitle: item.photos![0].caption || 'ภาพประกอบการวิเคราะห์',
+                            badge: `รูปภาพ (${item.photos!.length})`
+                          })}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition-all shrink-0"
+                          title={`ดูรูปภาพประกอบเพิ่มเติม (${item.photos.length} รูป)`}
                         >
-                          <FileText size={13} />
-                          รายงาน 5-Whys (.PDF)
+                          <ImageIcon size={13} />
+                          +{item.photos.length} รูป
                         </button>
                       )}
+
+                      {/* Excel & PDF badges */}
+                      {item.pdfFiles && item.pdfFiles.length > 0 && (() => {
+                        const excelFiles = item.pdfFiles.filter(isExcelAttachment);
+                        const pdfFiles = item.pdfFiles.filter(f => !isExcelAttachment(f));
+                        return (
+                          <div className="ml-auto flex items-center gap-1.5">
+                            {excelFiles.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenPDF(excelFiles[0])}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold transition-all"
+                                title={`เปิดตาราง Excel: ${excelFiles[0].name}`}
+                              >
+                                <FileSpreadsheet size={13} />
+                                Excel ({excelFiles.length})
+                              </button>
+                            )}
+                            {pdfFiles.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenPDF(pdfFiles[0])}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold transition-all"
+                                title={`เปิดรายงาน PDF: ${pdfFiles[0].name}`}
+                              >
+                                <FileText size={13} />
+                                PDF ({pdfFiles.length})
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -200,6 +328,14 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => onEditProject(item)}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 shadow-sm"
+                      title="แก้ไขข้อมูล, แนบไฟล์, รูปภาพเพิ่มเติม"
+                    >
+                      <Edit3 size={12} className="text-amber-400" />
+                      แก้ไข
+                    </button>
                     <button
                       onClick={() => setActiveWhyModal(item)}
                       className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
@@ -224,10 +360,28 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
       </div>
 
       {/* Full 5-Whys Flow Ladder Modal */}
-      {activeWhyModal && (
+      {currentWhyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
             
+            {/* Hidden file & photo inputs for quick upload */}
+            <input
+              ref={whyPhotoInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleQuickAddPhotos}
+              className="hidden"
+            />
+            <input
+              ref={whyFileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,application/pdf"
+              multiple
+              onChange={handleQuickAddFiles}
+              className="hidden"
+            />
+
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900 shrink-0">
               <div className="flex items-center gap-3">
@@ -240,12 +394,26 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                 </div>
               </div>
 
-              <button
-                onClick={() => setActiveWhyModal(null)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const proj = currentWhyModal;
+                    setActiveWhyModal(null);
+                    onEditProject(proj);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold transition-all shadow-sm"
+                  title="แก้ไขข้อมูลทั้งหมด แนบไฟล์ หรือรูปภาพเพิ่มเติม"
+                >
+                  <Edit3 size={14} />
+                  แก้ไขข้อมูล
+                </button>
+                <button
+                  onClick={() => setActiveWhyModal(null)}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Body */}
@@ -255,30 +423,134 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-900 p-4 rounded-xl border border-slate-800 text-xs">
                 <div>
                   <span className="text-slate-500 block">เครื่องจักร:</span>
-                  <span className="text-cyan-400 font-semibold">{getMachineName(activeWhyModal.machineId)}</span>
+                  <span className="text-cyan-400 font-semibold">{getMachineName(currentWhyModal.machineId)}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">ผู้รับผิดชอบ / ทีมวิเคราะห์:</span>
-                  <span className="text-white font-semibold">{activeWhyModal.technician}</span>
+                  <span className="text-white font-semibold">{currentWhyModal.technician}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">มาตรฐานอ้างอิง:</span>
-                  <span className="text-amber-400 font-mono font-semibold">{activeWhyModal.whyWhyData?.standardizationRef || '-'}</span>
+                  <span className="text-amber-400 font-mono font-semibold">{currentWhyModal.whyWhyData?.standardizationRef || '-'}</span>
                 </div>
               </div>
 
               {/* Problem and Phenomenon */}
               <div className="space-y-2 bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <h4 className="text-sm font-bold text-white">หัวข้อ: {activeWhyModal.title}</h4>
+                <div className="flex items-start justify-between gap-2">
+                  <h4 className="text-sm font-bold text-white">หัวข้อ: {currentWhyModal.title}</h4>
+                  <button
+                    onClick={() => {
+                      const proj = currentWhyModal;
+                      setActiveWhyModal(null);
+                      onEditProject(proj);
+                    }}
+                    className="text-xs text-amber-400 hover:underline flex items-center gap-1 shrink-0"
+                  >
+                    <Edit3 size={11} />
+                    แก้ไขเนื้อหา
+                  </button>
+                </div>
                 <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-300">
                   <span className="font-bold text-rose-400 block mb-1">🚨 สภาพปัญหา:</span>
-                  {activeWhyModal.whyWhyData?.problemStatement || activeWhyModal.description}
+                  {currentWhyModal.whyWhyData?.problemStatement || currentWhyModal.description}
                 </div>
-                {activeWhyModal.whyWhyData?.phenomenon && (
+                {currentWhyModal.whyWhyData?.phenomenon && (
                   <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs text-slate-300">
                     <span className="font-bold text-amber-400 block mb-1">👁️ ปรากฏการณ์หน้างาน:</span>
-                    {activeWhyModal.whyWhyData.phenomenon}
+                    {currentWhyModal.whyWhyData.phenomenon}
                   </div>
+                )}
+              </div>
+
+              {/* Photos: Before / After if exists */}
+              {(currentWhyModal.photoBefore || currentWhyModal.photoAfter) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {currentWhyModal.photoBefore && (
+                    <div className="bg-slate-900 p-3 rounded-xl border border-rose-500/30 space-y-1.5">
+                      <span className="text-xs font-bold text-rose-400 flex items-center gap-1">
+                        🔍 สภาพปัญหาก่อนวิเคราะห์:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onOpenPhoto({
+                          url: currentWhyModal.photoBefore!,
+                          title: currentWhyModal.title,
+                          subtitle: 'สภาพปัญหาก่อนวิเคราะห์',
+                          badge: 'BEFORE'
+                        })}
+                        className="w-full text-left cursor-pointer group/photo overflow-hidden rounded-lg border border-slate-800"
+                      >
+                        <img src={currentWhyModal.photoBefore} alt="Before" className="w-full h-44 object-cover group-hover/photo:scale-105 transition-transform" />
+                      </button>
+                    </div>
+                  )}
+                  {currentWhyModal.photoAfter && (
+                    <div className="bg-slate-900 p-3 rounded-xl border border-emerald-500/30 space-y-1.5">
+                      <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                        ✓ หลังดำเนินมาตรการแก้ไข:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onOpenPhoto({
+                          url: currentWhyModal.photoAfter!,
+                          title: currentWhyModal.title,
+                          subtitle: 'หลังดำเนินมาตรการแก้ไข',
+                          badge: 'AFTER'
+                        })}
+                        className="w-full text-left cursor-pointer group/photo overflow-hidden rounded-lg border border-slate-800"
+                      >
+                        <img src={currentWhyModal.photoAfter} alt="After" className="w-full h-44 object-cover group-hover/photo:scale-105 transition-transform" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Additional Photos Gallery */}
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                    <ImageIcon size={14} />
+                    รูปภาพประกอบหลักฐานและการวิเคราะห์ ({currentWhyModal.photos?.length || 0} รูป)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => whyPhotoInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  >
+                    <Plus size={12} />
+                    + แนบรูปภาพเพิ่ม
+                  </button>
+                </div>
+
+                {currentWhyModal.photos && currentWhyModal.photos.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {currentWhyModal.photos.map((photo, pIdx) => (
+                      <button
+                        key={photo.id || pIdx}
+                        type="button"
+                        onClick={() => onOpenPhoto({
+                          url: photo.url,
+                          title: currentWhyModal.title,
+                          subtitle: photo.caption || `ภาพประกอบ ${pIdx + 1}`,
+                          badge: '5-WHYS PHOTO'
+                        })}
+                        className="group/thumb relative rounded-lg overflow-hidden border border-slate-800 hover:border-cyan-500/60 bg-slate-950 text-left transition-all"
+                      >
+                        <img
+                          src={photo.url}
+                          alt={photo.caption || 'Evidence'}
+                          className="w-full h-24 object-cover group-hover/thumb:scale-105 transition-transform"
+                        />
+                        <div className="p-1.5 bg-slate-900/90 text-[10px] text-slate-300 truncate">
+                          {photo.caption || `รูปที่ ${pIdx + 1}`}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 py-1">ยังไม่มีรูปภาพประกอบเพิ่มเติม (กดปุ่ม &quot;+ แนบรูปภาพเพิ่ม&quot; เพื่ออัปโหลด)</p>
                 )}
               </div>
 
@@ -291,11 +563,11 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
 
                 <div className="space-y-3 pl-2">
                   {[
-                    { num: 1, text: activeWhyModal.whyWhyData?.why1, label: 'Why 1: ทำไมเกิดปรากฏการณ์นี้?' },
-                    { num: 2, text: activeWhyModal.whyWhyData?.why2, label: 'Why 2: ทำไมจึงเกิดสาเหตุที่ 1?' },
-                    { num: 3, text: activeWhyModal.whyWhyData?.why3, label: 'Why 3: ทำไมจึงเกิดสาเหตุที่ 2?' },
-                    { num: 4, text: activeWhyModal.whyWhyData?.why4, label: 'Why 4: ทำไมจึงเกิดสาเหตุที่ 3?' },
-                    { num: 5, text: activeWhyModal.whyWhyData?.why5, label: 'Why 5: ทำไมระบบจึงยอมให้เกิดสิ่งนี้? (Root Cause)', isRoot: true },
+                    { num: 1, text: currentWhyModal.whyWhyData?.why1, label: 'Why 1: ทำไมเกิดปรากฏการณ์นี้?' },
+                    { num: 2, text: currentWhyModal.whyWhyData?.why2, label: 'Why 2: ทำไมจึงเกิดสาเหตุที่ 1?' },
+                    { num: 3, text: currentWhyModal.whyWhyData?.why3, label: 'Why 3: ทำไมจึงเกิดสาเหตุที่ 2?' },
+                    { num: 4, text: currentWhyModal.whyWhyData?.why4, label: 'Why 4: ทำไมจึงเกิดสาเหตุที่ 3?' },
+                    { num: 5, text: currentWhyModal.whyWhyData?.why5, label: 'Why 5: ทำไมระบบจึงยอมให้เกิดสิ่งนี้? (Root Cause)', isRoot: true },
                   ].filter(w => Boolean(w.text)).map((w, idx, arr) => (
                     <div key={w.num} className="relative">
                       <div className={`p-3.5 rounded-xl border transition-all ${
@@ -336,7 +608,7 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                     มาตรการแก้ไขเชิงระบบ (Countermeasures):
                   </h5>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    {activeWhyModal.whyWhyData?.countermeasure || '-'}
+                    {currentWhyModal.whyWhyData?.countermeasure || '-'}
                   </p>
                 </div>
                 <div className="bg-slate-900 p-4 rounded-xl border border-cyan-500/30 space-y-1.5">
@@ -345,44 +617,85 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                     การติดตามผล (Verification):
                   </h5>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    {activeWhyModal.whyWhyData?.effectivenessVerification || '-'}
+                    {currentWhyModal.whyWhyData?.effectivenessVerification || '-'}
                   </p>
                 </div>
               </div>
 
-              {/* PDF Documents */}
-              {activeWhyModal.pdfFiles && activeWhyModal.pdfFiles.length > 0 && (
-                <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2">
-                  <h5 className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              {/* Excel & PDF Documents */}
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                    <FileSpreadsheet size={14} className="text-emerald-400" />
                     <FileText size={14} className="text-rose-400" />
-                    เอกสารแนบการวิเคราะห์ (.PDF):
+                    เอกสารแนบการวิเคราะห์ ({currentWhyModal.pdfFiles?.length || 0} ไฟล์):
                   </h5>
-                  <div className="flex flex-wrap gap-2">
-                    {activeWhyModal.pdfFiles.map(pdf => (
-                      <button
-                        key={pdf.id}
-                        onClick={() => onOpenPDF(pdf)}
-                        className="flex items-center gap-2 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-lg text-xs text-rose-300 font-semibold transition-all"
-                      >
-                        <FileText size={14} />
-                        {pdf.name} ({pdf.size || 'PDF'})
-                      </button>
-                    ))}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => whyFileInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  >
+                    <Plus size={12} />
+                    + แนบไฟล์เอกสาร
+                  </button>
                 </div>
-              )}
+
+                {currentWhyModal.pdfFiles && currentWhyModal.pdfFiles.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {currentWhyModal.pdfFiles.map(file => {
+                      const isExcel = isExcelAttachment(file);
+                      return (
+                        <button
+                          key={file.id}
+                          onClick={() => onOpenPDF(file)}
+                          className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-semibold transition-all ${
+                            isExcel
+                              ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                              : 'bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/30 text-rose-300'
+                          }`}
+                        >
+                          {isExcel ? <FileSpreadsheet size={14} /> : <FileText size={14} />}
+                          <span>{file.name}</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              isExcel ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                            }`}
+                          >
+                            {isExcel ? 'EXCEL' : 'PDF'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 py-1">ยังไม่มีเอกสารแนบ (กดปุ่ม &quot;+ แนบไฟล์เอกสาร&quot; เพื่อแนบไฟล์ Excel หรือ PDF)</p>
+                )}
+              </div>
 
             </div>
 
             {/* Footer */}
             <div className="px-6 py-3 border-t border-slate-800 bg-slate-900 flex justify-between items-center text-xs text-slate-400">
               <span>รายงานวิเคราะห์ 5 Whys เพื่อขจัดปัญหาซ้ำซากให้เป็นศูนย์</span>
-              <button
-                onClick={() => setActiveWhyModal(null)}
-                className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-bold"
-              >
-                ปิด
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const proj = currentWhyModal;
+                    setActiveWhyModal(null);
+                    onEditProject(proj);
+                  }}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white border border-slate-700 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                >
+                  <Edit3 size={13} />
+                  แก้ไขข้อมูล & ไฟล์แนบ
+                </button>
+                <button
+                  onClick={() => setActiveWhyModal(null)}
+                  className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-bold"
+                >
+                  ปิด
+                </button>
+              </div>
             </div>
 
           </div>

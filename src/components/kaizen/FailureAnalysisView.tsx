@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { ImprovementProject, Machine } from '../../types';
+import React, { useState, useRef } from 'react';
+import { ImprovementProject, Machine, isExcelAttachment, MediaPhotoItem, PDFFileAttachment } from '../../types';
 import { 
-  Search, Plus, FileText, Wrench, AlertTriangle, ShieldCheck, 
+  Search, Plus, FileText, FileSpreadsheet, Wrench, AlertTriangle, ShieldCheck, 
   TrendingDown, DollarSign, Microscope, CheckCircle2, ChevronRight,
-  Layers, Trash2, ExternalLink, Image as ImageIcon
+  Layers, Trash2, ExternalLink, Image as ImageIcon, Edit3, Upload
 } from 'lucide-react';
+import { compressImageFile } from '../../utils/imageUtils';
 
 interface FailureAnalysisViewProps {
   faList: ImprovementProject[];
@@ -14,6 +15,8 @@ interface FailureAnalysisViewProps {
   onOpenPhoto: (photo: any) => void;
   onOpenCreateModal: () => void;
   onDeleteProject: (id: string) => void;
+  onEditProject: (proj: ImprovementProject) => void;
+  onUpdateProject?: (proj: ImprovementProject) => void;
 }
 
 export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
@@ -23,10 +26,96 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
   onOpenPDF,
   onOpenPhoto,
   onOpenCreateModal,
-  onDeleteProject
+  onDeleteProject,
+  onEditProject,
+  onUpdateProject
 }) => {
   const [selectedFailureMode, setSelectedFailureMode] = useState<string>('all');
   const [activeFAModal, setActiveFAModal] = useState<ImprovementProject | null>(null);
+
+  const faPhotoInputRef = useRef<HTMLInputElement>(null);
+  const faFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync active modal with updated project from faList
+  const currentFAModal = activeFAModal 
+    ? (faList.find(f => f.id === activeFAModal.id) || activeFAModal) 
+    : null;
+
+  const handleQuickAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!currentFAModal || !onUpdateProject) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newPhotos: MediaPhotoItem[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const compressed = await compressImageFile(file);
+        newPhotos.push({
+          id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+          url: compressed,
+          caption: file.name.replace(/\.[^/.]+$/, ""),
+          uploadedAt: new Date().toISOString().split('T')[0],
+          type: 'evidence'
+        });
+      } catch (err) {
+        console.error('Failed to compress photo', err);
+      }
+    }
+
+    if (newPhotos.length > 0) {
+      const updated: ImprovementProject = {
+        ...currentFAModal,
+        photos: [...(currentFAModal.photos || []), ...newPhotos]
+      };
+      onUpdateProject(updated);
+      setActiveFAModal(updated);
+    }
+    if (e.target) e.target.value = '';
+  };
+
+  const handleQuickAddFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!currentFAModal || !onUpdateProject) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newDocs: PDFFileAttachment[] = [];
+    let completedCount = 0;
+
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        const sizeFormatted = file.size > 1024 * 1024 
+          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.round(file.size / 1024)} KB`;
+
+        const isExcel = isExcelAttachment({ name: file.name });
+
+        newDocs.push({
+          id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          name: file.name,
+          size: sizeFormatted,
+          uploadedAt: new Date().toISOString().split('T')[0],
+          content: content,
+          fileType: isExcel ? 'excel' : 'pdf'
+        });
+
+        completedCount++;
+        if (completedCount === files.length) {
+          const updated: ImprovementProject = {
+            ...currentFAModal,
+            pdfFiles: [...(currentFAModal.pdfFiles || []), ...newDocs]
+          };
+          onUpdateProject(updated);
+          setActiveFAModal(updated);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    if (e.target) e.target.value = '';
+  };
 
   const getMachineName = (machineId?: string) => {
     if (!machineId) return 'เครื่องจักรทั่วไป';
@@ -208,16 +297,55 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
                         </button>
                       )}
 
-                      {hasPdf && fa.pdfFiles && fa.pdfFiles[0] && (
+                      {/* Additional Photos badge */}
+                      {fa.photos && fa.photos.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => onOpenPDF(fa.pdfFiles![0])}
-                          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold transition-all"
+                          onClick={() => onOpenPhoto({
+                            url: fa.photos![0].url,
+                            title: fa.title,
+                            subtitle: fa.photos![0].caption || 'ภาพถ่ายประกอบเพิ่มเติม',
+                            badge: `รูปภาพ (${fa.photos!.length})`
+                          })}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition-all shrink-0"
+                          title={`ดูภาพถ่ายประกอบเพิ่มเติม (${fa.photos.length} รูป)`}
                         >
-                          <FileText size={13} />
-                          รายงาน FA (.PDF)
+                          <ImageIcon size={13} />
+                          +{fa.photos.length} รูป
                         </button>
                       )}
+
+                      {/* Excel & PDF badges */}
+                      {fa.pdfFiles && fa.pdfFiles.length > 0 && (() => {
+                        const excelFiles = fa.pdfFiles.filter(isExcelAttachment);
+                        const pdfFiles = fa.pdfFiles.filter(f => !isExcelAttachment(f));
+                        return (
+                          <div className="ml-auto flex items-center gap-1.5">
+                            {excelFiles.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenPDF(excelFiles[0])}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold transition-all"
+                                title={`เปิดตารางวิเคราะห์ Excel: ${excelFiles[0].name}`}
+                              >
+                                <FileSpreadsheet size={13} />
+                                Excel ({excelFiles.length})
+                              </button>
+                            )}
+                            {pdfFiles.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenPDF(pdfFiles[0])}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold transition-all"
+                                title={`เปิดรายงาน PDF: ${pdfFiles[0].name}`}
+                              >
+                                <FileText size={13} />
+                                PDF ({pdfFiles.length})
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -232,6 +360,14 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => onEditProject(fa)}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 shadow-sm"
+                      title="แก้ไขข้อมูล, แนบไฟล์, รูปภาพเพิ่มเติม"
+                    >
+                      <Edit3 size={12} className="text-amber-400" />
+                      แก้ไข
+                    </button>
                     <button
                       onClick={() => setActiveFAModal(fa)}
                       className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
@@ -256,10 +392,28 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
       </div>
 
       {/* Full FA Report Modal */}
-      {activeFAModal && (
+      {currentFAModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
             
+            {/* Hidden file & photo inputs for quick upload */}
+            <input
+              ref={faPhotoInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleQuickAddPhotos}
+              className="hidden"
+            />
+            <input
+              ref={faFileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,application/pdf"
+              multiple
+              onChange={handleQuickAddFiles}
+              className="hidden"
+            />
+
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900 shrink-0">
               <div className="flex items-center gap-3">
@@ -272,12 +426,26 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
                 </div>
               </div>
 
-              <button
-                onClick={() => setActiveFAModal(null)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const proj = currentFAModal;
+                    setActiveFAModal(null);
+                    onEditProject(proj);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold transition-all shadow-sm"
+                  title="แก้ไขข้อมูลทั้งหมด แนบไฟล์ หรือรูปภาพเพิ่มเติม"
+                >
+                  <Edit3 size={14} />
+                  แก้ไขข้อมูล
+                </button>
+                <button
+                  onClick={() => setActiveFAModal(null)}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Modal Body */}
@@ -287,38 +455,132 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-900 p-4 rounded-xl border border-slate-800 text-xs">
                 <div>
                   <span className="text-slate-500 block">รูปแบบความเสียหาย:</span>
-                  <span className="text-rose-400 font-bold">{activeFAModal.faData?.failureMode}</span>
+                  <span className="text-rose-400 font-bold">{currentFAModal.faData?.failureMode}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">หมวดหมู่ต้นเหตุ:</span>
-                  <span className="text-white font-semibold">{activeFAModal.faData?.rootCauseCategory}</span>
+                  <span className="text-white font-semibold">{currentFAModal.faData?.rootCauseCategory}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">ชิ้นส่วนที่ชำรุด:</span>
-                  <span className="text-amber-300 font-semibold">{activeFAModal.faData?.failurePartName}</span>
+                  <span className="text-amber-300 font-semibold">{currentFAModal.faData?.failurePartName}</span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">เครื่องจักร:</span>
-                  <span className="text-cyan-400 font-semibold">{getMachineName(activeFAModal.machineId)}</span>
+                  <span className="text-cyan-400 font-semibold">{getMachineName(currentFAModal.machineId)}</span>
                 </div>
               </div>
 
               {/* Title & Description */}
               <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2">
-                <h4 className="text-sm font-bold text-white">เคส: {activeFAModal.title}</h4>
-                <p className="text-xs text-slate-300 leading-relaxed">{activeFAModal.description}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <h4 className="text-sm font-bold text-white">เคส: {currentFAModal.title}</h4>
+                  <button
+                    onClick={() => {
+                      const proj = currentFAModal;
+                      setActiveFAModal(null);
+                      onEditProject(proj);
+                    }}
+                    className="text-xs text-amber-400 hover:underline flex items-center gap-1 shrink-0"
+                  >
+                    <Edit3 size={11} />
+                    แก้ไขเนื้อหา
+                  </button>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">{currentFAModal.description}</p>
               </div>
 
-              {/* Damaged photo */}
-              {activeFAModal.photoBefore && (
-                <div className="bg-slate-900 p-4 rounded-xl border border-rose-500/30 space-y-2">
-                  <span className="text-xs font-bold text-rose-400 flex items-center gap-1.5">
-                    <Microscope size={14} />
-                    ภาพถ่ายหน้าตัดความเสียหาย (Fracture Surface / Damaged Part):
+              {/* Damaged photo & Result Photo */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {currentFAModal.photoBefore && (
+                  <div className="bg-slate-900 p-4 rounded-xl border border-rose-500/30 space-y-2">
+                    <span className="text-xs font-bold text-rose-400 flex items-center gap-1.5">
+                      <Microscope size={14} />
+                      ภาพถ่ายชิ้นส่วนชำรุด (Damaged Part / Fracture):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenPhoto({
+                        url: currentFAModal.photoBefore!,
+                        title: currentFAModal.title,
+                        subtitle: 'ภาพถ่ายชิ้นส่วนชำรุด',
+                        badge: 'DAMAGED PART'
+                      })}
+                      className="w-full text-left cursor-pointer group/photo overflow-hidden rounded-xl border border-slate-800"
+                    >
+                      <img src={currentFAModal.photoBefore} alt="Damaged Part" className="w-full h-48 object-cover group-hover/photo:scale-105 transition-transform" />
+                    </button>
+                  </div>
+                )}
+
+                {currentFAModal.photoAfter && (
+                  <div className="bg-slate-900 p-4 rounded-xl border border-emerald-500/30 space-y-2">
+                    <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                      <ShieldCheck size={14} />
+                      ภาพหลังแก้ไข / ชิ้นส่วนมาตรฐานใหม่:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenPhoto({
+                        url: currentFAModal.photoAfter!,
+                        title: currentFAModal.title,
+                        subtitle: 'ภาพหลังแก้ไข / มาตรฐานใหม่',
+                        badge: 'CORRECTED PART'
+                      })}
+                      className="w-full text-left cursor-pointer group/photo overflow-hidden rounded-xl border border-slate-800"
+                    >
+                      <img src={currentFAModal.photoAfter} alt="Corrected Part" className="w-full h-48 object-cover group-hover/photo:scale-105 transition-transform" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Additional Photos Gallery in Report */}
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                    <ImageIcon size={14} />
+                    รูปภาพประกอบเพิ่มเติม & หลักฐานหน้างาน ({currentFAModal.photos?.length || 0} รูป)
                   </span>
-                  <img src={activeFAModal.photoBefore} alt="Damaged Part" className="w-full h-56 object-cover rounded-xl border border-slate-800" />
+                  <button
+                    type="button"
+                    onClick={() => faPhotoInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  >
+                    <Plus size={12} />
+                    + แนบรูปภาพเพิ่ม
+                  </button>
                 </div>
-              )}
+
+                {currentFAModal.photos && currentFAModal.photos.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {currentFAModal.photos.map((photo, pIdx) => (
+                      <button
+                        key={photo.id || pIdx}
+                        type="button"
+                        onClick={() => onOpenPhoto({
+                          url: photo.url,
+                          title: currentFAModal.title,
+                          subtitle: photo.caption || `ภาพประกอบ ${pIdx + 1}`,
+                          badge: 'EVIDENCE'
+                        })}
+                        className="group/thumb relative rounded-lg overflow-hidden border border-slate-800 hover:border-cyan-500/60 bg-slate-950 text-left transition-all"
+                      >
+                        <img
+                          src={photo.url}
+                          alt={photo.caption || 'Evidence'}
+                          className="w-full h-24 object-cover group-hover/thumb:scale-105 transition-transform"
+                        />
+                        <div className="p-1.5 bg-slate-900/90 text-[10px] text-slate-300 truncate">
+                          {photo.caption || `รูปที่ ${pIdx + 1}`}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 py-2">ยังไม่มีรูปภาพประกอบเพิ่มเติม (กดปุ่ม &quot;+ แนบรูปภาพเพิ่ม&quot; ด้านบนเพื่ออัปโหลด)</p>
+                )}
+              </div>
 
               {/* Mechanism Description */}
               <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2">
@@ -327,12 +589,12 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
                   ลำดับกลไกการเกิดความเสียหาย (Failure Mechanism):
                 </h5>
                 <p className="text-xs text-slate-300 leading-relaxed bg-slate-950 p-3 rounded-lg border border-slate-800">
-                  {activeFAModal.faData?.mechanismDescription}
+                  {currentFAModal.faData?.mechanismDescription}
                 </p>
-                {activeFAModal.faData?.laboratoryFindings && (
+                {currentFAModal.faData?.laboratoryFindings && (
                   <div className="text-xs text-slate-400 mt-2 bg-slate-950/80 p-3 rounded-lg border border-slate-800">
                     <span className="text-cyan-400 font-semibold block mb-1">ผลตรวจทางแล็บ/คุณสมบัติวัสดุ:</span>
-                    {activeFAModal.faData.laboratoryFindings}
+                    {currentFAModal.faData.laboratoryFindings}
                   </div>
                 )}
               </div>
@@ -344,50 +606,91 @@ export const FailureAnalysisView: React.FC<FailureAnalysisViewProps> = ({
                     <AlertTriangle size={14} />
                     มาตรการแก้ไขเฉพาะหน้า (Immediate Action):
                   </h5>
-                  <p className="text-xs text-slate-300">{activeFAModal.faData?.immediateContainment || '-'}</p>
+                  <p className="text-xs text-slate-300">{currentFAModal.faData?.immediateContainment || '-'}</p>
                 </div>
                 <div className="bg-slate-900 p-4 rounded-xl border border-emerald-500/30 space-y-1.5">
                   <h5 className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
                     <ShieldCheck size={14} />
                     มาตรการป้องกันถาวร (Preventive Action):
                   </h5>
-                  <p className="text-xs text-slate-300">{activeFAModal.faData?.permanentAction || '-'}</p>
+                  <p className="text-xs text-slate-300">{currentFAModal.faData?.permanentAction || '-'}</p>
                 </div>
               </div>
 
-              {/* PDF Documents */}
-              {activeFAModal.pdfFiles && activeFAModal.pdfFiles.length > 0 && (
-                <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2">
-                  <h5 className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              {/* Excel & PDF Documents */}
+              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                    <FileSpreadsheet size={14} className="text-emerald-400" />
                     <FileText size={14} className="text-rose-400" />
-                    เอกสารรายงานผลการตรวจวิเคราะห์ (.PDF):
+                    เอกสารแนบประกอบการวิเคราะห์ ({currentFAModal.pdfFiles?.length || 0} ไฟล์):
                   </h5>
-                  <div className="flex flex-wrap gap-2">
-                    {activeFAModal.pdfFiles.map(pdf => (
-                      <button
-                        key={pdf.id}
-                        onClick={() => onOpenPDF(pdf)}
-                        className="flex items-center gap-2 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-lg text-xs text-rose-300 font-semibold transition-all"
-                      >
-                        <FileText size={14} />
-                        {pdf.name} ({pdf.size || 'PDF'})
-                      </button>
-                    ))}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => faFileInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  >
+                    <Plus size={12} />
+                    + แนบไฟล์เอกสาร
+                  </button>
                 </div>
-              )}
+
+                {currentFAModal.pdfFiles && currentFAModal.pdfFiles.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {currentFAModal.pdfFiles.map(file => {
+                      const isExcel = isExcelAttachment(file);
+                      return (
+                        <button
+                          key={file.id}
+                          onClick={() => onOpenPDF(file)}
+                          className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-semibold transition-all ${
+                            isExcel
+                              ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                              : 'bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/30 text-rose-300'
+                          }`}
+                        >
+                          {isExcel ? <FileSpreadsheet size={14} /> : <FileText size={14} />}
+                          <span>{file.name}</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              isExcel ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                            }`}
+                          >
+                            {isExcel ? 'EXCEL' : 'PDF'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 py-1">ยังไม่มีเอกสารแนบ (กดปุ่ม &quot;+ แนบไฟล์เอกสาร&quot; เพื่อแนบไฟล์ Excel หรือ PDF)</p>
+                )}
+              </div>
 
             </div>
 
             {/* Footer */}
             <div className="px-6 py-3 border-t border-slate-800 bg-slate-900 flex justify-between items-center text-xs text-slate-400">
               <span>รายงานวิเคราะห์ความเสียหายเพื่อการปรับปรุงและลดต้นทุน</span>
-              <button
-                onClick={() => setActiveFAModal(null)}
-                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold"
-              >
-                ปิด
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const proj = currentFAModal;
+                    setActiveFAModal(null);
+                    onEditProject(proj);
+                  }}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white border border-slate-700 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+                >
+                  <Edit3 size={13} />
+                  แก้ไขข้อมูล & ไฟล์แนบ
+                </button>
+                <button
+                  onClick={() => setActiveFAModal(null)}
+                  className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition-all"
+                >
+                  ปิด
+                </button>
+              </div>
             </div>
 
           </div>

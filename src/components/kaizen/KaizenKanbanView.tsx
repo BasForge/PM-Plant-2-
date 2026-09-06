@@ -1,7 +1,7 @@
 import React from 'react';
-import { ImprovementProject, Machine } from '../../types';
+import { ImprovementProject, Machine, isExcelAttachment } from '../../types';
 import { 
-  Calendar, Wrench, Clock, CheckSquare, Users, FileText, 
+  Calendar, Wrench, Clock, CheckSquare, Users, FileText, FileSpreadsheet,
   Image as ImageIcon, Plus, ArrowRight, CheckCircle2, AlertCircle 
 } from 'lucide-react';
 
@@ -207,19 +207,43 @@ export const KaizenKanbanView: React.FC<KaizenKanbanViewProps> = ({
                                 </button>
                               )}
 
-                              {hasPdf && proj.pdfFiles && proj.pdfFiles[0] && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenPDF(proj.pdfFiles![0]);
-                                  }}
-                                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[10px] font-semibold transition-all ml-auto"
-                                >
-                                  <FileText size={12} />
-                                  PDF ({proj.pdfFiles.length})
-                                </button>
-                              )}
+                              {/* Excel & PDF attachment badges */}
+                              {proj.pdfFiles && proj.pdfFiles.length > 0 && (() => {
+                                const excelFiles = proj.pdfFiles.filter(isExcelAttachment);
+                                const pdfFiles = proj.pdfFiles.filter(f => !isExcelAttachment(f));
+                                return (
+                                  <div className="flex items-center gap-1.5 ml-auto">
+                                    {excelFiles.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onOpenPDF(excelFiles[0]);
+                                        }}
+                                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[10px] font-semibold transition-all"
+                                        title={`เปิดไฟล์ Excel: ${excelFiles[0].name}`}
+                                      >
+                                        <FileSpreadsheet size={11} />
+                                        Excel ({excelFiles.length})
+                                      </button>
+                                    )}
+                                    {pdfFiles.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onOpenPDF(pdfFiles[0]);
+                                        }}
+                                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[10px] font-semibold transition-all"
+                                        title={`เปิดไฟล์ PDF: ${pdfFiles[0].name}`}
+                                      >
+                                        <FileText size={11} />
+                                        PDF ({pdfFiles.length})
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { ImprovementProject, Machine, WorkLog } from '../../types';
+import { ImprovementProject, Machine, WorkLog, isExcelAttachment } from '../../types';
 import { 
-  X, Clock, Calendar, Users, Wrench, FileText, Image as ImageIcon, 
+  X, Clock, Calendar, Users, Wrench, FileText, FileSpreadsheet, Image as ImageIcon, 
   CheckCircle2, Plus, Trash2, Edit3, Sparkles, BookOpen, Search, HelpCircle 
 } from 'lucide-react';
 
@@ -226,33 +226,74 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
             </div>
           )}
 
-          {/* PDF Files */}
+          {/* Attached Files (Excel & PDF) */}
           {project.pdfFiles && project.pdfFiles.length > 0 && (
             <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
-              <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
-                <FileText size={15} />
-                ไฟล์เอกสาร PDF แนบประกอบ ({project.pdfFiles.length}):
+              <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                <FileSpreadsheet size={15} className="text-emerald-400" />
+                <FileText size={15} className="text-rose-400" />
+                ไฟล์เอกสารแนบประกอบ ({project.pdfFiles.length} ไฟล์):
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {project.pdfFiles.map(pdf => (
-                  <button
-                    key={pdf.id}
-                    type="button"
-                    onClick={() => onOpenPDF(pdf)}
-                    className="flex items-center justify-between p-3 rounded-lg bg-slate-950 border border-slate-800 hover:border-rose-500/50 text-left transition-all group"
-                  >
-                    <div className="flex items-center gap-2.5 truncate">
-                      <div className="p-2 rounded bg-rose-500/20 text-rose-400">
-                        <FileText size={16} />
+                {project.pdfFiles.map(file => {
+                  const isExcel = isExcelAttachment(file);
+                  return (
+                    <button
+                      key={file.id}
+                      type="button"
+                      onClick={() => onOpenPDF(file)}
+                      className={`flex items-center justify-between p-3 rounded-lg bg-slate-950 border text-left transition-all group ${
+                        isExcel
+                          ? 'border-slate-800 hover:border-emerald-500/50 hover:bg-emerald-950/20'
+                          : 'border-slate-800 hover:border-rose-500/50 hover:bg-rose-950/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 truncate max-w-[80%]">
+                        <div
+                          className={`p-2 rounded ${
+                            isExcel ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                          }`}
+                        >
+                          {isExcel ? <FileSpreadsheet size={16} /> : <FileText size={16} />}
+                        </div>
+                        <div className="truncate">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                isExcel
+                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  : 'bg-rose-500/20 text-rose-300'
+                              }`}
+                            >
+                              {isExcel ? 'EXCEL' : 'PDF'}
+                            </span>
+                            <p
+                              className={`text-xs font-semibold truncate ${
+                                isExcel
+                                  ? 'text-slate-200 group-hover:text-emerald-300'
+                                  : 'text-slate-200 group-hover:text-rose-300'
+                              }`}
+                            >
+                              {file.name}
+                            </p>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {file.size || '12 KB'} • {file.uploadedAt || 'ล่าสุด'}
+                          </p>
+                        </div>
                       </div>
-                      <div className="truncate">
-                        <p className="text-xs font-semibold text-slate-200 group-hover:text-rose-300 truncate">{pdf.name}</p>
-                        <p className="text-[10px] text-slate-400">{pdf.size || 'PDF'} • {pdf.uploadedAt || 'ล่าสุด'}</p>
-                      </div>
-                    </div>
-                    <span className="text-[11px] text-rose-400 font-semibold px-2 py-1 bg-rose-500/10 rounded">เปิดอ่าน</span>
-                  </button>
-                ))}
+                      <span
+                        className={`text-[11px] font-semibold px-2 py-1 rounded shrink-0 ${
+                          isExcel
+                            ? 'text-emerald-400 bg-emerald-500/10 group-hover:bg-emerald-500/20'
+                            : 'text-rose-400 bg-rose-500/10 group-hover:bg-rose-500/20'
+                        }`}
+                      >
+                        {isExcel ? 'เปิดดูตาราง' : 'เปิดอ่าน'}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

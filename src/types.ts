@@ -106,6 +106,16 @@ export interface PDFFileAttachment {
   content: string; // Base64 or Blob URL
   size?: string;
   uploadedAt?: string;
+  fileType?: 'pdf' | 'excel' | 'other';
+}
+
+export type FileAttachment = PDFFileAttachment;
+
+export function isExcelAttachment(file: { name?: string; fileType?: string }): boolean {
+  if (file.fileType === 'excel') return true;
+  if (file.fileType === 'pdf') return false;
+  const lower = (file.name || '').toLowerCase();
+  return lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
 }
 
 export interface MediaPhotoItem {

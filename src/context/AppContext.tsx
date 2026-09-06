@@ -48,6 +48,7 @@ interface AppContextType {
   currentUser: UserAccount | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<UserAccount | null>>;
   login: (username: string, password: string) => { success: boolean; message?: string };
+  loginAsViewer: () => void;
   logout: () => void;
   addUser: (account: Omit<UserAccount, 'id' | 'createdAt'>) => { success: boolean; message?: string };
   updateUser: (id: string, updates: Partial<UserAccount>) => { success: boolean; message?: string };
@@ -102,6 +103,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const isApplyingRemoteRef = useRef<boolean>(false);
   const lastSavedJsonRef = useRef<string>('');
   const isWritingCloudRef = useRef<boolean>(false);
+  const hasPendingSaveRef = useRef<boolean>(false);
+  const pendingDataRef = useRef<AppDatabaseState | null>(null);
   
   const [settings, setSettings] = useState<SystemSettings>({
     workingHoursPerDay: 8, // 8 hours * 60 = 480 mins
@@ -170,7 +173,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
           setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
           setLeaves(cloudData.leaves || []);
-          setCd5Projects(cloudData.cd5Projects || PRELOADED_CD5_PROJECTS);
+          setCd5Projects(cloudData.cd5Projects && cloudData.cd5Projects.length > 0 ? cloudData.cd5Projects : PRELOADED_CD5_PROJECTS);
           const userList = (cloudData.users && cloudData.users.length > 0) ? cloudData.users : DEFAULT_USER_ACCOUNTS;
           setUsers(userList);
           
@@ -426,24 +429,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.error("Error syncing with LAN server:", error);
       }
 
-      // 2. Save to Cloud Firestore if no save is currently in flight
-      if (isWritingCloudRef.current) return;
-      isWritingCloudRef.current = true;
-      try {
-        setFirebaseStatus('syncing');
-        await saveDatabaseToFirebase(dataToSave);
-        lastSavedJsonRef.current = currentJson;
-        setFirebaseStatus('connected');
-        setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
-      } catch (cloudErr) {
-        console.warn("Firebase Cloud Firestore sync error:", cloudErr);
-        setFirebaseStatus('offline');
-      } finally {
-        isWritingCloudRef.current = false;
+      // 2. Save to Cloud Firestore with queueing so rapid edits/deletes are never dropped
+      if (isWritingCloudRef.current) {
+        hasPendingSaveRef.current = true;
+        pendingDataRef.current = dataToSave;
+        return;
       }
+
+      const executeSave = async (payload: AppDatabaseState, jsonStr: string) => {
+        isWritingCloudRef.current = true;
+        hasPendingSaveRef.current = false;
+        try {
+          setFirebaseStatus('syncing');
+          await saveDatabaseToFirebase(payload);
+          lastSavedJsonRef.current = jsonStr;
+          setFirebaseStatus('connected');
+          setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
+        } catch (cloudErr) {
+          console.warn("Firebase Cloud Firestore sync error:", cloudErr);
+          setFirebaseStatus('offline');
+        } finally {
+          isWritingCloudRef.current = false;
+          if (hasPendingSaveRef.current && pendingDataRef.current) {
+            const nextPayload = pendingDataRef.current;
+            pendingDataRef.current = null;
+            hasPendingSaveRef.current = false;
+            executeSave(nextPayload, JSON.stringify(nextPayload));
+          }
+        }
+      };
+
+      await executeSave(dataToSave, currentJson);
     };
 
-    const timerId = setTimeout(syncToBackends, 1200);
+    const timerId = setTimeout(syncToBackends, 400);
     return () => clearTimeout(timerId);
   }, [
     machines, technicians, employees, pmPlans, schedules,
@@ -477,7 +496,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
           setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
           setLeaves(cloudData.leaves || []);
-          setCd5Projects(cloudData.cd5Projects || PRELOADED_CD5_PROJECTS);
+          if (cloudData.cd5Projects && cloudData.cd5Projects.length > 0) {
+            setCd5Projects(cloudData.cd5Projects);
+          }
           if (cloudData.users && cloudData.users.length > 0) {
             setUsers(cloudData.users);
           }
@@ -569,6 +590,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // ignore
     }
     return { success: true };
+  };
+
+  const loginAsViewer = () => {
+    let viewerUser = users.find(u => u.role === 'viewer') || DEFAULT_USER_ACCOUNTS.find(u => u.role === 'viewer');
+    if (!viewerUser) {
+      viewerUser = {
+        id: 'usr-viewer',
+        username: 'viewer',
+        password: '',
+        name: 'ผู้ดูข้อมูล (Viewer)',
+        role: 'viewer',
+        department: 'ฝ่ายผลิตอาหารและแปรรูป',
+        createdAt: new Date().toISOString().split('T')[0]
+      };
+    }
+    setCurrentUser(viewerUser);
+    try {
+      localStorage.setItem('foodfab_current_user_id', viewerUser.id);
+    } catch {
+      // ignore
+    }
   };
 
   const logout = () => {
@@ -784,7 +826,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cd5Projects, setCd5Projects,
       users, setUsers,
       currentUser, setCurrentUser,
-      login, logout,
+      login, loginAsViewer, logout,
       addUser, updateUser, deleteUser,
       isAdmin, isTechnician, isViewer,
       canEdit, canDelete,

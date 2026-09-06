@@ -112,11 +112,20 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
     photoAfter: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'><rect width='600' height='400' fill='%23064e3b'/><rect x='40' y='40' width='520' height='320' fill='%23022c22' stroke='%2310b981' stroke-width='4' rx='16'/><path d='M150 220 L250 220 L350 220 L450 220' stroke='%2310b981' stroke-width='8' stroke-linecap='round'/><circle cx='450' cy='220' r='14' fill='%2334d399'/><text x='300' y='90' text-anchor='middle' fill='%2334d399' font-size='22' font-family='sans-serif' font-weight='bold'>AFTER [หลังปรับปรุง Kaizen]</text><text x='300' y='280' text-anchor='middle' fill='%23a7f3d0' font-size='15' font-family='sans-serif'>ติดตั้งชุด Teflon Guard & Air Jet ปลดชิ้นงานอัตโนมัติ</text><rect x='160' y='320' width='280' height='30' rx='6' fill='%23059669'/><text x='300' y='340' text-anchor='middle' fill='%23ffffff' font-size='12' font-family='sans-serif' font-weight='bold'>✓ ย่นเวลาทำความสะอาดเหลือเพียง 5 นาที</text></svg>",
     pdfFiles: [
       {
+        id: "excel-kz-01",
+        name: "Kaizen_Cost_Benefit_Matrix.xlsx",
+        size: "45 KB",
+        uploadedAt: "2026-06-07",
+        content: "sample_excel:kaizen",
+        fileType: "excel"
+      },
+      {
         id: "pdf-kz-01",
         name: "Kaizen_Report_FFS03_Teflon_Guard.pdf",
         size: "1.4 MB",
         uploadedAt: "2026-06-07",
-        content: "sample_pdf"
+        content: "sample_pdf",
+        fileType: "pdf"
       }
     ]
   },
@@ -237,11 +246,20 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
     },
     pdfFiles: [
       {
+        id: "excel-opl-01",
+        name: "OPL_Standard_Parameters_Sheet.xlsx",
+        size: "38 KB",
+        uploadedAt: "2026-06-08",
+        content: "sample_excel:opl",
+        fileType: "excel"
+      },
+      {
         id: "pdf-opl-02",
         name: "OPL_055_Vacuum_Pump_Inspection.pdf",
         size: "1.1 MB",
         uploadedAt: "2026-06-08",
-        content: "sample_pdf"
+        content: "sample_pdf",
+        fileType: "pdf"
       }
     ]
   },
@@ -277,11 +295,20 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
     photoBefore: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'><rect width='600' height='400' fill='%231e293b'/><rect x='40' y='40' width='520' height='320' fill='%230f172a' stroke='%23ef4444' stroke-width='4' rx='16'/><text x='300' y='160' text-anchor='middle' fill='%23ef4444' font-size='20' font-family='sans-serif' font-weight='bold'>FAILURE ANALYSIS: รอยแตกหักที่ร่องลิ่ม</text><text x='300' y='210' text-anchor='middle' fill='%23fca5a5' font-size='14' font-family='sans-serif'>ตรวจพบ Beach Marks จากความเค้นกระจุกตัวที่มุมเหลี่ยม R=0</text></svg>",
     pdfFiles: [
       {
+        id: "excel-fa-01",
+        name: "FA_Stress_Calculation_SUS420J2.xlsx",
+        size: "52 KB",
+        uploadedAt: "2026-06-06",
+        content: "sample_excel:fa",
+        fileType: "excel"
+      },
+      {
         id: "pdf-fa-01",
         name: "FA_Report_RIM01_Drive_Shaft_Fatigue.pdf",
         size: "2.3 MB",
         uploadedAt: "2026-06-06",
-        content: "sample_pdf"
+        content: "sample_pdf",
+        fileType: "pdf"
       }
     ]
   },
@@ -317,11 +344,20 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
     },
     pdfFiles: [
       {
+        id: "excel-why-01",
+        name: "5Whys_Action_Tracking_Sheet.xlsx",
+        size: "42 KB",
+        uploadedAt: "2026-06-10",
+        content: "sample_excel:why",
+        fileType: "excel"
+      },
+      {
         id: "pdf-why-01",
         name: "5Whys_Analysis_VAC02_Overheating.pdf",
         size: "1.6 MB",
         uploadedAt: "2026-06-10",
-        content: "sample_pdf"
+        content: "sample_pdf",
+        fileType: "pdf"
       }
     ]
   }

@@ -97,16 +97,22 @@ export const CD5UsageHistoryModal: React.FC<CD5UsageHistoryModalProps> = ({
     setFormNotes('');
   };
 
+  const [entryToDelete, setEntryToDelete] = useState<string | null>(null);
+
   // Delete history entry
   const handleDeleteEntry = (entryId: string) => {
-    if (window.confirm('ต้องการลบบันทึกประวัติรอบนี้หรือไม่?')) {
-      const updatedHistory = (project.usageHistory || []).filter(h => h.id !== entryId);
-      const updatedProject: CD5Project = {
-        ...project,
-        usageHistory: updatedHistory
-      };
-      onSaveHistory(updatedProject);
-    }
+    setEntryToDelete(entryId);
+  };
+
+  const handleConfirmDeleteEntry = () => {
+    if (!entryToDelete) return;
+    const updatedHistory = (project.usageHistory || []).filter(h => h.id !== entryToDelete);
+    const updatedProject: CD5Project = {
+      ...project,
+      usageHistory: updatedHistory
+    };
+    onSaveHistory(updatedProject);
+    setEntryToDelete(null);
   };
 
   const historyList = project.usageHistory || [];
@@ -380,13 +386,34 @@ export const CD5UsageHistoryModal: React.FC<CD5UsageHistoryModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleDeleteEntry(item.id)}
-                          className="p-1 text-slate-500 hover:text-rose-400 transition"
-                          title="ลบบันทึกรอบนี้"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        {entryToDelete === item.id ? (
+                          <div className="flex items-center gap-1 bg-rose-950/90 border border-rose-600/60 px-2 py-0.5 rounded-lg shadow-lg">
+                            <span className="text-[10px] text-rose-200 font-semibold">ลบรอบนี้?</span>
+                            <button
+                              type="button"
+                              onClick={handleConfirmDeleteEntry}
+                              className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold transition"
+                            >
+                              ยืนยัน
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEntryToDelete(null)}
+                              className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] transition"
+                            >
+                              ยกเลิก
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEntry(item.id)}
+                            className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-800/80 rounded transition"
+                            title="ลบบันทึกรอบนี้"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </div>
 

@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
-import { ImprovementProject, Machine, KaizenCategory, OPLData, FAData, WhyWhyData, PDFFileAttachment, MediaPhotoItem } from '../../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { ImprovementProject, Machine, KaizenCategory, OPLData, FAData, WhyWhyData, PDFFileAttachment, MediaPhotoItem, isExcelAttachment } from '../../types';
 import { 
-  X, Plus, Trash2, Upload, FileText, Image as ImageIcon, CheckCircle2, 
+  X, Plus, Trash2, Upload, FileText, FileSpreadsheet, Image as ImageIcon, CheckCircle2, 
   HelpCircle, Search, BookOpen, Wrench, Calendar, User, DollarSign, 
   ShieldAlert, Sparkles, Layers, Clock, AlertTriangle 
 } from 'lucide-react';
@@ -79,16 +79,70 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
   const [whyStdRef, setWhyStdRef] = useState(initialProject?.whyWhyData?.standardizationRef || '');
   const [whyVerification, setWhyVerification] = useState(initialProject?.whyWhyData?.effectivenessVerification || '');
 
+  // Keep state synchronized with initialProject when opening modal
+  useEffect(() => {
+    if (isOpen) {
+      setCategory(initialProject?.category || defaultCategory);
+      setTitle(initialProject?.title || '');
+      setDescription(initialProject?.description || '');
+      setMachineId(initialProject?.machineId || (machines[0]?.id || ''));
+      setStartDate(initialProject?.startDate || new Date().toISOString().split('T')[0]);
+      setPlannedEndDate(initialProject?.plannedEndDate || new Date().toISOString().split('T')[0]);
+      setTechnician(initialProject?.technician || technicians[0] || 'ช่าง 1');
+      setStatus(initialProject?.status || 'กำลังดำเนินการ');
+
+      setPhotoBefore(initialProject?.photoBefore || '');
+      setPhotoAfter(initialProject?.photoAfter || '');
+      setPdfFiles(initialProject?.pdfFiles || []);
+      setPhotos(initialProject?.photos || []);
+
+      // OPL
+      setOplCategory(initialProject?.oplData?.category || 'การแก้ไขปัญหา (Troubleshooting)');
+      setOplPurpose(initialProject?.oplData?.purpose || '');
+      setOplKeyPoints(initialProject?.oplData?.keyPoints && initialProject.oplData.keyPoints.length > 0 ? initialProject.oplData.keyPoints : ['']);
+      setOplReasons(initialProject?.oplData?.reasons && initialProject.oplData.reasons.length > 0 ? initialProject.oplData.reasons : ['']);
+      setOplCautionPoints(initialProject?.oplData?.cautionPoints || '');
+      setOplSopDocRef(initialProject?.oplData?.sopDocumentRef || '');
+      setOplTargetAudience(initialProject?.oplData?.targetAudience || 'ช่างซ่อมบำรุง & Operator');
+      setOplTrainingDuration(initialProject?.oplData?.trainingDurationMins || 15);
+
+      // FA
+      setFaPartName(initialProject?.faData?.failurePartName || '');
+      setFaPartCode(initialProject?.faData?.failurePartCode || '');
+      setFaFailureMode(initialProject?.faData?.failureMode || 'การล้าตัว (Fatigue)');
+      setFaRootCategory(initialProject?.faData?.rootCauseCategory || 'การออกแบบ (Design)');
+      setFaMechanism(initialProject?.faData?.mechanismDescription || '');
+      setFaImmediate(initialProject?.faData?.immediateContainment || '');
+      setFaPermanent(initialProject?.faData?.permanentAction || '');
+      setFaCostLoss(initialProject?.faData?.estimatedCostLoss || 0);
+      setFaLabFindings(initialProject?.faData?.laboratoryFindings || '');
+
+      // Why-Why
+      setWhyProblem(initialProject?.whyWhyData?.problemStatement || '');
+      setWhyPhenomenon(initialProject?.whyWhyData?.phenomenon || '');
+      setWhy1(initialProject?.whyWhyData?.why1 || '');
+      setWhy2(initialProject?.whyWhyData?.why2 || '');
+      setWhy3(initialProject?.whyWhyData?.why3 || '');
+      setWhy4(initialProject?.whyWhyData?.why4 || '');
+      setWhy5(initialProject?.whyWhyData?.why5 || '');
+      setWhyRootCause(initialProject?.whyWhyData?.rootCauseSummary || '');
+      setWhyCountermeasure(initialProject?.whyWhyData?.countermeasure || '');
+      setWhyStdRef(initialProject?.whyWhyData?.standardizationRef || '');
+      setWhyVerification(initialProject?.whyWhyData?.effectivenessVerification || '');
+    }
+  }, [isOpen, initialProject, defaultCategory, machines, technicians]);
+
   // File Upload refs
   const pdfInputRef = useRef<HTMLInputElement>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
   const beforePhotoRef = useRef<HTMLInputElement>(null);
   const afterPhotoRef = useRef<HTMLInputElement>(null);
   const generalPhotoRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
-  // Handle PDF upload
-  const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Excel and PDF upload
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, forceType?: 'excel' | 'pdf') => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -100,15 +154,18 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
           ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
           : `${Math.round(file.size / 1024)} KB`;
 
-        const newPdf: PDFFileAttachment = {
-          id: `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        const isExcel = forceType === 'excel' || isExcelAttachment({ name: file.name });
+
+        const newAttachment: PDFFileAttachment = {
+          id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           name: file.name,
           size: sizeFormatted,
           uploadedAt: new Date().toISOString().split('T')[0],
-          content: content
+          content: content,
+          fileType: isExcel ? 'excel' : 'pdf'
         };
 
-        setPdfFiles(prev => [...prev, newPdf]);
+        setPdfFiles(prev => [...prev, newAttachment]);
       };
       reader.readAsDataURL(file);
     });
@@ -121,25 +178,36 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const file = files[0];
-    try {
-      const compressed = await compressImageFile(file);
-      if (target === 'before') {
-        setPhotoBefore(compressed);
-      } else if (target === 'after') {
-        setPhotoAfter(compressed);
-      } else {
-        const newPhoto: MediaPhotoItem = {
-          id: `photo-${Date.now()}`,
-          url: compressed,
-          caption: file.name,
-          uploadedAt: new Date().toISOString().split('T')[0],
-          type: 'evidence'
-        };
-        setPhotos(prev => [...prev, newPhoto]);
+    if (target === 'general') {
+      // Support uploading multiple photos at once
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const compressed = await compressImageFile(file);
+          const newPhoto: MediaPhotoItem = {
+            id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+            url: compressed,
+            caption: file.name.replace(/\.[^/.]+$/, ""),
+            uploadedAt: new Date().toISOString().split('T')[0],
+            type: 'evidence'
+          };
+          setPhotos(prev => [...prev, newPhoto]);
+        } catch (err) {
+          console.error('Failed to compress photo', err);
+        }
       }
-    } catch (err) {
-      console.error('Failed to compress photo', err);
+    } else {
+      const file = files[0];
+      try {
+        const compressed = await compressImageFile(file);
+        if (target === 'before') {
+          setPhotoBefore(compressed);
+        } else if (target === 'after') {
+          setPhotoAfter(compressed);
+        }
+      } catch (err) {
+        console.error('Failed to compress photo', err);
+      }
     }
 
     if (e.target) e.target.value = '';
@@ -205,19 +273,19 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
       category: category,
       title: title.trim(),
       description: description.trim() || title.trim(),
-      machineId: machineId,
       startDate: startDate,
       plannedEndDate: plannedEndDate,
       technician: technician,
       technicians: [technician],
       status: status,
-      photoBefore: photoBefore || undefined,
-      photoAfter: photoAfter || undefined,
       pdfFiles: pdfFiles,
       photos: photos,
-      oplData,
-      faData,
-      whyWhyData
+      ...(machineId ? { machineId } : {}),
+      ...(photoBefore ? { photoBefore } : {}),
+      ...(photoAfter ? { photoAfter } : {}),
+      ...(oplData ? { oplData } : {}),
+      ...(faData ? { faData } : {}),
+      ...(whyWhyData ? { whyWhyData } : {})
     };
 
     onSave(payload);
@@ -281,7 +349,7 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
                 {initialProject ? 'แก้ไขข้อมูลงานพัฒนาและวิศวกรรม' : 'สร้างงานพัฒนาและบันทึกวิศวกรรมใหม่'}
               </h3>
               <p className="text-xs text-slate-400">
-                รองรับ Kaizen, One Point Lesson (OPL), Failure Analysis (FA), Why-Why พร้อมแนบ PDF และรูปภาพ
+                รองรับ Kaizen, One Point Lesson (OPL), Failure Analysis (FA), Why-Why พร้อมแนบ Excel, PDF และรูปภาพ
               </p>
             </div>
           </div>
@@ -850,11 +918,11 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
             </div>
           )}
 
-          {/* ATTACHMENT SECTION: PDF & PHOTOS */}
+          {/* ATTACHMENT SECTION: EXCEL, PDF & PHOTOS */}
           <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 space-y-4">
             <h4 className="text-xs font-bold text-slate-300 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-rose-400"></span>
-              การแนบไฟล์เอกสาร PDF และรูปถ่ายผลงาน (Attachments)
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              การแนบไฟล์เอกสาร Excel / PDF และรูปถ่ายผลงาน (Attachments)
             </h4>
 
             {/* Before / After Photos (For Kaizen & OPL) */}
@@ -944,62 +1012,191 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
               </div>
             </div>
 
-            {/* PDF Attachments Manager */}
+            {/* Excel & PDF Attachments Manager */}
             <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-rose-400 flex items-center gap-1.5">
-                  <FileText size={15} />
-                  แนบไฟล์เอกสาร PDF (รายงาน / แบบฟอร์ม / Standard Sheet)
-                </span>
-                <button
-                  type="button"
-                  onClick={() => pdfInputRef.current?.click()}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold transition-all"
-                >
-                  <Plus size={14} />
-                  เพิ่มไฟล์ PDF
-                </button>
-                <input
-                  ref={pdfInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  multiple
-                  onChange={handlePdfUpload}
-                  className="hidden"
-                />
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <FileSpreadsheet size={16} className="text-emerald-400" />
+                    <FileText size={16} className="text-rose-400" />
+                    แนบไฟล์เอกสาร Excel / PDF (ทุกหัวข้อ Kaizen, OPL, FA, Why-Why)
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    รองรับทั้งไฟล์ Excel (.xlsx, .xls, .csv) และ PDF (.pdf) สำหรับแบบฟอร์มวิเคราะห์และเอกสารอ้างอิง
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => excelInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  >
+                    <FileSpreadsheet size={14} />
+                    + เพิ่มไฟล์ Excel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => pdfInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  >
+                    <FileText size={14} />
+                    + เพิ่มไฟล์ PDF
+                  </button>
+
+                  <input
+                    ref={excelInputRef}
+                    type="file"
+                    accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+                    multiple
+                    onChange={(e) => handleFileUpload(e, 'excel')}
+                    className="hidden"
+                  />
+                  <input
+                    ref={pdfInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    multiple
+                    onChange={(e) => handleFileUpload(e, 'pdf')}
+                    className="hidden"
+                  />
+                </div>
               </div>
 
               {pdfFiles.length === 0 ? (
                 <div className="text-center py-6 border border-dashed border-slate-800 rounded-xl text-slate-500 text-xs">
-                  ยังไม่มีไฟล์ PDF แนบ (สามารถแนบแบบฟอร์ม OPL Sheet, รายงานแล็บ FA, หรือรายงาน Kaizen PDF ได้)
+                  ยังไม่มีไฟล์เอกสารแนบ (คลิกปุ่ม "+ เพิ่มไฟล์ Excel" หรือ "+ เพิ่มไฟล์ PDF" ด้านบนเพื่อแนบไฟล์เอกสาร)
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {pdfFiles.map((pdf, idx) => (
-                    <div
-                      key={pdf.id || idx}
-                      className="flex items-center justify-between p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200"
-                    >
-                      <div className="flex items-center gap-2.5 truncate max-w-[80%]">
-                        <div className="p-1.5 rounded bg-rose-500/20 text-rose-400">
-                          <FileText size={14} />
-                        </div>
-                        <div className="truncate">
-                          <p className="font-semibold truncate">{pdf.name}</p>
-                          <p className="text-[10px] text-slate-400">
-                            ขนาด: {pdf.size || '1.0 MB'} • วันที่: {pdf.uploadedAt || 'ล่าสุด'}
-                          </p>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setPdfFiles(prev => prev.filter((_, i) => i !== idx))}
-                        className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-800"
-                        title="ลบไฟล์"
+                  {pdfFiles.map((file, idx) => {
+                    const isExcel = isExcelAttachment(file);
+                    return (
+                      <div
+                        key={file.id || idx}
+                        className={`flex items-center justify-between p-2.5 rounded-lg bg-slate-950 border text-xs ${
+                          isExcel ? 'border-emerald-800/40' : 'border-rose-800/40'
+                        } text-slate-200`}
                       >
-                        <Trash2 size={14} />
-                      </button>
+                        <div className="flex items-center gap-2.5 truncate max-w-[80%]">
+                          <div
+                            className={`p-1.5 rounded ${
+                              isExcel ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                            }`}
+                          >
+                            {isExcel ? <FileSpreadsheet size={15} /> : <FileText size={15} />}
+                          </div>
+                          <div className="truncate">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                  isExcel ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                                }`}
+                              >
+                                {isExcel ? 'EXCEL' : 'PDF'}
+                              </span>
+                              <p className="font-semibold truncate">{file.name}</p>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              ขนาด: {file.size || '12 KB'} • วันที่: {file.uploadedAt || 'ล่าสุด'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setPdfFiles(prev => prev.filter((_, i) => i !== idx))}
+                          className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors"
+                          title="ลบไฟล์"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Additional Photos Gallery (รูปภาพประกอบเพิ่มเติม / หลักฐานหน้างาน) */}
+            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <ImageIcon size={16} className="text-cyan-400" />
+                    รูปภาพประกอบเพิ่มเติมและหลักฐานหน้างาน ({photos.length} รูป)
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    แนบรูปภาพหน้างาน, ภาพชิ้นส่วนหลายมุม, ภาพแบบสเก็ตช์ หรือหลักฐานประกอบ (สามารถเลือกพร้อมกันหลายรูปได้)
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => generalPhotoRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  >
+                    <Plus size={14} />
+                    + แนบรูปภาพเพิ่มเติม
+                  </button>
+                  <input
+                    ref={generalPhotoRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handlePhotoUpload(e, 'general')}
+                    className="hidden"
+                  />
+                </div>
+              </div>
+
+              {photos.length === 0 ? (
+                <div 
+                  onClick={() => generalPhotoRef.current?.click()}
+                  className="cursor-pointer text-center py-6 border border-dashed border-slate-800 hover:border-cyan-500/50 rounded-xl text-slate-500 hover:text-slate-400 transition-colors text-xs flex flex-col items-center gap-1.5"
+                >
+                  <ImageIcon size={22} className="text-slate-600" />
+                  <span>ยังไม่มีรูปภาพเพิ่มเติม (คลิกที่นี่เพื่อแนบรูปภาพ หรือกดปุ่ม &quot;+ แนบรูปภาพเพิ่มเติม&quot; ด้านบน)</span>
+                  <span className="text-[10px] text-slate-600">รองรับ JPG, PNG, WebP (ระบบจะบีบอัดขนาดให้อัตโนมัติ ป้องกันข้อมูลเต็ม)</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {photos.map((photo, pIdx) => (
+                    <div
+                      key={photo.id || pIdx}
+                      className="group/photo relative bg-slate-950 border border-slate-800 hover:border-cyan-500/50 rounded-xl overflow-hidden flex flex-col transition-all"
+                    >
+                      <div className="relative h-28 bg-black flex items-center justify-center overflow-hidden">
+                        <img
+                          src={photo.url}
+                          alt={photo.caption || 'Photo'}
+                          className="w-full h-full object-cover group-hover/photo:scale-105 transition-transform duration-200"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setPhotos(prev => prev.filter((_, i) => i !== pIdx))}
+                          className="absolute top-1.5 right-1.5 p-1 bg-black/70 hover:bg-rose-600 text-slate-300 hover:text-white rounded-lg transition-colors opacity-90 group-hover/photo:opacity-100 shadow"
+                          title="ลบรูปภาพนี้"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                      <div className="p-2 bg-slate-900 flex-1 flex flex-col justify-between">
+                        <input
+                          type="text"
+                          value={photo.caption || ''}
+                          onChange={(e) => {
+                            const newCaption = e.target.value;
+                            setPhotos(prev => prev.map((p, i) => i === pIdx ? { ...p, caption: newCaption } : p));
+                          }}
+                          placeholder="คำอธิบายภาพ..."
+                          className="w-full bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-[11px] text-slate-300 placeholder-slate-600 focus:border-cyan-500/60"
+                        />
+                        <span className="text-[9px] text-slate-500 mt-1 block">
+                          {photo.uploadedAt || 'ล่าสุด'}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>

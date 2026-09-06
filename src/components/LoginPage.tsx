@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { ShieldCheck, Wrench, Lock, User, KeyRound, AlertCircle, ArrowRight, CheckCircle2, Factory, Sparkles } from 'lucide-react';
+import { ShieldCheck, Wrench, Lock, User, KeyRound, AlertCircle, ArrowRight, Eye, Factory } from 'lucide-react';
 
 interface LoginPageProps {
   onLoginSuccess?: () => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
-  const { login, users } = useApp();
+  const { login, loginAsViewer, users } = useApp();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -31,10 +31,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }, 200);
   };
 
-  const handleQuickLogin = (quickUser: string, quickPass: string) => {
-    setUsername(quickUser);
-    setPassword(quickPass);
-    setErrorMsg(null);
+  const handleDirectViewerAccess = () => {
+    loginAsViewer();
+    if (onLoginSuccess) onLoginSuccess();
   };
 
   return (
@@ -74,8 +73,40 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </div>
             <h2 className="text-xl font-bold text-white tracking-tight">เข้าสู่ระบบการทำงาน</h2>
             <p className="text-xs text-slate-400 mt-1">
-              กรุณาป้อนชื่อผู้ใช้งานและรหัสผ่านเพื่อยืนยันสิทธิ์การเข้าถึงข้อมูล
+              เข้าชมระบบทั่วไป หรือลงชื่อเข้าใช้งานสำหรับเจ้าหน้าที่
             </p>
+          </div>
+
+          {/* Direct Viewer Entrance (No credentials needed) */}
+          <div className="mb-5 p-4 rounded-xl bg-gradient-to-r from-emerald-950/70 to-teal-950/50 border border-emerald-500/40 shadow-lg shadow-emerald-950/30">
+            <div className="flex items-center gap-2.5 mb-2.5">
+              <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0">
+                <Eye size={18} />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-emerald-300">สำหรับผู้ดูข้อมูล (Viewer)</div>
+                <div className="text-[11px] text-slate-300">ดูแดชบอร์ด แผน PM และสถานะเครื่องจักร</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              id="btn-login-viewer-direct"
+              onClick={handleDirectViewerAccess}
+              className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 font-bold text-xs rounded-xl shadow transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Eye size={15} />
+              <span>เข้าชมระบบทันที (ไม่ต้องใส่รหัสและชื่อผู้ใช้)</span>
+              <ArrowRight size={14} />
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div className="relative flex items-center justify-center my-5">
+            <div className="border-t border-slate-800 w-full" />
+            <span className="bg-[#0b1325] px-3 text-[11px] text-slate-400 font-medium whitespace-nowrap">
+              หรือ เข้าสู่ระบบสำหรับช่าง / ผู้ดูแลระบบ
+            </span>
+            <div className="border-t border-slate-800 w-full" />
           </div>
 
           {/* Error Message Alert */}
@@ -103,7 +134,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="เช่น admin, tech1, viewer"
+                  placeholder="ป้อนชื่อผู้ใช้ของคุณ"
                   required
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
                 />
@@ -119,7 +150,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors"
+                  className="text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
                 >
                   {showPassword ? 'ซ่อนรหัส' : 'แสดงรหัส'}
                 </button>
@@ -134,7 +165,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="ป้อนรหัสผ่าน"
                   required
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
                 />
@@ -152,63 +183,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <span>กำลังตรวจสอบสิทธิ์...</span>
               ) : (
                 <>
-                  <span>เข้าสู่ระบบ</span>
+                  <span>เข้าสู่ระบบ (Sign In)</span>
                   <ArrowRight size={16} />
                 </>
               )}
             </button>
           </form>
-
-          {/* Quick Demo Credentials Panel */}
-          <div className="mt-6 pt-5 border-t border-slate-800">
-            <p className="text-[11px] font-semibold text-slate-400 mb-2.5 flex items-center gap-1.5">
-              <Sparkles size={13} className="text-amber-400" />
-              <span>บัญชีทดสอบด่วนตามระดับสิทธิ์ (คลิกเพื่อเลือกทันที):</span>
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                id="btn-quick-admin"
-                onClick={() => handleQuickLogin('admin', 'admin1234')}
-                className="text-left p-2 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/40 transition-colors group cursor-pointer"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-amber-400">👑 Admin</span>
-                  <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-300">เต็มสิทธิ์</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-1">admin / admin1234</div>
-                <div className="text-[9px] text-slate-500 mt-0.5">เพิ่ม/แก้/ลบ/จัดการผู้ใช้</div>
-              </button>
-
-              <button
-                type="button"
-                id="btn-quick-tech"
-                onClick={() => handleQuickLogin('tech1', 'tech1234')}
-                className="text-left p-2 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 transition-colors group cursor-pointer"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-cyan-400">🔧 ช่างซ่อม</span>
-                  <span className="text-[9px] px-1 py-0.5 rounded bg-cyan-500/10 text-cyan-300">แก้ไขได้</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-1">tech1 / tech1234</div>
-                <div className="text-[9px] text-slate-500 mt-0.5">บันทึกซ่อม/PM (ห้ามลบ)</div>
-              </button>
-
-              <button
-                type="button"
-                id="btn-quick-viewer"
-                onClick={() => handleQuickLogin('viewer', 'view1234')}
-                className="text-left p-2 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 transition-colors group cursor-pointer"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-emerald-400">👁️ ผู้ดู</span>
-                  <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/10 text-emerald-300">ดูอย่างเดียว</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono mt-1">viewer / view1234</div>
-                <div className="text-[9px] text-slate-500 mt-0.5">ดูสถิติ/แผน (ห้ามแก้)</div>
-              </button>
-            </div>
-          </div>
         </div>
       </main>
 
@@ -219,7 +199,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <span>ระบบศูนย์ซ่อมบำรุงโรงงานอาหาร (PM/TPM & Maintenance Cloud System)</span>
         </div>
         <div>
-          <span>ผู้ใช้งานในระบบปัจจุบัน: {users.length} บัญชี</span>
+          <span>ระบบพร้อมใช้งาน</span>
         </div>
       </footer>
     </div>

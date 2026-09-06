@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, Firestore } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
 import firebaseConfigData from '../../firebase-applet-config.json';
 
@@ -17,8 +17,19 @@ export const firebaseConfig = {
 // Initialize Firebase App singleton
 export const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
+// Initialize Firestore with ignoreUndefinedProperties: true and custom database ID
+function initFirestore(): Firestore {
+  try {
+    return initializeFirestore(firebaseApp, {
+      ignoreUndefinedProperties: true
+    }, firebaseConfig.firestoreDatabaseId);
+  } catch {
+    return getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+  }
+}
+
 // Initialize Firestore with the provisioned custom database ID
-export const firestore: Firestore = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+export const firestore: Firestore = initFirestore();
 
 // Initialize Firebase Auth
 export const auth: Auth = getAuth(firebaseApp);

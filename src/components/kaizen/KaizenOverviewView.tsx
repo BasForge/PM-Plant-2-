@@ -1,8 +1,8 @@
 import React from 'react';
-import { ImprovementProject, Machine } from '../../types';
+import { ImprovementProject, Machine, isExcelAttachment } from '../../types';
 import { 
   Sparkles, BookOpen, Search, HelpCircle, Wrench, Clock, 
-  Users, FileText, Image as ImageIcon, CheckCircle2, TrendingUp, BarChart3 
+  Users, FileText, FileSpreadsheet, Image as ImageIcon, CheckCircle2, TrendingUp, BarChart3 
 } from 'lucide-react';
 
 interface KaizenOverviewViewProps {
@@ -32,8 +32,12 @@ export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
     return sum + (item.workLogs?.reduce((wSum, l) => wSum + l.hours, 0) || 0);
   }, 0);
 
+  const totalExcel = improvements.reduce((sum, item) => {
+    return sum + (item.pdfFiles?.filter(isExcelAttachment).length || 0);
+  }, 0);
+
   const totalPdfs = improvements.reduce((sum, item) => {
-    return sum + (item.pdfFiles?.length || 0);
+    return sum + (item.pdfFiles?.filter(f => !isExcelAttachment(f)).length || 0);
   }, 0);
 
   const totalPhotos = improvements.reduce((sum, item) => {
@@ -173,7 +177,7 @@ export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
       </div>
 
       {/* Aggregate Highlights & Attachment Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-slate-900/70 p-4 rounded-xl border border-slate-800 flex items-center gap-3">
           <div className="p-2.5 rounded-lg bg-emerald-500/10 text-emerald-400">
             <CheckCircle2 size={20} />
@@ -191,6 +195,16 @@ export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
           <div>
             <p className="text-lg font-bold text-white font-mono">{totalHours} ชม.</p>
             <p className="text-[11px] text-slate-400">เวลากิจกรรมพัฒนาสะสม</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/70 p-4 rounded-xl border border-slate-800 flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+            <FileSpreadsheet size={20} />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-white font-mono">{totalExcel} ไฟล์</p>
+            <p className="text-[11px] text-slate-400">ไฟล์ Excel แนบในระบบ</p>
           </div>
         </div>
 
