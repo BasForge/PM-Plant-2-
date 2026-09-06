@@ -12,7 +12,7 @@ import { getTodayDateString } from '../utils/pmAlerts';
 import * as XLSX from 'xlsx';
 
 export const RepairPage: React.FC = () => {
-  const { repairs, setRepairs, machines, technicians, spareParts, setSpareParts, settings } = useApp();
+  const { repairs, setRepairs, machines, technicians, spareParts, setSpareParts, settings, canEdit, canDelete } = useApp();
 
   // Search/Filters states
   const [machineFilter, setMachineFilter] = useState('');
@@ -831,22 +831,24 @@ export const RepairPage: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 self-stretch sm:self-auto shrink-0">
-          <button
-            type="button"
-            id="btn-import-repairs-excel"
-            onClick={() => {
-              setExcelData([]);
-              setExcelHeaders([]);
-              setFileName('');
-              setImportPreview([]);
-              setShowImportModal(true);
-            }}
-            className="flex items-center gap-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 text-white font-bold px-4 py-2.5 rounded-lg transition-all shadow-md focus:outline-none text-xs cursor-pointer"
-            title="นำเข้าประวัติการซ่อมบำรุงจากไฟล์ Excel"
-          >
-            <Upload size={16} />
-            นำเข้า Excel ประวัติซ่อม
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              id="btn-import-repairs-excel"
+              onClick={() => {
+                setExcelData([]);
+                setExcelHeaders([]);
+                setFileName('');
+                setImportPreview([]);
+                setShowImportModal(true);
+              }}
+              className="flex items-center gap-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 text-white font-bold px-4 py-2.5 rounded-lg transition-all shadow-md focus:outline-none text-xs cursor-pointer"
+              title="นำเข้าประวัติการซ่อมบำรุงจากไฟล์ Excel"
+            >
+              <Upload size={16} />
+              นำเข้า Excel ประวัติซ่อม
+            </button>
+          )}
 
           <button
             type="button"
@@ -859,28 +861,34 @@ export const RepairPage: React.FC = () => {
             ส่งออก Excel ประวัติซ่อม
           </button>
 
-          <button
-            id="btn-add-repair"
-            onClick={() => {
-              setEditingId(null);
-              setPartSearchQuery('');
-              setFormMachine(machines[0]?.id || '');
-              setFormBreakdown(`${getTodayDateString()}T09:00`);
-              setFormDone(`${getTodayDateString()}T11:30`);
-              setFormSymptoms('');
-              setFormTechnician(technicians[0] || 'ช่าง 1');
-              setFormTechnicians([technicians[0] || 'ช่าง 1']);
-              setFormCorrection('');
-              setWhy1(''); setWhy2(''); setWhy3(''); setWhy4(''); setWhy5('');
-              setWhyCount(1);
-              setPhotoBase64('');
-              setShowFormModal(true);
-            }}
-            className="flex items-center gap-2 bg-gradient-to-r from-rose-500 to-red-650 hover:from-rose-400 hover:to-red-500 text-white font-bold px-4 py-2.5 rounded-lg transition-all shadow-md focus:outline-none text-xs"
-          >
-            <Plus size={18} />
-            บันทึกแจ้งซ่อมด่วน
-          </button>
+          {canEdit ? (
+            <button
+              id="btn-add-repair"
+              onClick={() => {
+                setEditingId(null);
+                setPartSearchQuery('');
+                setFormMachine(machines[0]?.id || '');
+                setFormBreakdown(`${getTodayDateString()}T09:00`);
+                setFormDone(`${getTodayDateString()}T11:30`);
+                setFormSymptoms('');
+                setFormTechnician(technicians[0] || 'ช่าง 1');
+                setFormTechnicians([technicians[0] || 'ช่าง 1']);
+                setFormCorrection('');
+                setWhy1(''); setWhy2(''); setWhy3(''); setWhy4(''); setWhy5('');
+                setWhyCount(1);
+                setPhotoBase64('');
+                setShowFormModal(true);
+              }}
+              className="flex items-center gap-2 bg-gradient-to-r from-rose-500 to-red-650 hover:from-rose-400 hover:to-red-500 text-white font-bold px-4 py-2.5 rounded-lg transition-all shadow-md focus:outline-none text-xs cursor-pointer"
+            >
+              <Plus size={18} />
+              บันทึกแจ้งซ่อมด่วน
+            </button>
+          ) : (
+            <div className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 text-xs flex items-center gap-1.5 border border-slate-700">
+              <span>🔒 สิทธิ์ดูอย่างเดียว (Viewer)</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1067,22 +1075,29 @@ export const RepairPage: React.FC = () => {
                       </td>
                       <td className="py-4 px-3 text-center">
                         <div className="flex items-center justify-center gap-2">
-                          <button
-                            id={`btn-edit-rep-${r.id}`}
-                            onClick={() => handleEditClick(r)}
-                            className="text-slate-500 hover:text-cyan-400 p-1 rounded-md transition hover:bg-slate-900"
-                            title="แก้ไขประวัติงานซ่อม"
-                          >
-                            <Edit size={14} />
-                          </button>
-                          <button
-                            id={`btn-delete-rep-${r.id}`}
-                            onClick={() => handleDeleteRepair(r.id)}
-                            className="text-slate-500 hover:text-rose-400 p-1 rounded-md transition hover:bg-slate-900"
-                            title="ลบ"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {canEdit && (
+                            <button
+                              id={`btn-edit-rep-${r.id}`}
+                              onClick={() => handleEditClick(r)}
+                              className="text-slate-500 hover:text-cyan-400 p-1 rounded-md transition hover:bg-slate-900"
+                              title="แก้ไขประวัติงานซ่อม"
+                            >
+                              <Edit size={14} />
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              id={`btn-delete-rep-${r.id}`}
+                              onClick={() => handleDeleteRepair(r.id)}
+                              className="text-slate-500 hover:text-rose-400 p-1 rounded-md transition hover:bg-slate-900"
+                              title="ลบประวัติงานซ่อม (เฉพาะ Admin)"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                          {!canEdit && !canDelete && (
+                            <span className="text-[10px] text-slate-500 italic">ดูอย่างเดียว</span>
+                          )}
                         </div>
                       </td>
                     </tr>

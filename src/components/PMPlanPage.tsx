@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 export const PMPlanPage: React.FC = () => {
-  const { machines, pmPlans, setPmPlans } = useApp();
+  const { machines, pmPlans, setPmPlans, canEdit, canDelete } = useApp();
   
   // Selected machine filter
   const [selectedMachineId, setSelectedMachineId] = useState<string>(machines[0]?.id || '');
@@ -438,49 +438,57 @@ export const PMPlanPage: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
-                <button
-                  id="btn-copy-pm-plans"
-                  onClick={() => {
-                    if (!selectedMachineId) {
-                      alert("กรุณาเลือกเครื่องจักรปลายทางก่อน");
-                      return;
-                    }
-                    setCopySourceMachineId('');
-                    setSelectedPlansToCopy([]);
-                    setShowCopyModal(true);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-700/60 hover:bg-slate-700 text-slate-200 border border-slate-600 rounded-xl text-[11px] font-bold transition cursor-pointer"
-                  title="คัดลอกแผน PM ทั้งหมดหรือบางส่วนจากเครื่องจักรอื่นมาที่เครื่องนี้"
-                >
-                  <Copy size={13} className="text-cyan-400" />
-                  <span>คัดลอกแผนจากเครื่องอื่น</span>
-                </button>
+                {canEdit ? (
+                  <>
+                    <button
+                      id="btn-copy-pm-plans"
+                      onClick={() => {
+                        if (!selectedMachineId) {
+                          alert("กรุณาเลือกเครื่องจักรปลายทางก่อน");
+                          return;
+                        }
+                        setCopySourceMachineId('');
+                        setSelectedPlansToCopy([]);
+                        setShowCopyModal(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-slate-700/60 hover:bg-slate-700 text-slate-200 border border-slate-600 rounded-xl text-[11px] font-bold transition cursor-pointer"
+                      title="คัดลอกแผน PM ทั้งหมดหรือบางส่วนจากเครื่องจักรอื่นมาที่เครื่องนี้"
+                    >
+                      <Copy size={13} className="text-cyan-400" />
+                      <span>คัดลอกแผนจากเครื่องอื่น</span>
+                    </button>
 
-                <button
-                  id="btn-import-pm-excel"
-                  onClick={() => {
-                    if (!selectedMachineId) {
-                      alert("กรุณาเลือกเครื่องจักรที่จะให้นำเข้าแผนลงไปก่อน");
-                      return;
-                    }
-                    setImportText('');
-                    setShowImportModal(true);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 border border-slate-755 text-slate-200 hover:bg-slate-755 hover:border-slate-600 rounded-xl text-[11px] font-bold transition cursor-pointer"
-                  title="นำเข้าแผน PM และขั้นตอนด้วยไฟล์ Excel/CSV หรือแปะจากคลิปบอร์ดได้เลย"
-                >
-                  <Upload size={13} className="text-emerald-400" />
-                  <span>นำเข้า Excel / วางแปะ</span>
-                </button>
+                    <button
+                      id="btn-import-pm-excel"
+                      onClick={() => {
+                        if (!selectedMachineId) {
+                          alert("กรุณาเลือกเครื่องจักรที่จะให้นำเข้าแผนลงไปก่อน");
+                          return;
+                        }
+                        setImportText('');
+                        setShowImportModal(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 border border-slate-755 text-slate-200 hover:bg-slate-755 hover:border-slate-600 rounded-xl text-[11px] font-bold transition cursor-pointer"
+                      title="นำเข้าแผน PM และขั้นตอนด้วยไฟล์ Excel/CSV หรือแปะจากคลิปบอร์ดได้เลย"
+                    >
+                      <Upload size={13} className="text-emerald-400" />
+                      <span>นำเข้า Excel / วางแปะ</span>
+                    </button>
 
-                <button
-                  id="btn-add-pm-plan"
-                  onClick={handleOpenNewForm}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold rounded-xl text-[11px] transition"
-                >
-                  <Plus size={13} strokeWidth={2.5} />
-                  <span>เพิ่มงานแผน PM ใหม่</span>
-                </button>
+                    <button
+                      id="btn-add-pm-plan"
+                      onClick={handleOpenNewForm}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold rounded-xl text-[11px] transition"
+                    >
+                      <Plus size={13} strokeWidth={2.5} />
+                      <span>เพิ่มงานแผน PM ใหม่</span>
+                    </button>
+                  </>
+                ) : (
+                  <div className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 text-xs border border-slate-700">
+                    🔒 สิทธิ์ดูอย่างเดียว (Viewer)
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -557,22 +565,30 @@ export const PMPlanPage: React.FC = () => {
 
                 {/* Interactive controller button */}
                 <div className="flex items-center justify-end gap-2 border-t border-slate-700/50 pt-3">
-                  <button
-                    id={`btn-edit-plan-${plan.id}`}
-                    onClick={() => handleOpenEditForm(plan)}
-                    className="flex items-center gap-1 border border-slate-700 hover:bg-slate-700/60 text-slate-300 text-xs px-3 py-1.5 rounded-lg transition"
-                  >
-                    <Edit3 size={12} />
-                    แก้ไขข้อมูล
-                  </button>
-                  <button
-                    id={`btn-delete-plan-${plan.id}`}
-                    onClick={() => handleDeletePlan(plan.id)}
-                    className="flex items-center gap-1 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-white text-xs px-3 py-1.5 rounded-lg transition"
-                  >
-                    <Trash2 size={12} />
-                    ลบแผนงาน
-                  </button>
+                  {canEdit && (
+                    <button
+                      id={`btn-edit-plan-${plan.id}`}
+                      onClick={() => handleOpenEditForm(plan)}
+                      className="flex items-center gap-1 border border-slate-700 hover:bg-slate-700/60 text-slate-300 text-xs px-3 py-1.5 rounded-lg transition"
+                    >
+                      <Edit3 size={12} />
+                      แก้ไขข้อมูล
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      id={`btn-delete-plan-${plan.id}`}
+                      onClick={() => handleDeletePlan(plan.id)}
+                      className="flex items-center gap-1 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-white text-xs px-3 py-1.5 rounded-lg transition"
+                      title="ลบแผนงาน PM (เฉพาะ Admin)"
+                    >
+                      <Trash2 size={12} />
+                      ลบแผนงาน
+                    </button>
+                  )}
+                  {!canEdit && !canDelete && (
+                    <span className="text-[10px] text-slate-500 italic">ดูอย่างเดียว</span>
+                  )}
                 </div>
               </div>
             ))

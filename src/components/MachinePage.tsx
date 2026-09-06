@@ -11,7 +11,7 @@ import { parseMachineRegistryPDF, ParseResult } from '../utils/pdfMachineParser'
 import { CPRAM_PDF_MACHINES } from '../data/cpramMachines';
 
 export const MachinePage: React.FC = () => {
-  const { machines, setMachines, pmPlans, repairs } = useApp();
+  const { machines, setMachines, pmPlans, repairs, canEdit, canDelete } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
@@ -310,24 +310,32 @@ export const MachinePage: React.FC = () => {
         
         <div className="flex flex-wrap items-center gap-2.5 self-stretch sm:self-auto">
           {/* PDF Import Button */}
-          <button
-            id="btn-import-pdf"
-            onClick={() => setShowPdfModal(true)}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-all shadow-md focus:ring-2 focus:ring-emerald-400 text-xs sm:text-sm cursor-pointer"
-          >
-            <FileText size={16} />
-            นำเข้าจากไฟล์ PDF (F-QMS-011)
-          </button>
+          {canEdit && (
+            <button
+              id="btn-import-pdf"
+              onClick={() => setShowPdfModal(true)}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-all shadow-md focus:ring-2 focus:ring-emerald-400 text-xs sm:text-sm cursor-pointer"
+            >
+              <FileText size={16} />
+              นำเข้าจากไฟล์ PDF (F-QMS-011)
+            </button>
+          )}
 
           {/* Add Machine Button */}
-          <button
-            id="btn-add-machine"
-            onClick={() => setShowAddModal(true)}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-all shadow-md focus:ring-2 focus:ring-cyan-400 text-xs sm:text-sm cursor-pointer"
-          >
-            <Plus size={16} />
-            เพิ่มเครื่องจักรใหม่
-          </button>
+          {canEdit ? (
+            <button
+              id="btn-add-machine"
+              onClick={() => setShowAddModal(true)}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-all shadow-md focus:ring-2 focus:ring-cyan-400 text-xs sm:text-sm cursor-pointer"
+            >
+              <Plus size={16} />
+              เพิ่มเครื่องจักรใหม่
+            </button>
+          ) : (
+            <div className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 text-xs flex items-center gap-1.5 border border-slate-700">
+              <span>🔒 สิทธิ์ผู้ดูข้อมูล (Viewer) ไม่สามารถเพิ่มหรือแก้ไขข้อมูลได้</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -502,22 +510,26 @@ export const MachinePage: React.FC = () => {
                         </td>
                         <td className="py-3.5 px-3 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              id={`btn-edit-${m.id}`}
-                              onClick={() => handleEditClick(m)}
-                              className="bg-slate-900 hover:bg-slate-950 p-1.5 rounded-lg border border-slate-700/60 text-slate-300 hover:text-amber-400 hover:border-amber-500/40 transition cursor-pointer"
-                              title="แก้ไขทะเบียนเครื่องจักร"
-                            >
-                              <Edit3 size={13} className="text-amber-400" />
-                            </button>
-                            <button
-                              id={`btn-delete-${m.id}`}
-                              onClick={() => handleDeleteClick(m)}
-                              className="bg-slate-900 hover:bg-slate-950 p-1.5 rounded-lg border border-slate-700/60 text-slate-300 hover:text-rose-400 hover:border-rose-500/40 transition cursor-pointer"
-                              title="ลบทะเบียนเครื่องจักร"
-                            >
-                              <Trash2 size={13} className="text-rose-400" />
-                            </button>
+                            {canEdit && (
+                              <button
+                                id={`btn-edit-${m.id}`}
+                                onClick={() => handleEditClick(m)}
+                                className="bg-slate-900 hover:bg-slate-950 p-1.5 rounded-lg border border-slate-700/60 text-slate-300 hover:text-amber-400 hover:border-amber-500/40 transition cursor-pointer"
+                                title="แก้ไขทะเบียนเครื่องจักร"
+                              >
+                                <Edit3 size={13} className="text-amber-400" />
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button
+                                id={`btn-delete-${m.id}`}
+                                onClick={() => handleDeleteClick(m)}
+                                className="bg-slate-900 hover:bg-slate-950 p-1.5 rounded-lg border border-slate-700/60 text-slate-300 hover:text-rose-400 hover:border-rose-500/40 transition cursor-pointer"
+                                title="ลบทะเบียนเครื่องจักร (เฉพาะ Admin)"
+                              >
+                                <Trash2 size={13} className="text-rose-400" />
+                              </button>
+                            )}
                             <button
                               id={`btn-expand-${m.id}`}
                               onClick={() => toggleExpandRow(m.id)}

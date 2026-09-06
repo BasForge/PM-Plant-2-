@@ -22,13 +22,15 @@ import {
   TechnicianLeave,
   CD5Project,
   SystemSettings,
-  Employee
+  Employee,
+  UserAccount
 } from '../types';
 
 export interface AppDatabaseState {
   machines: Machine[];
   technicians: string[];
   employees: Employee[];
+  users?: UserAccount[];
   pmPlans: PMPlan[];
   schedules: ScheduleItem[];
   repairs: RepairLog[];
@@ -71,6 +73,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
           leaves: data.leaves || [],
           spareParts: data.spareParts || [],
           cd5Projects: data.cd5Projects || [],
+          users: data.users || [],
           settings: data.settings || {} as SystemSettings,
         };
       }

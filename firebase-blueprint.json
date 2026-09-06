@@ -171,6 +171,19 @@
         "updatedAt": { "type": "string", "description": "Last update ISO timestamp" }
       },
       "required": ["id"]
+    },
+    "userAccounts": {
+      "title": "User Accounts",
+      "description": "User authentication credentials, roles, and permission levels",
+      "properties": {
+        "id": { "type": "string", "description": "User unique ID" },
+        "username": { "type": "string", "description": "Login username" },
+        "password": { "type": "string", "description": "User password" },
+        "name": { "type": "string", "description": "Full name or technician title" },
+        "role": { "type": "string", "description": "Access level: admin, technician, or viewer", "enum": ["admin", "technician", "viewer"] },
+        "department": { "type": "string", "description": "Department or manufacturing line" }
+      },
+      "required": ["id", "username", "password", "name", "role"]
     }
   }
 }

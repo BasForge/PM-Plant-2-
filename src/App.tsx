@@ -15,20 +15,33 @@ import { PMHistoryPage } from './components/PMHistoryPage';
 import { TechnicianPortfolioPage } from './components/TechnicianPortfolioPage';
 import { CostDown5Page } from './components/CostDown5Page';
 import { PMOverdueAlertModal } from './components/PMOverdueAlertModal';
+import { LoginPage } from './components/LoginPage';
+import { UserManagementModal } from './components/UserManagementModal';
 import { getOverdueAndRescheduledSummary, getTodayDateString } from './utils/pmAlerts';
 
 import { 
   Wrench, Activity, CalendarDays, ClipboardList, PenTool, 
   BarChart3, Settings, Menu, ChevronLeft, ChevronRight, Clock, ShieldCheck, Send, Presentation, Users,
-  Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell, Cloud
+  Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell, Cloud,
+  LogOut, Shield, UserCheck, Eye
 } from 'lucide-react';
 
 function AppContent() {
-  const { schedules, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow } = useApp();
+  const { 
+    currentUser, logout, isAdmin, canEdit, canDelete,
+    schedules, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow 
+  } = useApp();
+  
+  // If not logged in, show login page
+  if (!currentUser) {
+    return <LoginPage />;
+  }
+
   // Sidebar navigation active page state [1 to 6]
   const [activePage, setActivePage] = useState<number>(3); // Default to Page 3 (📅 ตารางงานช่าง) as requested as master planner
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true); // Collapsible fixed 220px
   const [showOverdueModal, setShowOverdueModal] = useState<boolean>(false);
+  const [showUserModal, setShowUserModal] = useState<boolean>(false);
 
   const todayStr = getTodayDateString();
   const { totalOverdueCount, totalRescheduledCount } = getOverdueAndRescheduledSummary(schedules, todayStr);
@@ -351,10 +364,67 @@ function AppContent() {
               id="btn-trigger-settings-modal"
               onClick={() => setShowSettings(true)}
               className="bg-slate-900 border border-slate-850 hover:bg-slate-850 p-2 rounded-lg text-slate-350 hover:text-cyan-400 transition-all cursor-pointer shadow-md"
-              title="ตั้งค่ากะช่างและกำหนด Std.MTTR ในระบบ"
+              title="ตั้งค่าระบบและกะช่าง"
             >
               <Settings size={16} />
             </button>
+
+            {/* Current User Profile & Role Info */}
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+              <div 
+                className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700 transition"
+                onClick={() => {
+                  if (isAdmin) setShowUserModal(true);
+                }}
+                title={isAdmin ? "คลิกเพื่อจัดการบัญชีผู้ใช้งาน" : `ผู้ใช้งาน: ${currentUser.name}`}
+              >
+                <div className={`w-2 h-2 rounded-full ${
+                  currentUser.role === 'admin' ? 'bg-amber-400' :
+                  currentUser.role === 'technician' ? 'bg-cyan-400' : 'bg-emerald-400'
+                }`} />
+                <div className="text-left">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-slate-200 max-w-[120px] truncate">{currentUser.name}</span>
+                    <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
+                      currentUser.role === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                      currentUser.role === 'technician' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' :
+                      'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    }`}>
+                      {currentUser.role === 'admin' ? 'Admin' : currentUser.role === 'technician' ? 'ช่าง' : 'ผู้ดู'}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-slate-500 flex items-center gap-1">
+                    <span>@{currentUser.username}</span>
+                    <span>•</span>
+                    <span>{canDelete ? 'สิทธิ์เต็ม (ลบได้)' : canEdit ? 'แก้ไขได้ (ห้ามลบ)' : 'ดูอย่างเดียว'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Admin quick user management button */}
+              {isAdmin && (
+                <button
+                  id="btn-open-user-management"
+                  onClick={() => setShowUserModal(true)}
+                  className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-slate-300 hover:text-cyan-400 rounded-lg transition-all shadow-md flex items-center gap-1.5 text-xs"
+                  title="จัดการผู้ใช้: เพิ่ม ลบ แก้ไข username/password และสิทธิ์"
+                >
+                  <Users size={15} className="text-cyan-400" />
+                  <span className="hidden xl:inline text-[11px] font-semibold">จัดการผู้ใช้</span>
+                </button>
+              )}
+
+              {/* Logout button */}
+              <button
+                id="btn-logout"
+                onClick={logout}
+                className="p-2 bg-slate-900 hover:bg-rose-950/50 border border-slate-800 hover:border-rose-500/40 text-slate-400 hover:text-rose-400 rounded-lg transition-all shadow-md flex items-center gap-1 text-xs"
+                title="ออกจากระบบ (Log Out)"
+              >
+                <LogOut size={15} />
+                <span className="hidden sm:inline text-[11px]">ออก</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -386,6 +456,14 @@ function AppContent() {
             setActivePage(3);
             setShowOverdueModal(false);
           }}
+        />
+      )}
+
+      {/* 5. USER MANAGEMENT MODAL */}
+      {showUserModal && (
+        <UserManagementModal 
+          isOpen={showUserModal} 
+          onClose={() => setShowUserModal(false)} 
         />
       )}
 

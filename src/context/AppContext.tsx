@@ -2,13 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { 
   Machine, PMPlan, PMScheduleItem, OperationScheduleItem, 
   RepairLog, ImprovementProject, SystemSettings, ScheduleItem, SetupLog, Employee,
-  TechnicianLeave, SparePart, CD5Project
+  TechnicianLeave, SparePart, CD5Project, UserAccount, UserRole
 } from '../types';
 import { 
   PRELOADED_MACHINES, PRELOADED_TECHNICIANS, PRELOADED_PM_PLANS, 
   PRELOADED_REPAIRS, PRELOADED_IMPROVEMENTS, PRELOADED_SCHEDULES, PRELOADED_SETUPS,
   PRELOADED_SPARE_PARTS, PRELOADED_CD5_PROJECTS
 } from '../data/preloaded';
+import { DEFAULT_USER_ACCOUNTS } from '../data/preloadedUsers';
 import { 
   loadDatabaseFromFirebase, 
   saveDatabaseToFirebase, 
@@ -42,6 +43,20 @@ interface AppContextType {
   setSpareParts: React.Dispatch<React.SetStateAction<SparePart[]>>;
   cd5Projects: CD5Project[];
   setCd5Projects: React.Dispatch<React.SetStateAction<CD5Project[]>>;
+  users: UserAccount[];
+  setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>;
+  currentUser: UserAccount | null;
+  setCurrentUser: React.Dispatch<React.SetStateAction<UserAccount | null>>;
+  login: (username: string, password: string) => { success: boolean; message?: string };
+  logout: () => void;
+  addUser: (account: Omit<UserAccount, 'id' | 'createdAt'>) => { success: boolean; message?: string };
+  updateUser: (id: string, updates: Partial<UserAccount>) => { success: boolean; message?: string };
+  deleteUser: (id: string) => { success: boolean; message?: string };
+  isAdmin: boolean;
+  isTechnician: boolean;
+  isViewer: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   firebaseStatus: 'connected' | 'syncing' | 'offline' | 'error';
   lastFirebaseSync: string | null;
   syncWithFirebaseNow: () => Promise<boolean>;
@@ -64,6 +79,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [leaves, setLeaves] = useState<TechnicianLeave[]>([]);
   const [spareParts, setSpareParts] = useState<SparePart[]>([]);
   const [cd5Projects, setCd5Projects] = useState<CD5Project[]>([]);
+  const [users, setUsers] = useState<UserAccount[]>([]);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
+    try {
+      const storedId = localStorage.getItem('foodfab_current_user_id');
+      const storedUsersStr = localStorage.getItem('maint_users');
+      if (storedId && storedUsersStr) {
+        const parsedUsers: UserAccount[] = JSON.parse(storedUsersStr);
+        const match = parsedUsers.find(u => u.id === storedId);
+        if (match) return match;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  });
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [firebaseStatus, setFirebaseStatus] = useState<FirebaseSyncStatus>('syncing');
   const [lastFirebaseSync, setLastFirebaseSync] = useState<string | null>(null);
@@ -141,6 +171,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
           setLeaves(cloudData.leaves || []);
           setCd5Projects(cloudData.cd5Projects || PRELOADED_CD5_PROJECTS);
+          const userList = (cloudData.users && cloudData.users.length > 0) ? cloudData.users : DEFAULT_USER_ACCOUNTS;
+          setUsers(userList);
+          
+          // Check saved session
+          const storedUserId = localStorage.getItem('foodfab_current_user_id');
+          if (storedUserId) {
+            const matched = userList.find(u => u.id === storedUserId);
+            if (matched) setCurrentUser(matched);
+          }
+
           if (cloudData.settings && Object.keys(cloudData.settings).length > 0) {
             setSettings(cloudData.settings);
           }
@@ -176,6 +216,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const parts = serverData.spareParts || PRELOADED_SPARE_PARTS;
             const lvs = serverData.leaves || [];
             const cd5 = serverData.cd5Projects || PRELOADED_CD5_PROJECTS;
+            const userList = (serverData.users && serverData.users.length > 0) ? serverData.users : DEFAULT_USER_ACCOUNTS;
             const stt = serverData.settings || settings;
 
             setMachines(machs);
@@ -189,7 +230,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setSpareParts(parts);
             setLeaves(lvs);
             setCd5Projects(cd5);
+            setUsers(userList);
             setSettings(stt);
+
+            const storedUserId = localStorage.getItem('foodfab_current_user_id');
+            if (storedUserId) {
+              const matched = userList.find(u => u.id === storedUserId);
+              if (matched) setCurrentUser(matched);
+            }
 
             resolvedData = {
               machines: machs,
@@ -203,6 +251,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               spareParts: parts,
               leaves: lvs,
               cd5Projects: cd5,
+              users: userList,
               settings: stt
             };
           }
@@ -226,6 +275,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const storedSpareParts = localStorage.getItem('maint_spare_parts');
           const storedLeaves = localStorage.getItem('maint_leaves');
           const storedCd5 = localStorage.getItem('maint_cd5_projects');
+          const storedUsers = localStorage.getItem('maint_users');
 
           const machs = storedMachines
             ? sanitizeMachines(JSON.parse(storedMachines))
@@ -244,6 +294,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const setups = storedSetups ? JSON.parse(storedSetups) : PRELOADED_SETUPS;
           const parts = storedSpareParts ? JSON.parse(storedSpareParts) : PRELOADED_SPARE_PARTS;
           const cd5 = storedCd5 ? JSON.parse(storedCd5) : PRELOADED_CD5_PROJECTS;
+          const userList: UserAccount[] = storedUsers ? JSON.parse(storedUsers) : DEFAULT_USER_ACCOUNTS;
           const lvs = storedLeaves ? JSON.parse(storedLeaves) : [
             { id: 'lv-001', technician: 'ช่าง 1', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
             { id: 'lv-002', technician: 'ช่าง 2', date: '2026-06-11', type: 'ลาป่วย' as const, note: 'ปวดศีรษะ เป็นไข้หวัด' },
@@ -263,7 +314,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSpareParts(parts);
           setLeaves(lvs);
           setCd5Projects(cd5);
+          setUsers(userList);
           setSettings(stt);
+
+          const storedUserId = localStorage.getItem('foodfab_current_user_id');
+          if (storedUserId) {
+            const matched = userList.find(u => u.id === storedUserId);
+            if (matched) setCurrentUser(matched);
+          }
 
           resolvedData = {
             machines: machs,
@@ -277,6 +335,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             spareParts: parts,
             leaves: lvs,
             cd5Projects: cd5,
+            users: userList,
             settings: stt
           };
         } catch (e) {
@@ -326,6 +385,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('maint_spare_parts', JSON.stringify(spareParts));
       localStorage.setItem('maint_cd5_projects', JSON.stringify(cd5Projects));
       localStorage.setItem('maint_settings', JSON.stringify(settings));
+      localStorage.setItem('maint_users', JSON.stringify(users));
     } catch (e) {
       console.warn("LocalStorage quota warning:", e);
     }
@@ -342,7 +402,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       leaves,
       spareParts,
       cd5Projects,
-      settings
+      settings,
+      users
     };
 
     // Check if the data has actually changed compared to the last saved state
@@ -386,7 +447,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timerId);
   }, [
     machines, technicians, employees, pmPlans, schedules,
-    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, settings, isLoaded
+    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, settings, users, isLoaded
   ]);
 
   // Real-time listener for multi-user collaboration via Cloud Firestore
@@ -417,6 +478,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
           setLeaves(cloudData.leaves || []);
           setCd5Projects(cloudData.cd5Projects || PRELOADED_CD5_PROJECTS);
+          if (cloudData.users && cloudData.users.length > 0) {
+            setUsers(cloudData.users);
+          }
           if (cloudData.settings && Object.keys(cloudData.settings).length > 0) {
             setSettings(cloudData.settings);
           }
@@ -455,6 +519,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
         setLeaves(cloudData.leaves || []);
         setCd5Projects(cloudData.cd5Projects || PRELOADED_CD5_PROJECTS);
+        if (cloudData.users && cloudData.users.length > 0) {
+          setUsers(cloudData.users);
+        }
         if (cloudData.settings && Object.keys(cloudData.settings).length > 0) {
           setSettings(cloudData.settings);
         }
@@ -462,7 +529,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         const payload = {
           machines, technicians, employees, pmPlans, schedules,
-          repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, settings
+          repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, settings, users
         };
         await saveDatabaseToFirebase(payload);
         lastSavedJsonRef.current = JSON.stringify(payload);
@@ -476,6 +543,122 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return false;
     }
   };
+
+  // Authentication & Permission Methods
+  const login = (usernameInput: string, passwordInput: string): { success: boolean; message?: string } => {
+    const cleanUsername = usernameInput.trim().toLowerCase();
+    const cleanPassword = passwordInput.trim();
+
+    if (!cleanUsername || !cleanPassword) {
+      return { success: false, message: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่านให้ครบถ้วน' };
+    }
+
+    const matchedUser = users.find(u => u.username.toLowerCase().trim() === cleanUsername);
+    if (!matchedUser) {
+      return { success: false, message: 'ไม่พบชื่อผู้ใช้นี้ในระบบ โปรดตรวจสอบอีกครั้ง' };
+    }
+
+    if (matchedUser.password !== cleanPassword) {
+      return { success: false, message: 'รหัสผ่านไม่ถูกต้อง โปรดลองใหม่อีกครั้ง' };
+    }
+
+    setCurrentUser(matchedUser);
+    try {
+      localStorage.setItem('foodfab_current_user_id', matchedUser.id);
+    } catch {
+      // ignore
+    }
+    return { success: true };
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem('foodfab_current_user_id');
+    } catch {
+      // ignore
+    }
+  };
+
+  const addUser = (account: Omit<UserAccount, 'id' | 'createdAt'>): { success: boolean; message?: string } => {
+    const cleanUsername = account.username.trim().toLowerCase();
+    const cleanPassword = account.password.trim();
+    const cleanName = account.name.trim();
+
+    if (!cleanUsername) return { success: false, message: 'กรุณาระบุชื่อผู้ใช้ (Username)' };
+    if (!cleanPassword) return { success: false, message: 'กรุณาระบุรหัสผ่าน (Password)' };
+    if (!cleanName) return { success: false, message: 'กรุณาระบุชื่อ-นามสกุล' };
+
+    if (users.some(u => u.username.toLowerCase().trim() === cleanUsername)) {
+      return { success: false, message: `ชื่อผู้ใช้ "${account.username}" มีอยู่ในระบบแล้ว กรุณาใช้ชื่ออื่น` };
+    }
+
+    const newUser: UserAccount = {
+      ...account,
+      id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      username: cleanUsername,
+      password: cleanPassword,
+      name: cleanName,
+      department: account.department?.trim() || 'แผนกซ่อมบำรุง',
+      createdAt: new Date().toISOString().split('T')[0]
+    };
+
+    setUsers(prev => [...prev, newUser]);
+    return { success: true };
+  };
+
+  const updateUser = (id: string, updates: Partial<UserAccount>): { success: boolean; message?: string } => {
+    if (updates.username) {
+      const cleanUsername = updates.username.trim().toLowerCase();
+      if (users.some(u => u.id !== id && u.username.toLowerCase().trim() === cleanUsername)) {
+        return { success: false, message: `ชื่อผู้ใช้ "${updates.username}" ถูกใช้งานโดยบัญชีอื่นแล้ว` };
+      }
+    }
+
+    setUsers(prev => prev.map(u => {
+      if (u.id === id) {
+        const updated = { ...u, ...updates };
+        if (updates.username) updated.username = updates.username.trim().toLowerCase();
+        if (updates.password) updated.password = updates.password.trim();
+        if (updates.name) updated.name = updates.name.trim();
+        if (currentUser?.id === id) {
+          setCurrentUser(updated);
+        }
+        return updated;
+      }
+      return u;
+    }));
+
+    return { success: true };
+  };
+
+  const deleteUser = (id: string): { success: boolean; message?: string } => {
+    if (currentUser?.id === id) {
+      return { success: false, message: 'ไม่สามารถลบบัญชีที่กำลังล็อกอินใช้งานอยู่ในขณะนี้ได้' };
+    }
+
+    const targetUser = users.find(u => u.id === id);
+    if (!targetUser) {
+      return { success: false, message: 'ไม่พบบัญชีผู้ใช้ที่ต้องการลบ' };
+    }
+
+    if (targetUser.role === 'admin') {
+      const adminCount = users.filter(u => u.role === 'admin').length;
+      if (adminCount <= 1) {
+        return { success: false, message: 'ระบบต้องมีผู้ดูแลระบบ (Admin) อย่างน้อย 1 บัญชี ไม่สามารถลบได้' };
+      }
+    }
+
+    setUsers(prev => prev.filter(u => u.id !== id));
+    return { success: true };
+  };
+
+  // RBAC Permission shortcuts
+  const isAdmin = currentUser?.role === 'admin';
+  const isTechnician = currentUser?.role === 'technician';
+  const isViewer = currentUser?.role === 'viewer';
+  const canEdit = !!currentUser && (isAdmin || isTechnician);
+  const canDelete = !!currentUser && isAdmin;
 
   const resetToDefaults = () => {
     setMachines(PRELOADED_MACHINES);
@@ -493,6 +676,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setImprovements(PRELOADED_IMPROVEMENTS);
     setSetupLogs(PRELOADED_SETUPS);
     setCd5Projects(PRELOADED_CD5_PROJECTS);
+    setUsers(DEFAULT_USER_ACCOUNTS);
     const preloadingLeaves = [
       { id: 'lv-001', technician: 'ช่าง 1', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
       { id: 'lv-002', technician: 'ช่าง 2', date: '2026-06-11', type: 'ลาป่วย' as const, note: 'ปวดศีรษะ เป็นไข้หวัด' },
@@ -534,6 +718,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('maint_improvements', JSON.stringify(PRELOADED_IMPROVEMENTS));
     localStorage.setItem('maint_setup_logs', JSON.stringify(PRELOADED_SETUPS));
     localStorage.setItem('maint_leaves', JSON.stringify(preloadingLeaves));
+    localStorage.setItem('maint_users', JSON.stringify(DEFAULT_USER_ACCOUNTS));
     setSpareParts(PRELOADED_SPARE_PARTS);
     localStorage.setItem('maint_spare_parts', JSON.stringify(PRELOADED_SPARE_PARTS));
     localStorage.setItem('maint_cd5_projects', JSON.stringify(PRELOADED_CD5_PROJECTS));
@@ -553,7 +738,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       leaves,
       spareParts,
       cd5Projects,
-      settings
+      settings,
+      users
     };
     return JSON.stringify(dataObj, null, 2);
   };
@@ -573,6 +759,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (dataObj.spareParts) setSpareParts(dataObj.spareParts);
       if (dataObj.cd5Projects) setCd5Projects(dataObj.cd5Projects);
       if (dataObj.settings) setSettings(dataObj.settings);
+      if (dataObj.users && Array.isArray(dataObj.users)) setUsers(dataObj.users);
       
       return true;
     } catch (e) {
@@ -595,6 +782,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       settings, setSettings,
       spareParts, setSpareParts,
       cd5Projects, setCd5Projects,
+      users, setUsers,
+      currentUser, setCurrentUser,
+      login, logout,
+      addUser, updateUser, deleteUser,
+      isAdmin, isTechnician, isViewer,
+      canEdit, canDelete,
       firebaseStatus,
       lastFirebaseSync,
       syncWithFirebaseNow,

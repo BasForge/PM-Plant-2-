@@ -213,6 +213,20 @@ export interface SetupLog {
   deviationReason?: string; // สาเหตุ/เหตุผลความเบี่ยงเบนจากเกณฑ์เวลามาตรฐาน
 }
 
+export type UserRole = 'admin' | 'technician' | 'viewer';
+
+export interface UserAccount {
+  id: string; // e.g. "usr-admin", "usr-tech-01"
+  username: string; // unique username, e.g. "admin", "somchai"
+  password: string; // plain text password for quick maintenance management
+  name: string; // display name e.g. "ผู้ดูแลระบบ (Admin)", "ช่างสมชาย (วิศวกรซ่อมบำรุง)"
+  role: UserRole; // 'admin' | 'technician' | 'viewer'
+  department?: string; // แผนก e.g. "วิศวกรรมและซ่อมบำรุง", "ฝ่ายผลิต"
+  phone?: string;
+  createdAt?: string;
+  lastLogin?: string;
+}
+
 export interface Employee {
   id: string; // รหัสพนักงาน (เช่น ENG-001)
   name: string; // ชื่อ-นามสกุล
