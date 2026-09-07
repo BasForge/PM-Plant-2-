@@ -2,7 +2,7 @@ import React from 'react';
 import { ImprovementProject, Machine, isExcelAttachment } from '../../types';
 import { 
   Calendar, Wrench, Clock, CheckSquare, Users, FileText, FileSpreadsheet,
-  Image as ImageIcon, Plus, ArrowRight, CheckCircle2, AlertCircle 
+  Image as ImageIcon, Plus, ArrowRight, CheckCircle2, AlertCircle, Edit3 
 } from 'lucide-react';
 
 interface KaizenKanbanViewProps {
@@ -12,6 +12,7 @@ interface KaizenKanbanViewProps {
   onOpenPDF: (pdf: any) => void;
   onOpenPhoto: (photo: any) => void;
   onOpenCreateModal: () => void;
+  onEditProject?: (proj: ImprovementProject) => void;
 }
 
 export const KaizenKanbanView: React.FC<KaizenKanbanViewProps> = ({
@@ -20,7 +21,8 @@ export const KaizenKanbanView: React.FC<KaizenKanbanViewProps> = ({
   onSelectProject,
   onOpenPDF,
   onOpenPhoto,
-  onOpenCreateModal
+  onOpenCreateModal,
+  onEditProject
 }) => {
   const getMachineName = (machineId?: string) => {
     if (!machineId) return 'ทั่วไปในโรงงาน';
@@ -147,14 +149,29 @@ export const KaizenKanbanView: React.FC<KaizenKanbanViewProps> = ({
                         <div>
                           {/* Machine & Hours Badge */}
                           <div className="flex justify-between items-center mb-2">
-                            <span className="text-[11px] font-semibold text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-2 py-0.5 rounded-md flex items-center gap-1.5 truncate max-w-[170px]">
+                            <span className="text-[11px] font-semibold text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-2 py-0.5 rounded-md flex items-center gap-1.5 truncate max-w-[150px]">
                               <Wrench size={12} className="shrink-0" />
                               <span className="truncate">{getMachineName(proj.machineId)}</span>
                             </span>
-                            <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1 bg-slate-800/80 px-2 py-0.5 rounded">
-                              <Clock size={11} className="text-amber-400" />
-                              {totalHrs} ชม.
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1 bg-slate-800/80 px-2 py-0.5 rounded">
+                                <Clock size={11} className="text-amber-400" />
+                                {totalHrs} ชม.
+                              </span>
+                              {onEditProject && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEditProject(proj);
+                                  }}
+                                  className="p-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-amber-300 border border-slate-700 transition-colors"
+                                  title="แก้ไขข้อมูล, แนบไฟล์, ภาพถ่ายเพิ่มเติม"
+                                >
+                                  <Edit3 size={11} />
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           {/* Title */}
@@ -204,6 +221,27 @@ export const KaizenKanbanView: React.FC<KaizenKanbanViewProps> = ({
                                 >
                                   <img src={proj.photoAfter} alt="After" className="w-full h-full object-cover" />
                                   <span className="absolute bottom-0 inset-x-0 bg-slate-950/80 text-[8px] font-bold text-emerald-300 text-center py-0.5">หลัง</span>
+                                </button>
+                              )}
+
+                              {/* Additional Photos Badge */}
+                              {proj.photos && proj.photos.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenPhoto({
+                                      url: proj.photos![0].url,
+                                      title: proj.title,
+                                      subtitle: proj.photos![0].caption || 'ภาพประกอบ Kaizen',
+                                      badge: `รูปภาพ (${proj.photos!.length})`
+                                    });
+                                  }}
+                                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[10px] font-semibold transition-all shrink-0"
+                                  title={`ดูรูปภาพประกอบเพิ่มเติม (${proj.photos.length} รูป)`}
+                                >
+                                  <ImageIcon size={11} />
+                                  +{proj.photos.length} รูป
                                 </button>
                               )}
 

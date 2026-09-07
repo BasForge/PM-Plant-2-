@@ -4,12 +4,13 @@ import { RepairLog } from '../types';
 import { 
   Plus, Search, SlidersHorizontal, Image as ImageIcon, 
   Trash2, AlertTriangle, CheckCircle, HelpCircle, ArrowUpDown,
-  Edit, FileSpreadsheet, Upload, X
+  Edit, FileSpreadsheet, Upload, X, MessageSquare
 } from 'lucide-react';
 import { notifyRepairOpened, notifyRepairClosed, sendLineNotification } from '../utils/lineNotify';
 import { compressImageFile } from '../utils/imageUtils';
 import { getTodayDateString } from '../utils/pmAlerts';
 import * as XLSX from 'xlsx';
+import { LineTextImportModal } from './repair/LineTextImportModal';
 
 export const RepairPage: React.FC = () => {
   const { repairs, setRepairs, machines, technicians, spareParts, setSpareParts, settings, canEdit, canDelete } = useApp();
@@ -20,6 +21,9 @@ export const RepairPage: React.FC = () => {
   const [monthFilter, setMonthFilter] = useState('');
   const [mttrFilter, setMttrFilter] = useState<number>(0); // MTTR > X minutes
   const [sortBy, setSortBy] = useState<'date' | 'duration'>('date'); // default to date descending (newest first)
+
+  // LINE Smart Text Import state
+  const [showLineTextModal, setShowLineTextModal] = useState(false);
 
   // Add Repair Form visibility
   const [showFormModal, setShowFormModal] = useState(false);
@@ -831,6 +835,19 @@ export const RepairPage: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 self-stretch sm:self-auto shrink-0">
+          {canEdit && (
+            <button
+              type="button"
+              id="btn-import-repairs-line"
+              onClick={() => setShowLineTextModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 hover:from-emerald-500 hover:via-green-500 hover:to-teal-500 text-white font-bold px-4 py-2.5 rounded-lg transition-all shadow-md focus:outline-none text-xs cursor-pointer shadow-emerald-700/20"
+              title="วางข้อความสรุปอาการเสียจากไลน์กลุ่มช่าง/ฝ่ายผลิต ระบบแยก ID เครื่อง, เวลา และคำนวณ MTTR ให้อัตโนมัติ"
+            >
+              <MessageSquare size={16} />
+              นำเข้าจากข้อความไลน์ / กะ
+            </button>
+          )}
+
           {canEdit && (
             <button
               type="button"
@@ -2089,6 +2106,17 @@ export const RepairPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Smart LINE Text Import Modal */}
+      <LineTextImportModal
+        isOpen={showLineTextModal}
+        onClose={() => setShowLineTextModal(false)}
+        machines={machines}
+        technicians={technicians}
+        onImportRepairs={(newRepairs) => {
+          setRepairs(prev => [...newRepairs, ...prev]);
+        }}
+      />
 
       {/* Custom Delete Confirmation Modal */}
       {deleteConfirmId && (

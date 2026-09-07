@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { ImprovementProject, Machine, WorkLog, isExcelAttachment } from '../../types';
+import React, { useState, useRef } from 'react';
+import { ImprovementProject, Machine, WorkLog, isExcelAttachment, MediaPhotoItem, PDFFileAttachment } from '../../types';
 import { 
   X, Clock, Calendar, Users, Wrench, FileText, FileSpreadsheet, Image as ImageIcon, 
-  CheckCircle2, Plus, Trash2, Edit3, Sparkles, BookOpen, Search, HelpCircle 
+  CheckCircle2, Plus, Trash2, Edit3, Sparkles, BookOpen, Search, HelpCircle, Upload
 } from 'lucide-react';
+import { compressImageFile } from '../../utils/imageUtils';
 
 interface KaizenDetailModalProps {
   project: ImprovementProject | null;
@@ -30,7 +31,82 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
   const [newLogHours, setNewLogHours] = useState(2);
   const [newLogNote, setNewLogNote] = useState('');
 
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!project) return null;
+
+  const handleQuickAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newPhotos: MediaPhotoItem[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const compressed = await compressImageFile(file);
+        newPhotos.push({
+          id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+          url: compressed,
+          caption: file.name.replace(/\.[^/.]+$/, ""),
+          uploadedAt: new Date().toISOString().split('T')[0],
+          type: 'evidence'
+        });
+      } catch (err) {
+        console.error('Failed to compress photo', err);
+      }
+    }
+
+    if (newPhotos.length > 0) {
+      const updated: ImprovementProject = {
+        ...project,
+        photos: [...(project.photos || []), ...newPhotos]
+      };
+      onUpdate(updated);
+    }
+    if (e.target) e.target.value = '';
+  };
+
+  const handleQuickAddFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newDocs: PDFFileAttachment[] = [];
+    let completedCount = 0;
+
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        const sizeFormatted = file.size > 1024 * 1024 
+          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.round(file.size / 1024)} KB`;
+
+        const isExcel = isExcelAttachment({ name: file.name });
+
+        newDocs.push({
+          id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          name: file.name,
+          size: sizeFormatted,
+          uploadedAt: new Date().toISOString().split('T')[0],
+          content: content,
+          fileType: isExcel ? 'excel' : 'pdf'
+        });
+
+        completedCount++;
+        if (completedCount === files.length) {
+          const updated: ImprovementProject = {
+            ...project,
+            pdfFiles: [...(project.pdfFiles || []), ...newDocs]
+          };
+          onUpdate(updated);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    if (e.target) e.target.value = '';
+  };
 
   const getMachineName = (machineId?: string) => {
     if (!machineId) return 'เครื่องจักรทั่วไป';
@@ -81,6 +157,24 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
       <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
         
+        {/* Hidden File and Photo Inputs */}
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleQuickAddPhotos}
+          className="hidden"
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv,application/pdf"
+          multiple
+          onChange={handleQuickAddFiles}
+          className="hidden"
+        />
+
         {/* Top Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900 shrink-0">
           <div className="flex items-center gap-3">
@@ -184,25 +278,38 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
             </p>
           </div>
 
-          {/* Before & After Photos */}
-          {(project.photoBefore || project.photoAfter) && (
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                ภาพถ่ายเปรียบเทียบผลงาน (Before & After Demonstration):
+          {/* Photos: Before/After and Additional Photos Gallery */}
+          <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                <ImageIcon size={15} className="text-cyan-400" />
+                รูปภาพและหลักฐานหน้างาน ({((project.photoBefore ? 1 : 0) + (project.photoAfter ? 1 : 0) + (project.photos?.length || 0))} รูป):
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+              >
+                <Plus size={13} />
+                + แนบรูปภาพเพิ่ม
+              </button>
+            </div>
+
+            {/* Before / After grid if exists */}
+            {(project.photoBefore || project.photoAfter) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                 {project.photoBefore && (
                   <div
                     onClick={() => onOpenPhoto({
                       url: project.photoBefore!,
                       title: project.title,
-                      subtitle: 'ภาพถ่ายก่อนปรับปรุง',
+                      subtitle: 'ภาพถ่ายก่อนปรับปรุง (Before)',
                       badge: 'BEFORE'
                     })}
                     className="group relative cursor-pointer overflow-hidden rounded-xl border border-amber-500/40 bg-slate-950 p-2 flex flex-col items-center hover:border-amber-400 transition-all shadow-md"
                   >
                     <span className="text-xs font-bold text-amber-400 mb-2">ภาพก่อนปรับปรุง (Before)</span>
-                    <img src={project.photoBefore} alt="Before" className="w-full h-48 object-cover rounded-lg" />
+                    <img src={project.photoBefore} alt="Before" className="w-full h-44 object-cover rounded-lg group-hover:scale-105 transition-transform" />
                     <span className="text-[10px] text-slate-400 mt-2">คลิกเพื่อดูภาพขยาย</span>
                   </div>
                 )}
@@ -212,28 +319,72 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
                     onClick={() => onOpenPhoto({
                       url: project.photoAfter!,
                       title: project.title,
-                      subtitle: 'ภาพถ่ายหลังปรับปรุง Kaizen',
+                      subtitle: 'ภาพถ่ายหลังปรับปรุง Kaizen (After)',
                       badge: 'AFTER'
                     })}
                     className="group relative cursor-pointer overflow-hidden rounded-xl border border-emerald-500/40 bg-slate-950 p-2 flex flex-col items-center hover:border-emerald-400 transition-all shadow-md"
                   >
                     <span className="text-xs font-bold text-emerald-400 mb-2">ภาพหลังปรับปรุง (After / Result)</span>
-                    <img src={project.photoAfter} alt="After" className="w-full h-48 object-cover rounded-lg" />
+                    <img src={project.photoAfter} alt="After" className="w-full h-44 object-cover rounded-lg group-hover:scale-105 transition-transform" />
                     <span className="text-[10px] text-slate-400 mt-2">คลิกเพื่อดูภาพขยาย</span>
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
+
+            {/* Additional Photos List */}
+            {project.photos && project.photos.length > 0 ? (
+              <div className="pt-2 border-t border-slate-800 space-y-2">
+                <span className="text-xs font-semibold text-slate-400 block">รูปภาพประกอบเพิ่มเติม:</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {project.photos.map((photo, pIdx) => (
+                    <button
+                      key={photo.id || pIdx}
+                      type="button"
+                      onClick={() => onOpenPhoto({
+                        url: photo.url,
+                        title: project.title,
+                        subtitle: photo.caption || `ภาพประกอบ ${pIdx + 1}`,
+                        badge: 'KAIZEN PHOTO'
+                      })}
+                      className="group/thumb relative rounded-lg overflow-hidden border border-slate-800 hover:border-cyan-500/60 bg-slate-950 text-left transition-all"
+                    >
+                      <img
+                        src={photo.url}
+                        alt={photo.caption || 'Evidence'}
+                        className="w-full h-24 object-cover group-hover/thumb:scale-105 transition-transform"
+                      />
+                      <div className="p-1.5 bg-slate-900/90 text-[10px] text-slate-300 truncate">
+                        {photo.caption || `รูปที่ ${pIdx + 1}`}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (!project.photoBefore && !project.photoAfter) ? (
+              <p className="text-xs text-slate-500 py-1">ยังไม่มีรูปภาพประกอบ (คลิกปุ่ม &quot;+ แนบรูปภาพเพิ่ม&quot; เพื่ออัปโหลด)</p>
+            ) : null}
+          </div>
 
           {/* Attached Files (Excel & PDF) */}
-          {project.pdfFiles && project.pdfFiles.length > 0 && (
-            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+          <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
                 <FileSpreadsheet size={15} className="text-emerald-400" />
                 <FileText size={15} className="text-rose-400" />
-                ไฟล์เอกสารแนบประกอบ ({project.pdfFiles.length} ไฟล์):
+                ไฟล์เอกสารแนบประกอบ ({project.pdfFiles?.length || 0} ไฟล์):
               </h4>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+              >
+                <Plus size={13} />
+                + แนบไฟล์เอกสาร
+              </button>
+            </div>
+            
+            {project.pdfFiles && project.pdfFiles.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {project.pdfFiles.map(file => {
                   const isExcel = isExcelAttachment(file);
@@ -295,8 +446,10 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
                   );
                 })}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-xs text-slate-500 py-1">ยังไม่มีเอกสารแนบ (คลิกปุ่ม &quot;+ แนบไฟล์เอกสาร&quot; เพื่อแนบไฟล์ Excel หรือ PDF)</p>
+            )}
+          </div>
 
           {/* Work Log Timeline & Logger */}
           <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 space-y-4">

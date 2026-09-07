@@ -172,6 +172,19 @@ export const ImprovementPage: React.FC = () => {
     setSelectedProject(updated);
   };
 
+  const handleUpdateProject = (updated: ImprovementProject) => {
+    setImprovements(prev => prev.map(p => p.id === updated.id ? updated : p));
+    if (selectedProject?.id === updated.id) {
+      setSelectedProject(updated);
+    }
+  };
+
+  const handleEditProject = (proj: ImprovementProject) => {
+    setSelectedProject(null);
+    setEditingProject(proj);
+    setIsCreateModalOpen(true);
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
       
@@ -373,6 +386,7 @@ export const ImprovementPage: React.FC = () => {
               setEditingProject(null);
               setIsCreateModalOpen(true);
             }}
+            onEditProject={handleEditProject}
           />
         )}
 
@@ -388,6 +402,8 @@ export const ImprovementPage: React.FC = () => {
               setIsCreateModalOpen(true);
             }}
             onDeleteProject={handleDeleteProject}
+            onEditProject={handleEditProject}
+            onUpdateProject={handleUpdateProject}
           />
         )}
 
@@ -403,6 +419,8 @@ export const ImprovementPage: React.FC = () => {
               setIsCreateModalOpen(true);
             }}
             onDeleteProject={handleDeleteProject}
+            onEditProject={handleEditProject}
+            onUpdateProject={handleUpdateProject}
           />
         )}
 
@@ -418,6 +436,8 @@ export const ImprovementPage: React.FC = () => {
               setIsCreateModalOpen(true);
             }}
             onDeleteProject={handleDeleteProject}
+            onEditProject={handleEditProject}
+            onUpdateProject={handleUpdateProject}
           />
         )}
 
