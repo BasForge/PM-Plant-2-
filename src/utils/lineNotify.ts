@@ -1,4 +1,4 @@
-import { RepairLog, PMScheduleItem, OperationScheduleItem, SetupLog, Machine, PMPlan } from '../types';
+import { RepairLog, PMScheduleItem, OperationScheduleItem, SetupLog, Machine, PMPlan, WorkRequest } from '../types';
 
 /**
  * Send a notification to LINE Notify via our server-side proxy
@@ -149,6 +149,91 @@ export async function notifySetupLogged(setup: SetupLog, machineName: string) {
 👤 รายชื่อทีมช่าง: ${techs}
 📊 สรุปแต่ละขั้นตอน:
 ${stepsSummary}
+  `.trim();
+
+  return sendLineNotification(message);
+}
+
+/**
+ * Format and send a notification when Production submits a new repair request
+ */
+export async function notifyWorkRequestSubmitted(request: WorkRequest) {
+  const urgencyIcon = request.priority === 'ฉุกเฉินไลน์หยุด' ? '🚨🚨🚨' : request.priority === 'เร่งด่วน' ? '⚠️' : '📢';
+  const message = `
+${urgencyIcon} [แจ้งซ่อมใหม่จากฝ่ายผลิต]
+📋 เลขที่: ${request.id}
+⚙️ เครื่องจักร: ${request.machineId} ${request.machineName ? `(${request.machineName})` : ''}
+📍 ไลน์ผลิต: ${request.lineGroup || 'ฝ่ายผลิต'}
+🔴 ความเร่งด่วน: ${request.priority}
+📝 ปัญหา: ${request.problemTitle}
+🔍 รายละเอียด: ${request.problemDetails}
+👤 ผู้แจ้ง: ${request.requesterName} (${request.productionDepartment})
+📞 เบอร์ติดต่อ: ${request.requesterPhone || '-'}
+⏰ เวลาแจ้ง: ${request.requestDate} เวลา ${request.requestTime}
+  `.trim();
+
+  return sendLineNotification(message);
+}
+
+/**
+ * Format and send a notification when Engineering responds with estimated finish date/time & action plan
+ */
+export async function notifyEngineeringResponse(request: WorkRequest) {
+  const resp = request.engineeringResponse;
+  if (!resp) return;
+
+  const techs = resp.assignedTechnicians && resp.assignedTechnicians.length > 0
+    ? resp.assignedTechnicians.join(', ')
+    : 'ทีมวิศวกรซ่อมบำรุง';
+
+  const message = `
+🛠️ [วิศวกรรมตอบรับงานซ่อมแล้ว]
+📋 เลขที่ใบแจ้ง: ${request.id}
+⚙️ เครื่องจักร: ${request.machineId} ${request.machineName ? `(${request.machineName})` : ''}
+👤 วิศวกรผู้ตอบรับ: ${resp.respondedBy}
+📅 วันที่/เวลาเข้าซ่อม: ${resp.targetStartDate} เวลา ${resp.targetStartTime}
+🎯 คาดว่าจะแล้วเสร็จ: ${resp.targetFinishDate} เวลา ${resp.targetFinishTime}
+⏱️ ระยะเวลาประเมิน: ${resp.estimatedDurationMins} นาที
+🔧 แผนงาน/วิธีการซ่อม:
+${resp.actionPlan}
+👥 ช่างผู้รับผิดชอบ: ${techs}
+📦 สถานะอะไหล่: ${resp.sparePartStatus} ${resp.sparePartNotes ? `(${resp.sparePartNotes})` : ''}
+🤝 ประสานงานไลน์: ${resp.productionCoordinationNotes || '-'}
+💬 ข้อความถึงฝ่ายผลิต: ${resp.messageToProduction || '-'}
+  `.trim();
+
+  return sendLineNotification(message);
+}
+
+/**
+ * Format and send a notification when Engineering completes the repair and asks Production to test & accept
+ */
+export async function notifyWorkRequestCompleted(request: WorkRequest) {
+  const resp = request.engineeringResponse;
+  const message = `
+✅ [วิศวกรรมซ่อมเสร็จแล้ว - รอฝ่ายผลิตตรวจรับงาน]
+📋 เลขที่ใบแจ้ง: ${request.id}
+⚙️ เครื่องจักร: ${request.machineId} ${request.machineName ? `(${request.machineName})` : ''}
+⏱️ เวลาที่ใช้จริง: ${resp?.actualDurationMins || '-'} นาที
+📝 ผลการซ่อม: ${resp?.repairSummaryNotes || 'ทดสอบระบบเรียบร้อย'}
+🤝 ขอเชิญฝ่ายผลิตทดสอบเดินเครื่องและกดตรวจรับมอบงานในระบบ
+  `.trim();
+
+  return sendLineNotification(message);
+}
+
+/**
+ * Format and send a notification when Production accepts handover and rates the job
+ */
+export async function notifyWorkRequestAccepted(request: WorkRequest) {
+  const stars = request.satisfactionRating ? '⭐'.repeat(request.satisfactionRating) : '';
+  const message = `
+🎉 [ฝ่ายผลิตตรวจรับและปิดงานเรียบร้อย]
+📋 เลขที่ใบแจ้ง: ${request.id}
+⚙️ เครื่องจักร: ${request.machineId} ${request.machineName ? `(${request.machineName})` : ''}
+👤 ผู้ตรวจรับ: ${request.acceptedBy || 'ฝ่ายผลิต'}
+⭐ คะแนนความพึงพอใจ: ${stars || '-'}
+📝 ความเห็นการส่งมอบ: ${request.handoverNotes || 'เดินเครื่องผลิตได้ปกติ'}
   `.trim();
 
   return sendLineNotification(message);

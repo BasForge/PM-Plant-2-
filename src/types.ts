@@ -223,7 +223,83 @@ export interface SetupLog {
   deviationReason?: string; // สาเหตุ/เหตุผลความเบี่ยงเบนจากเกณฑ์เวลามาตรฐาน
 }
 
-export type UserRole = 'admin' | 'technician' | 'viewer';
+export type UserRole = 'admin' | 'technician' | 'production' | 'viewer';
+
+export type WorkRequestPriority = 'ฉุกเฉินไลน์หยุด' | 'เร่งด่วน' | 'ปกติ' | 'ตามแผนนัดหมาย';
+
+export type WorkRequestStatus = 
+  | 'รอตอบรับ'                  // รอวิศวกรรมตอบรับ
+  | 'ตอบรับแล้ว/มีแผนงาน'        // วิศวกรรมตอบรับและระบุวันเสร็จ/แผนงานแล้ว
+  | 'กำลังดำเนินการซ่อม'         // ช่างกำลังเข้าซ่อม
+  | 'รออะไหล่/สั่งของ'           // รอเบิกหรือสั่งอะไหล่
+  | 'ซ่อมเสร็จ/รอฝ่ายผลิตตรวจรับ'  // ช่างซ่อมเสร็จแล้ว รอฝ่ายผลิตทดสอบเดินเครื่อง
+  | 'ปิดงานสมบูรณ์'             // ฝ่ายผลิตตรวจรับและปิดงานเรียบร้อย
+  | 'ยกเลิก/ปฏิเสธ';            // ไม่อนุมัติหรือยกเลิก
+
+export interface EngineeringResponse {
+  respondedAt: string; // วันเวลาที่ตอบรับ YYYY-MM-DD HH:MM
+  respondedBy: string; // ชื่อวิศวกร/ช่างผู้ตอบรับ
+  
+  // "ว่าจะแล้วเสร็จวันไหน เมื่อไหร่"
+  targetStartDate: string; // วันที่เริ่มเข้าซ่อม YYYY-MM-DD
+  targetStartTime: string; // เวลาเริ่มเข้าซ่อม HH:MM
+  targetFinishDate: string; // วันที่คาดว่าจะแล้วเสร็จ YYYY-MM-DD
+  targetFinishTime: string; // เวลาคาดว่าจะแล้วเสร็จ HH:MM
+  estimatedDurationMins: number; // ระยะเวลาประเมิน (นาที)
+
+  // "อย่างไร" (แผนงาน / วิธีการซ่อม / อะไหล่)
+  actionPlan: string; // ขั้นตอนและวิธีการซ่อม
+  assignedTechnicians: string[]; // รายชื่อช่างที่ได้รับมอบหมาย
+  sparePartStatus: 'มีอะไหล่พร้อมในคลัง' | 'เบิกอะไหล่ด่วน' | 'สั่งซื้อรออะไหล่' | 'ไม่ต้องใช้อะไหล่';
+  sparePartNotes?: string; // รายละเอียดอะไหล่ที่ต้องใช้
+  productionCoordinationNotes?: string; // การประสานงานนัดหยุดเครื่องกับไลน์ผลิต
+  
+  // ข้อความตอบกลับถึงฝ่ายผลิต
+  messageToProduction?: string; // คำชี้แจง/คำแนะนำถึงฝ่ายผลิต
+  
+  // ข้อมูลเมื่อซ่อมเสร็จจริง
+  completedAt?: string; // วันเวลาที่ซ่อมเสร็จจริง
+  actualDurationMins?: number; // เวลาซ่อมจริง (นาที)
+  repairSummaryNotes?: string; // สรุปผลการซ่อมบำรุง
+}
+
+export interface WorkRequest {
+  id: string; // e.g. "REQ-202609-001"
+  requestDate: string; // YYYY-MM-DD
+  requestTime: string; // HH:MM
+  
+  // ข้อมูลจากฝ่ายผลิต
+  machineId: string; // รหัสเครื่องจักร e.g. "ATS03" หรือ จุดที่แจ้งซ่อม e.g. "โต๊ะตัดซีล"
+  machineName?: string; // ชื่อเครื่องจักร e.g. "TOP SEALER ยำสาหร่าย"
+  lineGroup?: string; // ไลน์/แผนก e.g. "TOP SEALING ROOM"
+  locationPoint?: string; // จุดที่ต้องการแจ้งซ่อม / ตำแหน่ง เช่น "สายพานหน้าเครื่อง", "ฮีตเตอร์หัวซีลชุดที่ 2", "โต๊ะตัด"
+  isCustomLocation?: boolean; // ระบุจุดแจ้งซ่อมเองนอกฐานข้อมูล
+  priority: WorkRequestPriority; // ระดับความเร่งด่วน
+  problemTitle: string; // หัวข้อปัญหา เช่น "ฟองอากาศบนขอบถ้วย ซีลไม่เต็มขอบ"
+  problemDetails: string; // รายละเอียดปัญหาและผลกระทบต่อไลน์ผลิต
+  productionDepartment: string; // แผนกที่แจ้ง เช่น "ฝ่ายผลิตข้าวกล่อง กะเช้า"
+  requesterName: string; // ชื่อผู้แจ้งซ่อม
+  requesterPhone?: string; // เบอร์โทร/เบอร์ต่อภายใน
+  photoUrl?: string; // รูปถ่ายปัญหาจุดชำรุด (Base64)
+  
+  // สถานะปัจจุบัน
+  status: WorkRequestStatus;
+  
+  // การตอบรับจากวิศวกรรม
+  engineeringResponse?: EngineeringResponse;
+  
+  // การตรวจรับและส่งมอบงานโดยฝ่ายผลิต
+  acceptedBy?: string; // ผู้ตรวจรับงาน (ฝ่ายผลิต)
+  acceptedAt?: string; // วันเวลาที่ตรวจรับ
+  handoverNotes?: string; // ความเห็นการทดสอบเดินเครื่อง
+  satisfactionRating?: number; // ระดับความพึงพอใจ 1-5 ดาว
+  
+  // การเชื่อมโยงกับโมดูลอื่น
+  linkedRepairLogId?: string; // ID ใบงานซ่อมหากแปลงเข้าตารางซ่อม
+  
+  createdAt: string;
+  updatedAt?: string;
+}
 
 export interface UserAccount {
   id: string; // e.g. "usr-admin", "usr-tech-01"

@@ -140,6 +140,13 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
             ผู้ดูข้อมูล (Viewer)
           </span>
         );
+      case 'production':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-500/20 text-orange-300 border border-orange-500/30">
+            <Sparkles size={12} className="text-orange-400" />
+            ฝ่ายผลิต (Production)
+          </span>
+        );
     }
   };
 
@@ -193,7 +200,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
         <div className="p-5 flex-1 overflow-y-auto space-y-6">
           
           {/* Permission Explanation Box */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 rounded-xl bg-slate-900/40 border border-slate-800 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-900/40 border border-slate-800 text-xs">
             <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
               <div className="font-bold text-amber-400 flex items-center gap-1.5 mb-1">
                 <Shield size={14} />
@@ -210,7 +217,17 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
                 <span>ช่างซ่อมบำรุง (Technician)</span>
               </div>
               <p className="text-slate-400 text-[11px] leading-relaxed">
-                สิทธิ์ปฏิบัติงาน: ดูข้อมูล, บันทึกการซ่อม, ทำแผน PM, อัปเดตสถานะ (ไม่อนุญาตให้ลบข้อมูลหลัก)
+                สิทธิ์ปฏิบัติงาน: ดูข้อมูล, ตอบรับใบแจ้งซ่อม, บันทึกการซ่อม, ทำแผน PM (ไม่อนุญาตให้ลบข้อมูลหลัก)
+              </p>
+            </div>
+
+            <div className="p-3 rounded-lg bg-orange-500/5 border border-orange-500/20">
+              <div className="font-bold text-orange-400 flex items-center gap-1.5 mb-1">
+                <Sparkles size={14} />
+                <span>ฝ่ายผลิต (Production)</span>
+              </div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                สิทธิ์แจ้งซ่อม: ออกใบแจ้งซ่อมเครื่องจักร, ตรวจสอบสถานะการตอบรับงานของวิศวกรรม, ส่งมอบเครื่อง
               </p>
             </div>
 
@@ -303,7 +320,7 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
 
                 <div className="sm:col-span-2">
                   <label className="block text-slate-300 font-semibold mb-1">ระดับสิทธิ์ (Role) *</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                     <label className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition ${
                       formRole === 'admin' 
                         ? 'bg-amber-500/15 border-amber-500/50 text-amber-200' 
@@ -338,7 +355,29 @@ export const UserManagementModal: React.FC<UserManagementModalProps> = ({ isOpen
                       />
                       <div>
                         <div className="font-bold text-xs">🔧 Technician (ช่าง)</div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">บันทึก/แก้ไขข้อมูล (ห้ามลบ)</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">ตอบรับ/บันทึกซ่อม (ห้ามลบ)</div>
+                      </div>
+                    </label>
+
+                    <label className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition ${
+                      formRole === 'production' 
+                        ? 'bg-orange-500/15 border-orange-500/50 text-orange-200' 
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="formRole"
+                        value="production"
+                        checked={formRole === 'production'}
+                        onChange={() => {
+                          setFormRole('production');
+                          if (formDepartment === 'แผนกซ่อมบำรุง') setFormDepartment('แผนกผลิต');
+                        }}
+                        className="mt-0.5 text-orange-500"
+                      />
+                      <div>
+                        <div className="font-bold text-xs">🏭 Production (ผลิต)</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">ออกใบแจ้งซ่อม/รับมอบงาน</div>
                       </div>
                     </label>
 

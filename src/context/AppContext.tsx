@@ -2,13 +2,15 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { 
   Machine, PMPlan, PMScheduleItem, OperationScheduleItem, 
   RepairLog, ImprovementProject, SystemSettings, ScheduleItem, SetupLog, Employee,
-  TechnicianLeave, SparePart, CD5Project, UserAccount, UserRole
+  TechnicianLeave, SparePart, CD5Project, UserAccount, UserRole,
+  WorkRequest, EngineeringResponse, WorkRequestStatus
 } from '../types';
 import { 
   PRELOADED_MACHINES, PRELOADED_TECHNICIANS, PRELOADED_PM_PLANS, 
   PRELOADED_REPAIRS, PRELOADED_IMPROVEMENTS, PRELOADED_SCHEDULES, PRELOADED_SETUPS,
   PRELOADED_SPARE_PARTS, PRELOADED_CD5_PROJECTS
 } from '../data/preloaded';
+import { PRELOADED_WORK_REQUESTS } from '../data/preloadedRequests';
 import { DEFAULT_USER_ACCOUNTS } from '../data/preloadedUsers';
 import { 
   loadDatabaseFromFirebase, 
@@ -45,16 +47,26 @@ interface AppContextType {
   setCd5Projects: React.Dispatch<React.SetStateAction<CD5Project[]>>;
   users: UserAccount[];
   setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>;
+  workRequests: WorkRequest[];
+  setWorkRequests: React.Dispatch<React.SetStateAction<WorkRequest[]>>;
+  addWorkRequest: (req: Omit<WorkRequest, 'id' | 'createdAt' | 'status'>) => WorkRequest;
+  updateWorkRequest: (id: string, updates: Partial<WorkRequest>) => void;
+  deleteWorkRequest: (id: string) => void;
+  respondToWorkRequest: (id: string, response: EngineeringResponse, newStatus?: WorkRequestStatus) => void;
+  completeWorkRequest: (id: string, summary: { actualDurationMins: number; repairSummaryNotes: string }) => void;
+  acceptWorkRequestHandover: (id: string, handover: { acceptedBy: string; handoverNotes: string; satisfactionRating: number }) => void;
   currentUser: UserAccount | null;
   setCurrentUser: React.Dispatch<React.SetStateAction<UserAccount | null>>;
   login: (username: string, password: string) => { success: boolean; message?: string };
   loginAsViewer: () => void;
+  loginAsProduction: () => void;
   logout: () => void;
   addUser: (account: Omit<UserAccount, 'id' | 'createdAt'>) => { success: boolean; message?: string };
   updateUser: (id: string, updates: Partial<UserAccount>) => { success: boolean; message?: string };
   deleteUser: (id: string) => { success: boolean; message?: string };
   isAdmin: boolean;
   isTechnician: boolean;
+  isProduction: boolean;
   isViewer: boolean;
   canEdit: boolean;
   canDelete: boolean;
@@ -81,6 +93,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [spareParts, setSpareParts] = useState<SparePart[]>([]);
   const [cd5Projects, setCd5Projects] = useState<CD5Project[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
+  const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     try {
       const storedId = localStorage.getItem('foodfab_current_user_id');
@@ -153,6 +166,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // Helper to ensure all default role accounts (including production) are always present
+  const ensureAllDefaultUsers = (currentList?: UserAccount[]): UserAccount[] => {
+    if (!currentList || currentList.length === 0) return DEFAULT_USER_ACCOUNTS;
+    const merged = [...currentList];
+    for (const def of DEFAULT_USER_ACCOUNTS) {
+      if (!merged.some(u => u.username.toLowerCase() === def.username.toLowerCase())) {
+        merged.push(def);
+      }
+    }
+    return merged;
+  };
+
   // Load from Firebase Cloud Firestore or fall back to Server / LocalStorage / preloads
   useEffect(() => {
     const initDb = async () => {
@@ -174,7 +199,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
           setLeaves(cloudData.leaves || []);
           setCd5Projects(cloudData.cd5Projects && cloudData.cd5Projects.length > 0 ? cloudData.cd5Projects : PRELOADED_CD5_PROJECTS);
-          const userList = (cloudData.users && cloudData.users.length > 0) ? cloudData.users : DEFAULT_USER_ACCOUNTS;
+          setWorkRequests(cloudData.workRequests && cloudData.workRequests.length > 0 ? cloudData.workRequests : PRELOADED_WORK_REQUESTS);
+          const userList = ensureAllDefaultUsers(cloudData.users);
           setUsers(userList);
           
           // Check saved session
@@ -219,7 +245,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const parts = serverData.spareParts || PRELOADED_SPARE_PARTS;
             const lvs = serverData.leaves || [];
             const cd5 = serverData.cd5Projects || PRELOADED_CD5_PROJECTS;
-            const userList = (serverData.users && serverData.users.length > 0) ? serverData.users : DEFAULT_USER_ACCOUNTS;
+            const reqs = serverData.workRequests || PRELOADED_WORK_REQUESTS;
+            const userList = ensureAllDefaultUsers(serverData.users);
             const stt = serverData.settings || settings;
 
             setMachines(machs);
@@ -233,6 +260,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setSpareParts(parts);
             setLeaves(lvs);
             setCd5Projects(cd5);
+            setWorkRequests(reqs);
             setUsers(userList);
             setSettings(stt);
 
@@ -254,6 +282,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               spareParts: parts,
               leaves: lvs,
               cd5Projects: cd5,
+              workRequests: reqs,
               users: userList,
               settings: stt
             };
@@ -278,6 +307,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const storedSpareParts = localStorage.getItem('maint_spare_parts');
           const storedLeaves = localStorage.getItem('maint_leaves');
           const storedCd5 = localStorage.getItem('maint_cd5_projects');
+          const storedWorkRequests = localStorage.getItem('maint_work_requests');
           const storedUsers = localStorage.getItem('maint_users');
 
           const machs = storedMachines
@@ -297,7 +327,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const setups = storedSetups ? JSON.parse(storedSetups) : PRELOADED_SETUPS;
           const parts = storedSpareParts ? JSON.parse(storedSpareParts) : PRELOADED_SPARE_PARTS;
           const cd5 = storedCd5 ? JSON.parse(storedCd5) : PRELOADED_CD5_PROJECTS;
-          const userList: UserAccount[] = storedUsers ? JSON.parse(storedUsers) : DEFAULT_USER_ACCOUNTS;
+          const reqs = storedWorkRequests ? JSON.parse(storedWorkRequests) : PRELOADED_WORK_REQUESTS;
+          const userList: UserAccount[] = ensureAllDefaultUsers(storedUsers ? JSON.parse(storedUsers) : DEFAULT_USER_ACCOUNTS);
           const lvs = storedLeaves ? JSON.parse(storedLeaves) : [
             { id: 'lv-001', technician: 'ช่าง 1', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
             { id: 'lv-002', technician: 'ช่าง 2', date: '2026-06-11', type: 'ลาป่วย' as const, note: 'ปวดศีรษะ เป็นไข้หวัด' },
@@ -317,6 +348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSpareParts(parts);
           setLeaves(lvs);
           setCd5Projects(cd5);
+          setWorkRequests(reqs);
           setUsers(userList);
           setSettings(stt);
 
@@ -338,6 +370,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             spareParts: parts,
             leaves: lvs,
             cd5Projects: cd5,
+            workRequests: reqs,
             users: userList,
             settings: stt
           };
@@ -387,6 +420,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('maint_leaves', JSON.stringify(leaves));
       localStorage.setItem('maint_spare_parts', JSON.stringify(spareParts));
       localStorage.setItem('maint_cd5_projects', JSON.stringify(cd5Projects));
+      localStorage.setItem('maint_work_requests', JSON.stringify(workRequests));
       localStorage.setItem('maint_settings', JSON.stringify(settings));
       localStorage.setItem('maint_users', JSON.stringify(users));
     } catch (e) {
@@ -405,6 +439,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       leaves,
       spareParts,
       cd5Projects,
+      workRequests,
       settings,
       users
     };
@@ -466,7 +501,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timerId);
   }, [
     machines, technicians, employees, pmPlans, schedules,
-    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, settings, users, isLoaded
+    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, settings, users, isLoaded
   ]);
 
   // Real-time listener for multi-user collaboration via Cloud Firestore
@@ -499,8 +534,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (cloudData.cd5Projects && cloudData.cd5Projects.length > 0) {
             setCd5Projects(cloudData.cd5Projects);
           }
+          if (cloudData.workRequests && cloudData.workRequests.length > 0) {
+            setWorkRequests(cloudData.workRequests);
+          }
           if (cloudData.users && cloudData.users.length > 0) {
-            setUsers(cloudData.users);
+            setUsers(ensureAllDefaultUsers(cloudData.users));
           }
           if (cloudData.settings && Object.keys(cloudData.settings).length > 0) {
             setSettings(cloudData.settings);
@@ -540,6 +578,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
         setLeaves(cloudData.leaves || []);
         setCd5Projects(cloudData.cd5Projects || PRELOADED_CD5_PROJECTS);
+        if (cloudData.workRequests && cloudData.workRequests.length > 0) {
+          setWorkRequests(cloudData.workRequests);
+        }
         if (cloudData.users && cloudData.users.length > 0) {
           setUsers(cloudData.users);
         }
@@ -550,7 +591,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         const payload = {
           machines, technicians, employees, pmPlans, schedules,
-          repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, settings, users
+          repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, settings, users
         };
         await saveDatabaseToFirebase(payload);
         lastSavedJsonRef.current = JSON.stringify(payload);
@@ -608,6 +649,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(viewerUser);
     try {
       localStorage.setItem('foodfab_current_user_id', viewerUser.id);
+    } catch {
+      // ignore
+    }
+  };
+
+  const loginAsProduction = () => {
+    let prodUser = users.find(u => u.role === 'production' || u.username.toLowerCase() === 'production');
+    if (!prodUser) {
+      prodUser = DEFAULT_USER_ACCOUNTS.find(u => u.role === 'production') || {
+        id: 'usr-prod-01',
+        username: 'production',
+        password: '1234',
+        name: 'หัวหน้ากะ/ฝ่ายผลิต (Production)',
+        role: 'production',
+        department: 'ฝ่ายผลิต/สายการผลิต',
+        phone: '085-333-7788',
+        createdAt: new Date().toISOString().split('T')[0]
+      };
+    }
+    setCurrentUser(prodUser);
+    try {
+      localStorage.setItem('foodfab_current_user_id', prodUser.id);
     } catch {
       // ignore
     }
@@ -698,9 +761,100 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // RBAC Permission shortcuts
   const isAdmin = currentUser?.role === 'admin';
   const isTechnician = currentUser?.role === 'technician';
+  const isProduction = currentUser?.role === 'production';
   const isViewer = currentUser?.role === 'viewer';
   const canEdit = !!currentUser && (isAdmin || isTechnician);
   const canDelete = !!currentUser && isAdmin;
+
+  // Work Request CRUD & State Operations
+  const addWorkRequest = (req: Omit<WorkRequest, 'id' | 'createdAt' | 'status'>): WorkRequest => {
+    const now = new Date();
+    const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const nextNum = workRequests.length + 1;
+    const id = `REQ-${yearMonth}-${String(nextNum).padStart(3, '0')}`;
+    const newReq: WorkRequest = {
+      ...req,
+      id,
+      status: 'รอตอบรับ',
+      createdAt: now.toISOString(),
+    };
+    setWorkRequests(prev => [newReq, ...prev]);
+    return newReq;
+  };
+
+  const updateWorkRequest = (id: string, updates: Partial<WorkRequest>) => {
+    setWorkRequests(prev => prev.map(r => r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r));
+  };
+
+  const deleteWorkRequest = (id: string) => {
+    setWorkRequests(prev => prev.filter(r => r.id !== id));
+  };
+
+  const respondToWorkRequest = (id: string, response: EngineeringResponse, newStatus: WorkRequestStatus = 'ตอบรับแล้ว/มีแผนงาน') => {
+    setWorkRequests(prev => prev.map(r => {
+      if (r.id === id) {
+        return {
+          ...r,
+          status: newStatus,
+          engineeringResponse: response,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return r;
+    }));
+  };
+
+  const completeWorkRequest = (id: string, summary: { actualDurationMins: number; repairSummaryNotes: string }) => {
+    const now = new Date();
+    const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    setWorkRequests(prev => prev.map(r => {
+      if (r.id === id) {
+        const existingResp = r.engineeringResponse || {
+          respondedAt: nowStr,
+          respondedBy: currentUser?.name || 'ทีมวิศวกรรม',
+          targetStartDate: nowStr.split(' ')[0],
+          targetStartTime: '08:00',
+          targetFinishDate: nowStr.split(' ')[0],
+          targetFinishTime: nowStr.split(' ')[1],
+          estimatedDurationMins: summary.actualDurationMins,
+          actionPlan: 'ซ่อมบำรุงแก้ไขตามอาการ',
+          assignedTechnicians: [],
+          sparePartStatus: 'มีอะไหล่พร้อมในคลัง' as const
+        };
+        return {
+          ...r,
+          status: 'ซ่อมเสร็จ/รอฝ่ายผลิตตรวจรับ',
+          engineeringResponse: {
+            ...existingResp,
+            completedAt: nowStr,
+            actualDurationMins: summary.actualDurationMins,
+            repairSummaryNotes: summary.repairSummaryNotes
+          },
+          updatedAt: now.toISOString()
+        };
+      }
+      return r;
+    }));
+  };
+
+  const acceptWorkRequestHandover = (id: string, handover: { acceptedBy: string; handoverNotes: string; satisfactionRating: number }) => {
+    const now = new Date();
+    const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    setWorkRequests(prev => prev.map(r => {
+      if (r.id === id) {
+        return {
+          ...r,
+          status: 'ปิดงานสมบูรณ์',
+          acceptedBy: handover.acceptedBy,
+          acceptedAt: nowStr,
+          handoverNotes: handover.handoverNotes,
+          satisfactionRating: handover.satisfactionRating,
+          updatedAt: now.toISOString()
+        };
+      }
+      return r;
+    }));
+  };
 
   const resetToDefaults = () => {
     setMachines(PRELOADED_MACHINES);
@@ -718,6 +872,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setImprovements(PRELOADED_IMPROVEMENTS);
     setSetupLogs(PRELOADED_SETUPS);
     setCd5Projects(PRELOADED_CD5_PROJECTS);
+    setWorkRequests(PRELOADED_WORK_REQUESTS);
     setUsers(DEFAULT_USER_ACCOUNTS);
     const preloadingLeaves = [
       { id: 'lv-001', technician: 'ช่าง 1', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
@@ -761,6 +916,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('maint_setup_logs', JSON.stringify(PRELOADED_SETUPS));
     localStorage.setItem('maint_leaves', JSON.stringify(preloadingLeaves));
     localStorage.setItem('maint_users', JSON.stringify(DEFAULT_USER_ACCOUNTS));
+    localStorage.setItem('maint_work_requests', JSON.stringify(PRELOADED_WORK_REQUESTS));
     setSpareParts(PRELOADED_SPARE_PARTS);
     localStorage.setItem('maint_spare_parts', JSON.stringify(PRELOADED_SPARE_PARTS));
     localStorage.setItem('maint_cd5_projects', JSON.stringify(PRELOADED_CD5_PROJECTS));
@@ -780,6 +936,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       leaves,
       spareParts,
       cd5Projects,
+      workRequests,
       settings,
       users
     };
@@ -800,6 +957,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (dataObj.leaves) setLeaves(dataObj.leaves);
       if (dataObj.spareParts) setSpareParts(dataObj.spareParts);
       if (dataObj.cd5Projects) setCd5Projects(dataObj.cd5Projects);
+      if (dataObj.workRequests && Array.isArray(dataObj.workRequests)) setWorkRequests(dataObj.workRequests);
       if (dataObj.settings) setSettings(dataObj.settings);
       if (dataObj.users && Array.isArray(dataObj.users)) setUsers(dataObj.users);
       
@@ -825,10 +983,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       spareParts, setSpareParts,
       cd5Projects, setCd5Projects,
       users, setUsers,
+      workRequests, setWorkRequests,
+      addWorkRequest, updateWorkRequest, deleteWorkRequest,
+      respondToWorkRequest, completeWorkRequest, acceptWorkRequestHandover,
       currentUser, setCurrentUser,
-      login, loginAsViewer, logout,
+      login, loginAsViewer, loginAsProduction, logout,
       addUser, updateUser, deleteUser,
-      isAdmin, isTechnician, isViewer,
+      isAdmin, isTechnician, isProduction, isViewer,
       canEdit, canDelete,
       firebaseStatus,
       lastFirebaseSync,

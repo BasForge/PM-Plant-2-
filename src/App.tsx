@@ -14,6 +14,7 @@ import { InventoryPage } from './components/InventoryPage';
 import { PMHistoryPage } from './components/PMHistoryPage';
 import { TechnicianPortfolioPage } from './components/TechnicianPortfolioPage';
 import { CostDown5Page } from './components/CostDown5Page';
+import { WorkRequestPage } from './components/WorkRequestPage';
 import { PMOverdueAlertModal } from './components/PMOverdueAlertModal';
 import { LoginPage } from './components/LoginPage';
 import { UserManagementModal } from './components/UserManagementModal';
@@ -23,13 +24,13 @@ import {
   Wrench, Activity, CalendarDays, ClipboardList, PenTool, 
   BarChart3, Settings, Menu, ChevronLeft, ChevronRight, Clock, ShieldCheck, Send, Presentation, Users,
   Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell, Cloud,
-  LogOut, Shield, UserCheck, Eye
+  LogOut, Shield, UserCheck, Eye, BellRing, Factory
 } from 'lucide-react';
 
 function AppContent() {
   const { 
     currentUser, logout, isAdmin, canEdit, canDelete,
-    schedules, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow 
+    schedules, workRequests, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow 
   } = useApp();
   
   // If not logged in, show login page
@@ -37,14 +38,27 @@ function AppContent() {
     return <LoginPage />;
   }
 
-  // Sidebar navigation active page state [1 to 6]
-  const [activePage, setActivePage] = useState<number>(3); // Default to Page 3 (📅 ตารางงานช่าง) as requested as master planner
+  const isProductionUser = currentUser?.role === 'production';
+
+  // Sidebar navigation active page state [1 to 14]
+  // If user is from production, default to Page 14 (🔔 แจ้งซ่อมและตอบรับงาน)
+  const [activePage, setActivePage] = useState<number>(() => {
+    return isProductionUser ? 14 : 3;
+  });
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true); // Collapsible fixed 220px
   const [showOverdueModal, setShowOverdueModal] = useState<boolean>(false);
   const [showUserModal, setShowUserModal] = useState<boolean>(false);
 
+  // Strict RBAC: Force production user directly to page 14 (แจ้งซ่อม)
+  useEffect(() => {
+    if (isProductionUser) {
+      setActivePage(14);
+    }
+  }, [isProductionUser, currentUser?.id]);
+
   const todayStr = getTodayDateString();
   const { totalOverdueCount, totalRescheduledCount } = getOverdueAndRescheduledSummary(schedules, todayStr);
+  const pendingWorkRequestCount = workRequests.filter(r => r.status === 'รอตอบรับ').length;
 
   // Dark/Light theme state
 
@@ -100,7 +114,13 @@ function AppContent() {
 
   // Map pages based on navigation index
   const renderActivePage = () => {
+    // Strict RBAC: Production role can only ever access the Work Request page
+    if (isProductionUser) {
+      return <WorkRequestPage />;
+    }
+
     switch (activePage) {
+      case 14: return <WorkRequestPage />;
       case 1: return <MachinePage />;
       case 2: return <PMPlanPage />;
       case 3: return <SchedulePage />;
@@ -120,6 +140,7 @@ function AppContent() {
 
   // List of sidebar navigation buttons
   const navigationItems = [
+    { id: 14, label: "🔔 แจ้งซ่อมและตอบรับงาน", icon: BellRing, desc: "ฝ่ายผลิตแจ้ง / วิศวกรรมตอบ" },
     { id: 3, label: "📅 ตารางงานช่าง", icon: CalendarDays, desc: "มาสเตอร์พิกัดกะ" },
     { id: 1, label: "🏭 เครื่องจักร", icon: Activity, desc: "ทะเบียนระบบ/สถานะ" },
     { id: 2, label: "⏱ แผน PM", icon: ClipboardList, desc: "ความถี่อิ่มกาก/กระบวน" },
@@ -134,6 +155,11 @@ function AppContent() {
     { id: 9, label: "📈 สรุปนำเสนอ", icon: Presentation, desc: "บอร์ดนำเสนอผู้บริหาร" },
     { id: 12, label: "🏆 Portfolio ช่าง", icon: Award, desc: "ประวัติผลงาน Kaizen & ปรับปรุง" }
   ];
+
+  // RBAC Filter: Production users can ONLY see the Work Request tab
+  const visibleNavigationItems = isProductionUser
+    ? navigationItems.filter(item => item.id === 14)
+    : navigationItems;
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#0f172a] text-slate-100 font-sans" id="app-main-root">
@@ -178,12 +204,26 @@ function AppContent() {
             )}
           </div>
 
+          {/* Production Role Portal Banner */}
+          {isProductionUser && sidebarOpen && (
+            <div className="mx-3 mt-3 p-3 rounded-xl bg-gradient-to-r from-orange-950/60 to-amber-950/40 border border-orange-500/40 text-orange-200">
+              <div className="flex items-center gap-2">
+                <Factory size={16} className="text-orange-400 shrink-0" />
+                <div>
+                  <p className="text-xs font-bold text-orange-300">บัญชีพนักงานฝ่ายผลิต</p>
+                  <p className="text-[10px] text-slate-300 mt-0.5 leading-tight">เข้าใช้งานเฉพาะหน้าแจ้งซ่อม</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Navigation Items buttons */}
           <nav className="p-3 space-y-1 mt-4" id="app-sidebar-nav">
-            {navigationItems.map((item) => {
+            {visibleNavigationItems.map((item) => {
               const IconComp = item.icon;
               const isSelected = activePage === item.id;
               const hasOverdueBadge = (item.id === 11 || item.id === 3) && totalOverdueCount > 0;
+              const hasWorkRequestBadge = item.id === 14 && pendingWorkRequestCount > 0;
               
               return (
                 <button
@@ -208,8 +248,22 @@ function AppContent() {
                     )}
                   </div>
 
+                  {/* Work Request Pending badge indicator */}
+                  {hasWorkRequestBadge && (
+                    <span 
+                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold shrink-0 ${
+                        isSelected 
+                          ? 'bg-slate-950 text-amber-400' 
+                          : 'bg-amber-400 text-slate-950 animate-pulse'
+                      }`}
+                      title={`${pendingWorkRequestCount} งานแจ้งซ่อมรอดำเนินการตอบรับ`}
+                    >
+                      {pendingWorkRequestCount}
+                    </span>
+                  )}
+
                   {/* Overdue badge indicator */}
-                  {hasOverdueBadge && (
+                  {hasOverdueBadge && !hasWorkRequestBadge && (
                     <span 
                       className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold shrink-0 ${
                         isSelected 
@@ -267,9 +321,18 @@ function AppContent() {
             )}
             
             {/* Active page simple breadcrumb */}
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest hidden sm:block">
-              {navigationItems.find(n => n.id === activePage)?.label} / พื้นที่สถิติและการทำงานหลัก
-            </h2>
+            <div className="hidden sm:block">
+              {isProductionUser ? (
+                <div className="flex items-center gap-2 text-xs font-bold text-orange-400">
+                  <Factory size={15} />
+                  <span>ระบบรับแจ้งซ่อมเครื่องจักร (ฝ่ายผลิต / Production Portal)</span>
+                </div>
+              ) : (
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  {navigationItems.find(n => n.id === activePage)?.label} / พื้นที่สถิติและการทำงานหลัก
+                </h2>
+              )}
+            </div>
           </div>
 
           {/* Clock ticking timer panel */}
@@ -326,28 +389,53 @@ function AppContent() {
               </span>
             </button>
 
-            {/* Overdue PM Alert Trigger Button */}
+            {/* Work Request Alert Trigger Button */}
             <button
-              id="btn-trigger-overdue-pm-modal"
-              onClick={() => setShowOverdueModal(true)}
+              id="btn-trigger-work-request-alert"
+              onClick={() => setActivePage(14)}
               className={`relative p-2 rounded-lg transition-all cursor-pointer shadow-md flex items-center gap-1.5 ${
-                totalOverdueCount > 0
-                  ? 'bg-rose-500/15 border border-rose-500/40 text-rose-300 hover:bg-rose-500/25 hover:border-rose-500'
-                  : 'bg-slate-900 border border-slate-850 hover:bg-slate-850 text-slate-400 hover:text-cyan-400'
+                pendingWorkRequestCount > 0
+                  ? 'bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:border-amber-500'
+                  : 'bg-slate-900 border border-slate-850 hover:bg-slate-850 text-slate-400 hover:text-amber-400'
               }`}
               title={
-                totalOverdueCount > 0
-                  ? `ตรวจพบ ${totalOverdueCount} งาน PM เลยกำหนด (คลิกเพื่อตรวจเช็ค/เลื่อนแผน)`
-                  : 'ศูนย์ตรวจเช็คและแจ้งเตือนงาน PM เลยกำหนด / เลื่อนแผน'
+                pendingWorkRequestCount > 0
+                  ? `ตรวจพบ ${pendingWorkRequestCount} งานแจ้งซ่อมจากฝ่ายผลิตที่รอการตอบรับ (คลิกเพื่อดูและตอบรับงาน)`
+                  : 'ระบบแจ้งซ่อมและตอบรับงานฝ่ายผลิต/วิศวกรรม'
               }
             >
-              <Bell size={16} className={totalOverdueCount > 0 ? 'text-rose-400 animate-bounce' : ''} />
-              {totalOverdueCount > 0 && (
-                <span className="text-[10px] font-mono font-black text-rose-400">
-                  {totalOverdueCount} งานเลยกำหนด
+              <BellRing size={16} className={pendingWorkRequestCount > 0 ? 'text-amber-400 animate-bounce' : ''} />
+              {pendingWorkRequestCount > 0 && (
+                <span className="text-[10px] font-mono font-black text-amber-400 hidden sm:inline">
+                  {pendingWorkRequestCount} แจ้งซ่อมใหม่
                 </span>
               )}
             </button>
+
+            {/* Overdue PM Alert Trigger Button - Only for Engineering */}
+            {!isProductionUser && (
+              <button
+                id="btn-trigger-overdue-pm-modal"
+                onClick={() => setShowOverdueModal(true)}
+                className={`relative p-2 rounded-lg transition-all cursor-pointer shadow-md flex items-center gap-1.5 ${
+                  totalOverdueCount > 0
+                    ? 'bg-rose-500/15 border border-rose-500/40 text-rose-300 hover:bg-rose-500/25 hover:border-rose-500'
+                    : 'bg-slate-900 border border-slate-850 hover:bg-slate-850 text-slate-400 hover:text-cyan-400'
+                }`}
+                title={
+                  totalOverdueCount > 0
+                    ? `ตรวจพบ ${totalOverdueCount} งาน PM เลยกำหนด (คลิกเพื่อตรวจเช็ค/เลื่อนแผน)`
+                    : 'ศูนย์ตรวจเช็คและแจ้งเตือนงาน PM เลยกำหนด / เลื่อนแผน'
+                }
+              >
+                <Bell size={16} className={totalOverdueCount > 0 ? 'text-rose-400 animate-bounce' : ''} />
+                {totalOverdueCount > 0 && (
+                  <span className="text-[10px] font-mono font-black text-rose-400 hidden sm:inline">
+                    {totalOverdueCount} งานเลยกำหนด
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* Toggle Dark/Light Mode button */}
             <button
@@ -359,15 +447,17 @@ function AppContent() {
               {isDarkMode ? <Sun size={16} className="text-yellow-400" /> : <Moon size={16} className="text-indigo-400" />}
             </button>
 
-            {/* Gear trigger to open settings modal */}
-            <button
-              id="btn-trigger-settings-modal"
-              onClick={() => setShowSettings(true)}
-              className="bg-slate-900 border border-slate-850 hover:bg-slate-850 p-2 rounded-lg text-slate-350 hover:text-cyan-400 transition-all cursor-pointer shadow-md"
-              title="ตั้งค่าระบบและกะช่าง"
-            >
-              <Settings size={16} />
-            </button>
+            {/* Gear trigger to open settings modal - Only for Engineering */}
+            {!isProductionUser && (
+              <button
+                id="btn-trigger-settings-modal"
+                onClick={() => setShowSettings(true)}
+                className="bg-slate-900 border border-slate-850 hover:bg-slate-850 p-2 rounded-lg text-slate-350 hover:text-cyan-400 transition-all cursor-pointer shadow-md"
+                title="ตั้งค่าระบบและกะช่าง"
+              >
+                <Settings size={16} />
+              </button>
+            )}
 
             {/* Current User Profile & Role Info */}
             <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
@@ -380,7 +470,8 @@ function AppContent() {
               >
                 <div className={`w-2 h-2 rounded-full ${
                   currentUser.role === 'admin' ? 'bg-amber-400' :
-                  currentUser.role === 'technician' ? 'bg-cyan-400' : 'bg-emerald-400'
+                  currentUser.role === 'technician' ? 'bg-cyan-400' :
+                  currentUser.role === 'production' ? 'bg-orange-400' : 'bg-emerald-400'
                 }`} />
                 <div className="text-left">
                   <div className="flex items-center gap-1.5">
@@ -388,15 +479,16 @@ function AppContent() {
                     <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
                       currentUser.role === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
                       currentUser.role === 'technician' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' :
+                      currentUser.role === 'production' ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30' :
                       'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                     }`}>
-                      {currentUser.role === 'admin' ? 'Admin' : currentUser.role === 'technician' ? 'ช่าง' : 'ผู้ดู'}
+                      {currentUser.role === 'admin' ? 'Admin' : currentUser.role === 'technician' ? 'ช่าง' : currentUser.role === 'production' ? 'ฝ่ายผลิต' : 'ผู้ดู'}
                     </span>
                   </div>
                   <div className="text-[9px] text-slate-500 flex items-center gap-1">
                     <span>@{currentUser.username}</span>
                     <span>•</span>
-                    <span>{canDelete ? 'สิทธิ์เต็ม (ลบได้)' : canEdit ? 'แก้ไขได้ (ห้ามลบ)' : 'ดูอย่างเดียว'}</span>
+                    <span>{isProductionUser ? 'เข้าเฉพาะแจ้งซ่อม' : canDelete ? 'สิทธิ์เต็ม (ลบได้)' : canEdit ? 'แก้ไขได้ (ห้ามลบ)' : 'ดูอย่างเดียว'}</span>
                   </div>
                 </div>
               </div>

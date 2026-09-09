@@ -23,7 +23,8 @@ import {
   CD5Project,
   SystemSettings,
   Employee,
-  UserAccount
+  UserAccount,
+  WorkRequest
 } from '../types';
 
 export interface AppDatabaseState {
@@ -39,6 +40,7 @@ export interface AppDatabaseState {
   leaves: TechnicianLeave[];
   spareParts: SparePart[];
   cd5Projects: CD5Project[];
+  workRequests?: WorkRequest[];
   settings: SystemSettings;
 }
 
@@ -76,6 +78,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         cd5Snap,
         settingSnap,
         usersSnap,
+        workRequestsSnap,
         repairsCollectionSnap
       ] = await Promise.all([
         getDoc(doc(firestore, 'catalog', 'technicians')),
@@ -89,6 +92,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         getDoc(doc(firestore, 'catalog', 'cd5Projects')),
         getDoc(doc(firestore, 'catalog', 'settings')),
         getDoc(doc(firestore, 'catalog', 'users')),
+        getDoc(doc(firestore, 'catalog', 'workRequests')),
         getDocs(collection(firestore, 'repairs'))
       ]);
 
@@ -110,6 +114,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         spareParts: partsSnap.exists() ? (partsSnap.data().list || []) : [],
         cd5Projects: cd5Snap.exists() ? (cd5Snap.data().list || []) : [],
         users: usersSnap.exists() ? (usersSnap.data().list || []) : [],
+        workRequests: workRequestsSnap.exists() ? (workRequestsSnap.data().list || []) : [],
         settings: settingSnap.exists() ? (settingSnap.data().data || {}) : {} as SystemSettings,
       };
     }
@@ -197,6 +202,7 @@ export async function saveDatabaseToFirebase(data: AppDatabaseState): Promise<vo
     catalogBatch.set(doc(firestore, 'catalog', 'spareParts'), { list: cleanData.spareParts || [] });
     catalogBatch.set(doc(firestore, 'catalog', 'cd5Projects'), { list: cleanData.cd5Projects || [] });
     catalogBatch.set(doc(firestore, 'catalog', 'users'), { list: cleanData.users || [] });
+    catalogBatch.set(doc(firestore, 'catalog', 'workRequests'), { list: cleanData.workRequests || [] });
     catalogBatch.set(doc(firestore, 'catalog', 'settings'), { data: cleanData.settings || {} });
 
     // Sync metadata

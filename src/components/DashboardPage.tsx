@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { getTodayDateString } from '../utils/pmAlerts';
+import { MachineReliabilityTab } from './MachineReliabilityTab';
 import { 
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, 
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
@@ -19,8 +20,8 @@ export const DashboardPage: React.FC = () => {
   // Selected technician for Technician Profile Card overlay modal
   const [selectedTechnician, setSelectedTechnician] = useState<string | null>(null);
   
-  // Tab control: 'overview' for the rich industrial analysis, 'live-control' for Live work / workload / TTM / MTTR
-  const [activeTab, setActiveTab] = useState<'overview' | 'live-control'>('live-control');
+  // Tab control: 'machine-reliability' for Per Machine MTTR/MTBF, 'live-control' for Live work / workload, 'overview' for Overall KPIs
+  const [activeTab, setActiveTab] = useState<'machine-reliability' | 'live-control' | 'overview'>('machine-reliability');
 
   // Selector for active analytical month (defaults to current month)
   const [selectedMonth, setSelectedMonth] = useState<string>(() => getTodayDateString().slice(0, 7));
@@ -439,7 +440,19 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Tab switcher buttons with high visibility */}
-        <div className="flex bg-slate-950 border border-slate-800 p-1.5 rounded-xl gap-1 shrink-0 self-stretch lg:self-auto justify-center">
+        <div className="flex flex-wrap bg-slate-950 border border-slate-800 p-1.5 rounded-xl gap-1 shrink-0 self-stretch lg:self-auto justify-center">
+          <button
+            onClick={() => setActiveTab('machine-reliability')}
+            className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+              activeTab === 'machine-reliability' 
+                ? 'bg-gradient-to-r from-amber-500 to-cyan-500 text-slate-950 shadow-md shadow-amber-500/20 font-black' 
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+          >
+            <Activity size={14} className={activeTab === 'machine-reliability' ? 'text-slate-950' : 'text-amber-400'} />
+            🏭 MTTR & MTBF แต่ละเครื่องจักร
+          </button>
+
           <button
             onClick={() => setActiveTab('live-control')}
             className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
@@ -448,7 +461,7 @@ export const DashboardPage: React.FC = () => {
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
             }`}
           >
-            <Activity size={14} />
+            <Clock size={14} />
             🟢 Live Monitor & Workload
           </button>
           
@@ -805,6 +818,14 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
+
+      {/* TAB 0: MACHINE MTTR & MTBF RELIABILITY ENGINE */}
+      {activeTab === 'machine-reliability' && (
+        <MachineReliabilityTab 
+          selectedMonth={selectedMonth}
+          onSelectMonth={setSelectedMonth}
+        />
+      )}
 
       {/* TAB 1: LIVE WORK & WORKLOAD CONTROL INTERFACES */}
       {activeTab === 'live-control' && (
@@ -1511,38 +1532,94 @@ export const DashboardPage: React.FC = () => {
 
           {/* PER MACHINE SUMMARY TABLE */}
           <div className="bg-slate-800 border border-slate-700 rounded-xl p-5" id="mach-kpi-detail-table">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-1.5">
-              <Activity size={15} className="text-cyan-400" />
-              ตารางวิเคราะห์ความเชื่อมั่นเชิงโครงสร้าง (KPI & Reliability Metrics Per Machine)
-            </h3>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
+                  <Activity size={15} className="text-cyan-400" />
+                  ตารางวิเคราะห์ความเชื่อมั่นเชิงโครงสร้างรายเครื่องจักร (MTTR / MTBF Per Machine)
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  แสดงดัชนี MTTR, MTBF, %Breakdown ประจำเดือน {selectedMonth}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setActiveTab('machine-reliability')}
+                className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-cyan-500 text-slate-950 font-bold rounded-lg text-xs hover:opacity-90 transition flex items-center gap-1.5 shadow-sm shadow-amber-500/20 cursor-pointer"
+              >
+                <Activity size={13} />
+                <span>🏭 ดูแดชบอร์ด MTTR & MTBF ฉบับเต็ม</span>
+              </button>
+            </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-900 border-b border-slate-700 text-slate-400 font-semibold uppercase text-center">
+                  <tr className="bg-slate-900 border-b border-slate-700 text-slate-400 font-semibold uppercase text-center text-[10.5px]">
                     <th className="py-3 px-4 text-left">รหัส</th>
                     <th className="py-3 px-4 text-left">ชื่อเครื่องจักร</th>
-                    <th className="py-3 px-3">อัตรา breakdown (%)</th>
-                    <th className="py-3 px-3">รวมเวลาพังทั้งหมด (นาที)</th>
-                    <th className="py-3 px-3">ห้วงความห่างใช้งานได้ต่อเนื่อง (MTBF วัน)</th>
-                    <th className="py-3 px-3">จำนวนครั้งซ่อมหยุด</th>
+                    <th className="py-3 px-3 text-center">จำนวนครั้งที่เสีย</th>
+                    <th className="py-3 px-3 text-center">รวมเวลาซ่อม (นาที)</th>
+                    <th className="py-3 px-3 text-center bg-rose-500/5 text-rose-300">⏱ MTTR (นาที)</th>
+                    <th className="py-3 px-3 text-center bg-amber-500/5 text-amber-300">⚡ MTBF (วัน)</th>
+                    <th className="py-3 px-3 text-center">อัตรา breakdown (%)</th>
+                    <th className="py-3 px-3 text-center">การจัดการ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700/50 text-center">
-                  {machines.slice(0, 10).map((m, idx) => {
+                  {machines.map((m, idx) => {
                     const machReps = repairs.filter(r => r.machineId === m.id && r.date.startsWith(selectedMonth));
                     const totalMins = machReps.reduce((sum, r) => sum + r.duration, 0);
                     const percentBd = parseFloat(((totalMins / 60 / operatingHoursFactor) * 100).toFixed(2)) || 0;
                     const mtbfVal = parseFloat((daysInMonth / (machReps.length + 1)).toFixed(1));
+                    const mttrVal = machReps.length > 0 ? parseFloat((totalMins / machReps.length).toFixed(1)) : 0;
+                    const prefix = m.id.substring(0, 3).toUpperCase();
+                    const stdMttr = settings.stdMttr[prefix] || 60;
+                    const isOver = mttrVal > stdMttr;
 
                     return (
-                      <tr key={`${m.id}-${m.orderNo || idx}`} className="hover:bg-slate-700/20">
-                        <td className="py-3 px-4 font-mono font-bold text-cyan-400 text-left">{m.id}</td>
-                        <td className="py-3 px-4 text-slate-200 text-left font-sans truncate max-w-[150px]">{m.name}</td>
-                        <td className="py-3 px-3 font-mono font-semibold text-rose-400">{percentBd}%</td>
-                        <td className="py-3 px-3 font-mono text-slate-202">{totalMins} นาที</td>
-                        <td className="py-3 px-3 font-mono text-amber-400 font-bold">{mtbfVal} วัน</td>
-                        <td className="py-3 px-3 font-mono font-bold text-slate-400">{machReps.length} ครั้ง</td>
+                      <tr key={`${m.id}-${m.orderNo || idx}`} className="hover:bg-slate-700/20 transition">
+                        <td className="py-3 px-4 font-mono font-bold text-cyan-400 text-left">
+                          <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                            {m.id}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-200 text-left font-sans truncate max-w-[170px]" title={m.name}>
+                          {m.name}
+                        </td>
+                        <td className="py-3 px-3 font-mono font-bold">
+                          {machReps.length === 0 ? (
+                            <span className="text-emerald-400 text-[10.5px]">0 ครั้ง</span>
+                          ) : (
+                            <span className="text-rose-400">{machReps.length} ครั้ง</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-slate-200">
+                          {totalMins > 0 ? `${totalMins} นาที` : '-'}
+                        </td>
+                        <td className="py-3 px-3 font-mono font-bold bg-rose-500/5">
+                          {machReps.length === 0 ? (
+                            <span className="text-emerald-400 text-[10.5px]">0 น. (สมบูรณ์)</span>
+                          ) : (
+                            <span className={isOver ? 'text-rose-400 font-black' : 'text-emerald-400'}>
+                              {mttrVal} น. {isOver && '⚠️'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-amber-400 font-bold bg-amber-500/5">
+                          {mtbfVal} วัน
+                        </td>
+                        <td className="py-3 px-3 font-mono font-semibold text-slate-300">
+                          {percentBd}%
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <button
+                            onClick={() => setActiveTab('machine-reliability')}
+                            className="px-2 py-0.5 bg-slate-700/60 hover:bg-cyan-500 hover:text-slate-950 text-slate-300 rounded text-[10px] font-bold transition cursor-pointer"
+                          >
+                            ดูละเอียด
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}

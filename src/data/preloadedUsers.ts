@@ -32,12 +32,22 @@ export const DEFAULT_USER_ACCOUNTS: UserAccount[] = [
     createdAt: '2026-01-01'
   },
   {
+    id: 'usr-prod-01',
+    username: 'production',
+    password: '1234',
+    name: 'หัวหน้ากะ/ฝ่ายผลิต (Production)',
+    role: 'production',
+    department: 'ฝ่ายผลิต/สายการผลิต',
+    phone: '085-333-7788',
+    createdAt: '2026-01-01'
+  },
+  {
     id: 'usr-viewer',
     username: 'viewer',
     password: '1234',
-    name: 'ฝ่ายผลิต/ผู้สังเกตการณ์ (View Only)',
+    name: 'ผู้สังเกตการณ์ทั่วไป (View Only)',
     role: 'viewer',
-    department: 'ฝ่ายผลิตอาหารและแปรรูป',
+    department: 'ฝ่ายบริหาร/ธุรการ',
     phone: '084-777-8899',
     createdAt: '2026-01-01'
   }
