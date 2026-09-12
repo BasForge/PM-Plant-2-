@@ -17,7 +17,11 @@ import {
   saveDatabaseToFirebase, 
   subscribeToFirebaseSync, 
   FirebaseSyncStatus,
-  AppDatabaseState
+  AppDatabaseState,
+  isCloudQuotaExceeded,
+  markCloudQuotaExceeded,
+  resetCloudQuotaStatus,
+  isQuotaExceededError
 } from '../services/firebaseDb';
 
 interface AppContextType {
@@ -70,9 +74,11 @@ interface AppContextType {
   isViewer: boolean;
   canEdit: boolean;
   canDelete: boolean;
-  firebaseStatus: 'connected' | 'syncing' | 'offline' | 'error';
+  firebaseStatus: FirebaseSyncStatus;
   lastFirebaseSync: string | null;
   syncWithFirebaseNow: () => Promise<boolean>;
+  retestFirebaseQuota: () => Promise<boolean>;
+  isQuotaExceeded: boolean;
   resetToDefaults: () => void;
   exportData: () => string;
   importData: (jsonStr: string) => boolean;
@@ -183,46 +189,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const initDb = async () => {
       let loadedFromCloud = false;
 
-      // 1. Try loading from Firebase Cloud Firestore first
-      try {
-        setFirebaseStatus('syncing');
-        const cloudData = await loadDatabaseFromFirebase();
-        if (cloudData && cloudData.machines && cloudData.machines.length > 0) {
-          setMachines(sanitizeMachines(cloudData.machines));
-          setTechnicians(cloudData.technicians && cloudData.technicians.length > 0 ? cloudData.technicians : PRELOADED_TECHNICIANS);
-          setEmployees(cloudData.employees || []);
-          setPmPlans(cloudData.pmPlans || PRELOADED_PM_PLANS);
-          setSchedules(cloudData.schedules || PRELOADED_SCHEDULES);
-          setRepairs(cloudData.repairs || PRELOADED_REPAIRS);
-          setImprovements(cloudData.improvements || PRELOADED_IMPROVEMENTS);
-          setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
-          setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
-          setLeaves(cloudData.leaves || []);
-          setCd5Projects(cloudData.cd5Projects && cloudData.cd5Projects.length > 0 ? cloudData.cd5Projects : PRELOADED_CD5_PROJECTS);
-          setWorkRequests(cloudData.workRequests && cloudData.workRequests.length > 0 ? cloudData.workRequests : PRELOADED_WORK_REQUESTS);
-          const userList = ensureAllDefaultUsers(cloudData.users);
-          setUsers(userList);
-          
-          // Check saved session
-          const storedUserId = localStorage.getItem('foodfab_current_user_id');
-          if (storedUserId) {
-            const matched = userList.find(u => u.id === storedUserId);
-            if (matched) setCurrentUser(matched);
-          }
+      // 1. Check if Cloud Firestore quota is already marked as exceeded
+      if (isCloudQuotaExceeded()) {
+        setFirebaseStatus('quota-exceeded');
+      } else {
+        // Try loading from Firebase Cloud Firestore first
+        try {
+          setFirebaseStatus('syncing');
+          const cloudData = await loadDatabaseFromFirebase();
+          if (cloudData && cloudData.machines && cloudData.machines.length > 0) {
+            setMachines(sanitizeMachines(cloudData.machines));
+            setTechnicians(cloudData.technicians && cloudData.technicians.length > 0 ? cloudData.technicians : PRELOADED_TECHNICIANS);
+            setEmployees(cloudData.employees || []);
+            setPmPlans(cloudData.pmPlans || PRELOADED_PM_PLANS);
+            setSchedules(cloudData.schedules || PRELOADED_SCHEDULES);
+            setRepairs(cloudData.repairs || PRELOADED_REPAIRS);
+            setImprovements(cloudData.improvements || PRELOADED_IMPROVEMENTS);
+            setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
+            setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
+            setLeaves(cloudData.leaves || []);
+            setCd5Projects(cloudData.cd5Projects && cloudData.cd5Projects.length > 0 ? cloudData.cd5Projects : PRELOADED_CD5_PROJECTS);
+            setWorkRequests(cloudData.workRequests && cloudData.workRequests.length > 0 ? cloudData.workRequests : PRELOADED_WORK_REQUESTS);
+            const userList = ensureAllDefaultUsers(cloudData.users);
+            setUsers(userList);
+            
+            // Check saved session
+            const storedUserId = localStorage.getItem('foodfab_current_user_id');
+            if (storedUserId) {
+              const matched = userList.find(u => u.id === storedUserId);
+              if (matched) setCurrentUser(matched);
+            }
 
-          if (cloudData.settings && Object.keys(cloudData.settings).length > 0) {
-            setSettings(cloudData.settings);
-          }
+            if (cloudData.settings && Object.keys(cloudData.settings).length > 0) {
+              setSettings(cloudData.settings);
+            }
 
-          lastSavedJsonRef.current = JSON.stringify(cloudData);
-          setFirebaseStatus('connected');
-          setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
-          setIsLoaded(true);
-          loadedFromCloud = true;
-          return;
+            lastSavedJsonRef.current = JSON.stringify(cloudData);
+            setFirebaseStatus('connected');
+            setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
+            setIsLoaded(true);
+            loadedFromCloud = true;
+            return;
+          }
+        } catch (cloudErr) {
+          if (isQuotaExceededError(cloudErr)) {
+            await markCloudQuotaExceeded();
+            setFirebaseStatus('quota-exceeded');
+          } else {
+            console.warn("Cloud Firestore initial load note:", cloudErr);
+          }
         }
-      } catch (cloudErr) {
-        console.warn("Cloud Firestore initial load note:", cloudErr);
       }
 
       // 2. Fallback: Load from Server or LocalStorage/preloads
@@ -385,17 +401,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsLoaded(true);
 
       // If Cloud Firestore was empty, automatically seed all initial factory data to Cloud Firestore!
-      if (!loadedFromCloud && resolvedData) {
+      if (!loadedFromCloud && resolvedData && !isCloudQuotaExceeded()) {
         try {
           await saveDatabaseToFirebase(resolvedData);
           lastSavedJsonRef.current = JSON.stringify(resolvedData);
-          setFirebaseStatus('connected');
-          setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
+          if (isCloudQuotaExceeded()) {
+            setFirebaseStatus('quota-exceeded');
+          } else {
+            setFirebaseStatus('connected');
+            setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
+          }
           console.log("Successfully seeded initial data to Cloud Firestore.");
         } catch (seedErr) {
-          console.warn("Could not seed to Cloud Firestore:", seedErr);
-          setFirebaseStatus('offline');
+          if (isQuotaExceededError(seedErr)) {
+            await markCloudQuotaExceeded();
+            setFirebaseStatus('quota-exceeded');
+          } else {
+            console.warn("Could not seed to Cloud Firestore:", seedErr);
+            setFirebaseStatus('offline');
+          }
         }
+      } else if (isCloudQuotaExceeded()) {
+        setFirebaseStatus('quota-exceeded');
       }
     };
 
@@ -464,6 +491,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.error("Error syncing with LAN server:", error);
       }
 
+      // If Cloud Firestore quota is reached, do not make cloud calls and use local storage safely
+      if (isCloudQuotaExceeded()) {
+        lastSavedJsonRef.current = currentJson;
+        setFirebaseStatus('quota-exceeded');
+        return;
+      }
+
       // 2. Save to Cloud Firestore with queueing so rapid edits/deletes are never dropped
       if (isWritingCloudRef.current) {
         hasPendingSaveRef.current = true;
@@ -478,14 +512,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setFirebaseStatus('syncing');
           await saveDatabaseToFirebase(payload);
           lastSavedJsonRef.current = jsonStr;
-          setFirebaseStatus('connected');
-          setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
+          if (isCloudQuotaExceeded()) {
+            setFirebaseStatus('quota-exceeded');
+          } else {
+            setFirebaseStatus('connected');
+            setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
+          }
         } catch (cloudErr) {
-          console.warn("Firebase Cloud Firestore sync error:", cloudErr);
-          setFirebaseStatus('offline');
+          if (isQuotaExceededError(cloudErr)) {
+            await markCloudQuotaExceeded();
+            setFirebaseStatus('quota-exceeded');
+          } else {
+            console.warn("Firebase Cloud Firestore sync error:", cloudErr);
+            setFirebaseStatus('offline');
+          }
         } finally {
           isWritingCloudRef.current = false;
-          if (hasPendingSaveRef.current && pendingDataRef.current) {
+          if (hasPendingSaveRef.current && pendingDataRef.current && !isCloudQuotaExceeded()) {
             const nextPayload = pendingDataRef.current;
             pendingDataRef.current = null;
             hasPendingSaveRef.current = false;
@@ -563,6 +606,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Manual one-click trigger to force-sync with Cloud Firestore
   const syncWithFirebaseNow = async (): Promise<boolean> => {
+    if (isCloudQuotaExceeded()) {
+      setFirebaseStatus('quota-exceeded');
+      return false;
+    }
     try {
       setFirebaseStatus('syncing');
       const cloudData = await loadDatabaseFromFirebase();
@@ -596,12 +643,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await saveDatabaseToFirebase(payload);
         lastSavedJsonRef.current = JSON.stringify(payload);
       }
+
+      if (isCloudQuotaExceeded()) {
+        setFirebaseStatus('quota-exceeded');
+        return false;
+      }
+
       setFirebaseStatus('connected');
       setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
       return true;
     } catch (err) {
+      if (isQuotaExceededError(err)) {
+        await markCloudQuotaExceeded();
+        setFirebaseStatus('quota-exceeded');
+        return false;
+      }
       console.error("Manual Firebase sync failed:", err);
       setFirebaseStatus('error');
+      return false;
+    }
+  };
+
+  const retestFirebaseQuota = async (): Promise<boolean> => {
+    setFirebaseStatus('syncing');
+    const ok = await resetCloudQuotaStatus();
+    if (ok) {
+      setFirebaseStatus('connected');
+      setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
+      return true;
+    } else {
+      setFirebaseStatus('quota-exceeded');
       return false;
     }
   };
@@ -994,6 +1065,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       firebaseStatus,
       lastFirebaseSync,
       syncWithFirebaseNow,
+      retestFirebaseQuota,
+      isQuotaExceeded: isCloudQuotaExceeded(),
       resetToDefaults,
       exportData,
       importData

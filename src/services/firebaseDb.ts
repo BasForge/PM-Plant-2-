@@ -8,9 +8,11 @@ import {
   onSnapshot,
   serverTimestamp,
   Timestamp,
-  writeBatch
+  writeBatch,
+  disableNetwork,
+  enableNetwork
 } from 'firebase/firestore';
-import { firestore } from '../lib/firebase';
+import { firestore, auth } from '../lib/firebase';
 import {
   Machine,
   ScheduleItem,
@@ -44,7 +46,54 @@ export interface AppDatabaseState {
   settings: SystemSettings;
 }
 
-export type FirebaseSyncStatus = 'connected' | 'syncing' | 'offline' | 'error';
+export type FirebaseSyncStatus = 'connected' | 'syncing' | 'offline' | 'error' | 'quota-exceeded';
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+      providerInfo: auth?.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 // Meta document to track live mutations across instances
 const META_SYNC_DOC = 'meta/sync';
@@ -52,11 +101,91 @@ const META_SYNC_DOC = 'meta/sync';
 // Unique client/tab identifier to prevent self-triggered sync loops
 export const CLIENT_ID = 'client_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
 
+export const FIREBASE_CONSOLE_QUOTA_URL =
+  "https://console.firebase.google.com/project/bold-watch-k98sv/firestore/databases/ai-studio-pmtpmplant2-5b0cd9a2-449e-4575-92a6-f4dd212d5492/data?openUpgradeDialog=true";
+
+export const FIREBASE_PRICING_URL =
+  "https://firebase.google.com/pricing#cloud-firestore";
+
+export function isQuotaExceededError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  const code = (error as any)?.code;
+  return (
+    code === 'resource-exhausted' ||
+    msg.includes('resource-exhausted') ||
+    msg.includes('quota limit exceeded') ||
+    msg.includes('quota metric') ||
+    msg.includes('free daily write units') ||
+    msg.includes('free daily read units') ||
+    msg.includes('quota exceeded')
+  );
+}
+
+// Memory and session persistence for quota exceeded state
+let _isQuotaExceeded = false;
+
+// Check if quota was previously exceeded today
+try {
+  const savedQuotaDate = sessionStorage.getItem('firestore_quota_exceeded_date');
+  const today = new Date().toISOString().slice(0, 10);
+  if (savedQuotaDate === today) {
+    _isQuotaExceeded = true;
+    disableNetwork(firestore).catch(() => {});
+  }
+} catch {
+  // Ignore sessionStorage errors
+}
+
+export function isCloudQuotaExceeded(): boolean {
+  return _isQuotaExceeded;
+}
+
+export async function markCloudQuotaExceeded(): Promise<void> {
+  _isQuotaExceeded = true;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    sessionStorage.setItem('firestore_quota_exceeded_date', today);
+  } catch {}
+  try {
+    await disableNetwork(firestore);
+    console.info('Cloud Firestore network paused cleanly due to daily free quota limits.');
+  } catch (err) {
+    console.warn('Could not disable Firestore network:', err);
+  }
+}
+
+export async function resetCloudQuotaStatus(): Promise<boolean> {
+  try {
+    sessionStorage.removeItem('firestore_quota_exceeded_date');
+    await enableNetwork(firestore);
+    // Ping to verify if quota is reset
+    await getDoc(doc(firestore, 'meta', 'sync'));
+    _isQuotaExceeded = false;
+    return true;
+  } catch (err) {
+    if (isQuotaExceededError(err)) {
+      await markCloudQuotaExceeded();
+      return false;
+    }
+    // If not a quota error (e.g. offline), re-enable succeeded
+    _isQuotaExceeded = false;
+    return true;
+  }
+}
+
+// Entity-level diff cache to avoid uploading unchanged collections and saving 90%+ write quota
+const lastSavedEntityHashes: Record<string, string> = {};
+
 /**
  * Loads the complete database from Firebase Cloud Firestore.
- * Returns null if the database has not yet been initialized in Firebase.
+ * Returns null if the database has not yet been initialized in Firebase or quota is exceeded.
  */
 export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | null> {
+  if (_isQuotaExceeded) {
+    return null;
+  }
+
   try {
     // 1. Check if catalog exists or meta sync exists
     const [machSnap, metaSnap] = await Promise.all([
@@ -79,7 +208,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         settingSnap,
         usersSnap,
         workRequestsSnap,
-        repairsCollectionSnap
+        repairsCatalogSnap
       ] = await Promise.all([
         getDoc(doc(firestore, 'catalog', 'technicians')),
         getDoc(doc(firestore, 'catalog', 'employees')),
@@ -93,13 +222,23 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         getDoc(doc(firestore, 'catalog', 'settings')),
         getDoc(doc(firestore, 'catalog', 'users')),
         getDoc(doc(firestore, 'catalog', 'workRequests')),
-        getDocs(collection(firestore, 'repairs'))
+        getDoc(doc(firestore, 'catalog', 'repairs'))
       ]);
 
-      const repairs: RepairLog[] = [];
-      repairsCollectionSnap.forEach((docSnap) => {
-        repairs.push(docSnap.data() as RepairLog);
-      });
+      let repairs: RepairLog[] = [];
+      if (repairsCatalogSnap.exists() && repairsCatalogSnap.data()?.list) {
+        repairs = repairsCatalogSnap.data().list;
+      } else {
+        // Fallback to legacy repairs collection if catalog document is not yet initialized
+        try {
+          const repairsCollectionSnap = await getDocs(collection(firestore, 'repairs'));
+          repairsCollectionSnap.forEach((docSnap) => {
+            repairs.push(docSnap.data() as RepairLog);
+          });
+        } catch {
+          // Ignore if empty
+        }
+      }
 
       return {
         machines: machSnap.data().list || [],
@@ -148,6 +287,11 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
 
     return null;
   } catch (error) {
+    if (isQuotaExceededError(error)) {
+      console.warn('Cloud Firestore quota reached during load. Falling back to local server storage.');
+      await markCloudQuotaExceeded();
+      return null;
+    }
     console.error('Error loading data from Cloud Firestore:', error);
     throw error;
   }
@@ -179,57 +323,65 @@ export function sanitizeForFirestore<T>(data: T): T {
 }
 
 /**
- * Saves all datasets to Cloud Firestore partitioned by entity catalog
- * and stores repairs as individual documents in 'repairs' collection.
- * This guarantees individual document sizes stay well below the 1MB limit.
+ * Saves datasets to Cloud Firestore partitioned by entity catalog using differential writes.
+ * Only entities that actually changed are written, saving massive quota.
+ * Repairs are saved in catalog/repairs instead of 100+ individual documents.
  */
 export async function saveDatabaseToFirebase(data: AppDatabaseState): Promise<void> {
+  if (_isQuotaExceeded) {
+    return;
+  }
+
   try {
     // Sanitize all datasets to remove any undefined fields before writing to Firestore
     const cleanData = sanitizeForFirestore(data);
 
-    // 1. Batch write standard catalog collections
+    const entityMap: Record<string, any> = {
+      machines: { list: cleanData.machines || [] },
+      technicians: { list: cleanData.technicians || [] },
+      employees: { list: cleanData.employees || [] },
+      pmPlans: { list: cleanData.pmPlans || [] },
+      schedules: { list: cleanData.schedules || [] },
+      improvements: { list: cleanData.improvements || [] },
+      setupLogs: { list: cleanData.setupLogs || [] },
+      leaves: { list: cleanData.leaves || [] },
+      spareParts: { list: cleanData.spareParts || [] },
+      cd5Projects: { list: cleanData.cd5Projects || [] },
+      users: { list: cleanData.users || [] },
+      workRequests: { list: cleanData.workRequests || [] },
+      repairs: { list: cleanData.repairs || [] },
+      settings: { data: cleanData.settings || {} }
+    };
+
     const catalogBatch = writeBatch(firestore);
+    let dirtyCount = 0;
 
-    catalogBatch.set(doc(firestore, 'catalog', 'machines'), { list: cleanData.machines || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'technicians'), { list: cleanData.technicians || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'employees'), { list: cleanData.employees || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'pmPlans'), { list: cleanData.pmPlans || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'schedules'), { list: cleanData.schedules || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'improvements'), { list: cleanData.improvements || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'setupLogs'), { list: cleanData.setupLogs || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'leaves'), { list: cleanData.leaves || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'spareParts'), { list: cleanData.spareParts || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'cd5Projects'), { list: cleanData.cd5Projects || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'users'), { list: cleanData.users || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'workRequests'), { list: cleanData.workRequests || [] });
-    catalogBatch.set(doc(firestore, 'catalog', 'settings'), { data: cleanData.settings || {} });
-
-    // Sync metadata
-    catalogBatch.set(doc(firestore, 'meta', 'sync'), {
-      lastUpdated: serverTimestamp(),
-      isoUpdated: new Date().toISOString(),
-      updatedBy: CLIENT_ID,
-      version: 3
-    });
-
-    await catalogBatch.commit();
-
-    // 2. Batch write repairs to 'repairs' collection in chunks of 100 to stay well under batch limits
-    if (cleanData.repairs && cleanData.repairs.length > 0) {
-      const CHUNK_SIZE = 100;
-      for (let i = 0; i < cleanData.repairs.length; i += CHUNK_SIZE) {
-        const chunk = cleanData.repairs.slice(i, i + CHUNK_SIZE);
-        const repairBatch = writeBatch(firestore);
-        chunk.forEach(repair => {
-          if (repair.id) {
-            repairBatch.set(doc(firestore, 'repairs', repair.id), repair, { merge: true });
-          }
-        });
-        await repairBatch.commit();
+    for (const [entityName, entityDoc] of Object.entries(entityMap)) {
+      const jsonHash = JSON.stringify(entityDoc);
+      if (lastSavedEntityHashes[entityName] !== jsonHash) {
+        catalogBatch.set(doc(firestore, 'catalog', entityName), entityDoc);
+        lastSavedEntityHashes[entityName] = jsonHash;
+        dirtyCount++;
       }
     }
+
+    // Only commit writes if there are actual entity changes
+    if (dirtyCount > 0) {
+      catalogBatch.set(doc(firestore, 'meta', 'sync'), {
+        lastUpdated: serverTimestamp(),
+        isoUpdated: new Date().toISOString(),
+        updatedBy: CLIENT_ID,
+        version: 3
+      });
+
+      await catalogBatch.commit();
+    }
   } catch (error) {
+    if (isQuotaExceededError(error)) {
+      console.warn('Cloud Firestore write quota reached. Gracefully pausing cloud writes for today.');
+      await markCloudQuotaExceeded();
+      return;
+    }
     console.error('Error saving database to Cloud Firestore:', error);
     throw error;
   }
@@ -239,6 +391,9 @@ export async function saveDatabaseToFirebase(data: AppDatabaseState): Promise<vo
  * Saves or updates a single repair log directly to Firestore
  */
 export async function saveSingleRepairToFirebase(repair: RepairLog): Promise<void> {
+  if (_isQuotaExceeded) {
+    return;
+  }
   try {
     const cleanRepair = sanitizeForFirestore(repair);
     await setDoc(doc(firestore, 'repairs', cleanRepair.id), cleanRepair, { merge: true });
@@ -248,6 +403,10 @@ export async function saveSingleRepairToFirebase(repair: RepairLog): Promise<voi
       updatedEntity: 'repairs'
     }, { merge: true });
   } catch (error) {
+    if (isQuotaExceededError(error)) {
+      await markCloudQuotaExceeded();
+      return;
+    }
     console.error('Error saving single repair to Firestore:', error);
     throw error;
   }
@@ -257,6 +416,9 @@ export async function saveSingleRepairToFirebase(repair: RepairLog): Promise<voi
  * Deletes a single repair log from Firestore
  */
 export async function deleteSingleRepairFromFirebase(repairId: string): Promise<void> {
+  if (_isQuotaExceeded) {
+    return;
+  }
   try {
     await deleteDoc(doc(firestore, 'repairs', repairId));
     await setDoc(doc(firestore, 'meta', 'sync'), {
@@ -266,6 +428,10 @@ export async function deleteSingleRepairFromFirebase(repairId: string): Promise<
       deletedId: repairId
     }, { merge: true });
   } catch (error) {
+    if (isQuotaExceededError(error)) {
+      await markCloudQuotaExceeded();
+      return;
+    }
     console.error('Error deleting repair from Firestore:', error);
     throw error;
   }
@@ -277,27 +443,43 @@ export async function deleteSingleRepairFromFirebase(repairId: string): Promise<
 export function subscribeToFirebaseSync(
   onRemoteUpdate: () => void
 ): () => void {
+  if (_isQuotaExceeded) {
+    return () => {};
+  }
+
   let isFirst = true;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  return onSnapshot(doc(firestore, 'meta', 'sync'), (snapshot) => {
-    if (isFirst) {
-      isFirst = false;
-      return;
-    }
-    if (!snapshot.exists()) return;
+  try {
+    return onSnapshot(doc(firestore, 'meta', 'sync'), (snapshot) => {
+      if (isFirst) {
+        isFirst = false;
+        return;
+      }
+      if (!snapshot.exists()) return;
 
-    const data = snapshot.data();
-    // Ignore events generated by THIS client/tab to eliminate self-triggering feedback loops
-    if (data?.updatedBy === CLIENT_ID) {
-      return;
-    }
+      const data = snapshot.data();
+      // Ignore events generated by THIS client/tab to eliminate self-triggering feedback loops
+      if (data?.updatedBy === CLIENT_ID) {
+        return;
+      }
 
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      onRemoteUpdate();
-    }, 400);
-  }, (err) => {
-    console.warn('Firebase sync listener warning:', err);
-  });
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        onRemoteUpdate();
+      }, 400);
+    }, (err) => {
+      if (isQuotaExceededError(err)) {
+        console.warn('Firebase sync listener paused due to quota limit.');
+        markCloudQuotaExceeded();
+      } else {
+        console.warn('Firebase sync listener warning:', err);
+      }
+    });
+  } catch (err) {
+    if (isQuotaExceededError(err)) {
+      markCloudQuotaExceeded();
+    }
+    return () => {};
+  }
 }

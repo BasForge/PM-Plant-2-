@@ -4,11 +4,13 @@ import { PMPlan, PMFrequency, PMStep } from '../types';
 import { 
   Search, Plus, Trash2, Edit3, CheckCircle, PackageOpen, LayoutGrid, 
   Clock, ClipboardList, Copy, Upload, Download, Check, AlertTriangle, 
-  HelpCircle, Sparkles, FileSpreadsheet, ArrowLeftRight
+  HelpCircle, Sparkles, FileSpreadsheet, ArrowLeftRight, CalendarRange
 } from 'lucide-react';
+import { TBMPlanSchedulePage } from './TBMPlanSchedulePage';
 
 export const PMPlanPage: React.FC = () => {
   const { machines, pmPlans, setPmPlans, canEdit, canDelete } = useApp();
+  const [pmPlanViewTab, setPmPlanViewTab] = useState<'list' | 'tbm'>('list');
   
   // Selected machine filter
   const [selectedMachineId, setSelectedMachineId] = useState<string>(machines[0]?.id || '');
@@ -360,7 +362,58 @@ export const PMPlanPage: React.FC = () => {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="pmplan-page-root">
+    <div className="space-y-6" id="pmplan-page-root">
+      {/* Tab Switcher: PM Plan Task List vs TBM Plan Schedule Matrix */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 p-1.5 border border-slate-700/80 rounded-2xl shadow-sm" id="pmplan-tabs-bar">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            id="tab-btn-pm-tasks"
+            onClick={() => setPmPlanViewTab('list')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+              pmPlanViewTab === 'list'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <ClipboardList size={16} />
+            📋 รายการหัวข้องานและขั้นตอน PM
+          </button>
+          <button
+            type="button"
+            id="tab-btn-pm-tbm"
+            onClick={() => setPmPlanViewTab('tbm')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
+              pmPlanViewTab === 'tbm'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <CalendarRange size={16} />
+            📅 ตารางแผน PM ตาม Time-Based Maintenance (TBM Matrix)
+          </button>
+        </div>
+
+        {pmPlanViewTab === 'list' && selectedMachineId && (
+          <button
+            type="button"
+            onClick={() => setPmPlanViewTab('tbm')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-xs font-semibold rounded-xl transition cursor-pointer"
+          >
+            <CalendarRange size={14} />
+            ดูตารางแผน TBM เครื่อง <span className="font-mono text-white font-bold">{selectedMachineId}</span>
+          </button>
+        )}
+      </div>
+
+      {pmPlanViewTab === 'tbm' ? (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          <TBMPlanSchedulePage 
+            initialMachineId={selectedMachineId || 'ALL'}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       
       {/* LEFT COLUMN: Searchable machine select */}
       <div id="pm-left-machine-selector" className="col-span-1 lg:col-span-4 bg-slate-800 border border-slate-700 rounded-2xl p-5 flex flex-col h-[650px]">
@@ -483,6 +536,17 @@ export const PMPlanPage: React.FC = () => {
                       <Plus size={13} strokeWidth={2.5} />
                       <span>เพิ่มงานแผน PM ใหม่</span>
                     </button>
+
+                    <button
+                      type="button"
+                      id="btn-view-machine-tbm"
+                      onClick={() => setPmPlanViewTab('tbm')}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600/30 to-cyan-600/30 hover:from-blue-600/50 hover:to-cyan-600/50 border border-cyan-500/40 text-cyan-300 rounded-xl text-[11px] font-bold transition cursor-pointer"
+                      title="ดูตารางแผน PM ตามรอบเวลา (TBM) ของเครื่องนี้"
+                    >
+                      <CalendarRange size={13} className="text-cyan-400" />
+                      <span>ตารางแผน TBM</span>
+                    </button>
                   </>
                 ) : (
                   <div className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 text-xs border border-slate-700">
@@ -595,6 +659,8 @@ export const PMPlanPage: React.FC = () => {
           )}
         </div>
       </div>
+      </div>
+      )}
 
       {/* Form Dialog Modal for Adding or Editing PM Plan */}
       {showFormModal && (

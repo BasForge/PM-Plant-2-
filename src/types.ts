@@ -13,7 +13,7 @@ export interface Machine {
   status?: 'ปกติ' | 'เสีย/ซ่อม' | 'ยกเลิกใช้'; // สถานะ
 }
 
-export type PMFrequency = 'รายวัน' | 'รายสัปดาห์' | 'รายเดือน' | 'รายปี';
+export type PMFrequency = 'รายวัน' | 'รายสัปดาห์' | 'ราย 2 สัปดาห์' | 'รายเดือน' | 'ราย 3 เดือน' | 'ราย 6 เดือน' | 'รายปี';
 
 export interface PMStep {
   title: string;
@@ -28,6 +28,12 @@ export interface PMPlan {
   steps: PMStep[];
   spareParts?: string;
   ttm: number; // in minutes (sum of stdTime of all steps)
+  intervalDays?: number; // รอบวัน TBM เช่น 1, 7, 14, 30, 90, 180, 365 วัน
+  category?: 'Mechanical' | 'Electrical' | 'Pneumatic' | 'Lubrication' | 'Sanitation' | 'General';
+  targetMonths?: number[]; // เดือนตามแผน [1-12]
+  targetWeeks?: number[]; // สัปดาห์ตามแผน [1-52]
+  lastCompletedDate?: string; // YYYY-MM-DD
+  nextDueDate?: string; // YYYY-MM-DD
 }
 
 export interface PMRescheduleHistoryItem {
@@ -58,6 +64,8 @@ export interface PMScheduleItem {
   rescheduledReason?: string; // เหตุผลในการเลื่อนแผน (เช่น เครื่องติดไลน์ผลิตเร่งด่วน, รออะไหล่)
   rescheduledCount?: number; // จำนวนครั้งที่มีการเลื่อนแผน
   rescheduleHistory?: PMRescheduleHistoryItem[]; // ประวัติการเลื่อนแผนแต่ละครั้ง
+  title?: string; // ชื่องาน PM หรือรายละเอียดงาน
+  notes?: string; // หมายเหตุหรือข้อควรระวัง
 }
 
 export interface OperationScheduleItem {

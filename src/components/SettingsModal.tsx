@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { Settings, Users, Clock, AlertTriangle, FileJson, RefreshCw, X, Wrench, Upload, Bell, Cloud, Database, CheckCircle2 } from 'lucide-react';
+import { Settings, Users, Clock, AlertTriangle, FileJson, RefreshCw, X, Wrench, Upload, Bell, Cloud, Database, CheckCircle2, ExternalLink, AlertCircle, ShieldAlert } from 'lucide-react';
 import { sendLineNotification } from '../utils/lineNotify';
+import { FIREBASE_CONSOLE_QUOTA_URL, FIREBASE_PRICING_URL } from '../services/firebaseDb';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -13,12 +14,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
     setSchedules, setRepairs, setImprovements,
     settings, setSettings, 
     firebaseStatus, lastFirebaseSync, syncWithFirebaseNow,
+    retestFirebaseQuota, isQuotaExceeded,
     resetToDefaults, exportData, importData 
   } = useApp();
 
   // Active sub-tab inside settings
   const [subTab, setSubTab] = useState<'techs' | 'hours' | 'std-mttr' | 'export-import' | 'line-notify' | 'firebase'>('techs');
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [isRetestingQuota, setIsRetestingQuota] = useState(false);
   const [cloudSyncMsg, setCloudSyncMsg] = useState<string | null>(null);
 
   // LINE Notify state
@@ -753,6 +756,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                     ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
                     : firebaseStatus === 'syncing'
                     ? 'bg-amber-950/30 border-amber-500/40 text-amber-300'
+                    : firebaseStatus === 'quota-exceeded'
+                    ? 'bg-amber-950/40 border-amber-500/50 text-amber-300'
                     : 'bg-slate-800/80 border-slate-700 text-slate-300'
                 }`}>
                   <div className="flex items-center gap-3">
@@ -761,12 +766,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                         ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)] animate-pulse'
                         : firebaseStatus === 'syncing'
                         ? 'bg-amber-400 animate-spin'
+                        : firebaseStatus === 'quota-exceeded'
+                        ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.7)]'
                         : 'bg-slate-500'
                     }`} />
                     <div>
                       <p className="font-bold text-xs text-white">
                         {firebaseStatus === 'connected' && 'สถานะ: เชื่อมต่อ Firebase Cloud สำเร็จ (ออนไลน์)'}
                         {firebaseStatus === 'syncing' && 'สถานะ: กำลังซิงค์ข้อมูลกับคลาวด์...'}
+                        {firebaseStatus === 'quota-exceeded' && 'สถานะ: โควตาคลาวด์ฟรีรายวันเต็ม (สลับใช้งาน Local Server อัตโนมัติ)'}
                         {firebaseStatus === 'offline' && 'สถานะ: โหมดออฟไลน์ (ใช้งานฐานข้อมูลเครื่องนี้)'}
                         {firebaseStatus === 'error' && 'สถานะ: มีข้อผิดพลาดในการเชื่อมต่อ'}
                       </p>
@@ -776,31 +784,102 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                     </div>
                   </div>
 
-                  <button
-                    id="btn-modal-manual-firebase-sync"
-                    disabled={isSyncingCloud}
-                    onClick={async () => {
-                      setIsSyncingCloud(true);
-                      setCloudSyncMsg(null);
-                      try {
-                        const ok = await syncWithFirebaseNow();
-                        if (ok) {
-                          setCloudSyncMsg('ซิงค์ข้อมูลกับ Cloud Firestore เรียบร้อยแล้ว!');
-                        } else {
-                          setCloudSyncMsg('ซิงค์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+                  <div className="flex items-center gap-2">
+                    {firebaseStatus === 'quota-exceeded' && (
+                      <button
+                        id="btn-modal-retest-quota"
+                        disabled={isRetestingQuota}
+                        onClick={async () => {
+                          setIsRetestingQuota(true);
+                          setCloudSyncMsg(null);
+                          try {
+                            const ok = await retestFirebaseQuota();
+                            if (ok) {
+                              setCloudSyncMsg('รีเซ็ตการเชื่อมต่อคลาวด์สำเร็จ! โควตาพร้อมใช้งาน');
+                            } else {
+                              setCloudSyncMsg('โควตาของ Firebase ยังไม่ถูกรีเซ็ต (รอการรีเซ็ตประจำวันจาก Google)');
+                            }
+                          } finally {
+                            setIsRetestingQuota(false);
+                          }
+                        }}
+                        className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 text-xs shadow disabled:opacity-50 cursor-pointer shrink-0"
+                      >
+                        <RefreshCw size={12} className={isRetestingQuota ? 'animate-spin' : ''} />
+                        {isRetestingQuota ? 'กำลังตรวจสอบ...' : 'ทดสอบโควตาใหม่'}
+                      </button>
+                    )}
+
+                    <button
+                      id="btn-modal-manual-firebase-sync"
+                      disabled={isSyncingCloud}
+                      onClick={async () => {
+                        setIsSyncingCloud(true);
+                        setCloudSyncMsg(null);
+                        try {
+                          const ok = await syncWithFirebaseNow();
+                          if (ok) {
+                            setCloudSyncMsg('ซิงค์ข้อมูลกับ Cloud Firestore เรียบร้อยแล้ว!');
+                          } else {
+                            if (isQuotaExceeded || firebaseStatus === 'quota-exceeded') {
+                              setCloudSyncMsg('โควตาเขียนของ Google Cloud ถึงขีดจำกัดประจำวันแล้ว ระบบใช้งาน Local Server อัตโนมัติ');
+                            } else {
+                              setCloudSyncMsg('ซิงค์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+                            }
+                          }
+                        } catch {
+                          setCloudSyncMsg('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+                        } finally {
+                          setIsSyncingCloud(false);
                         }
-                      } catch {
-                        setCloudSyncMsg('เกิดข้อผิดพลาดในการเชื่อมต่อ');
-                      } finally {
-                        setIsSyncingCloud(false);
-                      }
-                    }}
-                    className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 text-xs shadow disabled:opacity-50 cursor-pointer shrink-0"
-                  >
-                    <RefreshCw size={12} className={isSyncingCloud ? 'animate-spin' : ''} />
-                    {isSyncingCloud ? 'กำลังซิงค์...' : 'บังคับซิงค์เดี๋ยวนี้'}
-                  </button>
+                      }}
+                      className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 text-xs shadow disabled:opacity-50 cursor-pointer shrink-0"
+                    >
+                      <RefreshCw size={12} className={isSyncingCloud ? 'animate-spin' : ''} />
+                      {isSyncingCloud ? 'กำลังซิงค์...' : 'บังคับซิงค์เดี๋ยวนี้'}
+                    </button>
+                  </div>
                 </div>
+
+                {(firebaseStatus === 'quota-exceeded' || isQuotaExceeded) && (
+                  <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/40 text-amber-200 text-xs space-y-2.5">
+                    <div className="flex items-start gap-2.5">
+                      <ShieldAlert className="text-amber-400 shrink-0 mt-0.5" size={18} />
+                      <div className="space-y-1">
+                        <p className="font-bold text-amber-300 text-sm">
+                          แจ้งเตือน: โควตาเขียนข้อมูลฟรีรายวันของ Firebase เต็ม (Quota limit exceeded)
+                        </p>
+                        <p className="text-slate-350 leading-relaxed">
+                          แพ็กเกจฟรีของ Google Cloud Firestore (Free Spark Tier) จำกัดจำนวนการเขียน 20,000 รายการต่อวัน 
+                          ขณะนี้ระบบได้สลับไปใช้ <strong className="text-emerald-300">ฐานข้อมูลในเครื่องและ Local Express Server (db.json)</strong> โดยอัตโนมัติ ทำให้ท่านสามารถเพิ่ม/แก้ไข/ลบงานซ่อม, ตาราง PM, เบิกอะไหล่ และใช้งานได้ตามปกติ 100% ข้อมูลไม่มีสูญหาย
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t border-amber-500/20 flex flex-wrap items-center gap-3 text-[11px]">
+                      <a
+                        href={FIREBASE_CONSOLE_QUOTA_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-medium transition"
+                      >
+                        <ExternalLink size={12} />
+                        เปิดตรวจสอบการใช้งานใน Firebase Console
+                      </a>
+                      <a
+                        href={FIREBASE_PRICING_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-medium transition"
+                      >
+                        <ExternalLink size={12} />
+                        ดูรายละเอียดแผนการใช้งาน (Firebase Pricing)
+                      </a>
+                      <span className="text-slate-400 text-[10px]">
+                        * โควตาของ Google จะรีเซ็ตอัตโนมัติทุกๆ เที่ยงคืนตามเวลาแปซิฟิก (US/Pacific)
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {cloudSyncMsg && (
                   <div className="p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 text-xs flex items-center gap-2 animate-in fade-in">

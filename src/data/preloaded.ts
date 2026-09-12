@@ -5,6 +5,7 @@ export const PRELOADED_MACHINES: Machine[] = CPRAM_PDF_MACHINES;
 
 
 export const PRELOADED_TECHNICIANS: string[] = [
+  "ช่างสมชาย", "ช่างวิชัย", "ช่างประสิทธิ์", "Outsource (ซัพพลายเออร์)",
   "ช่าง 1","ช่าง 2","ช่าง 3","ช่าง 4","ช่าง 5",
   "ช่าง 6","ช่าง 7","ช่าง 8","ช่าง 9","ช่าง 10",
   "ช่าง 11","ช่าง 12","ช่าง 13","ช่าง 14","ช่าง 15",
@@ -14,42 +15,119 @@ export const PRELOADED_TECHNICIANS: string[] = [
 // Some sample mock data to make first-time loading feel fully-featured and live instantly
 export const PRELOADED_PM_PLANS = [
   {
+    id: "plan-pm-mch01",
+    machineId: "MCH-001",
+    title: "เปลี่ยนน้ำมันเครื่อง & ไส้กรองอากาศ (Oil & Air Filter Service)",
+    frequency: "ราย 3 เดือน",
+    intervalDays: 90,
+    category: "Mechanical",
+    steps: [
+      { title: "หยุดเครื่อง ดับเบรคเกอร์ และเดรนแรงดันลมคงค้าง", stdTime: 10 },
+      { title: "ถ่ายน้ำมันเครื่องคอมเพรสเซอร์และเปลี่ยนไส้กรองน้ำมัน", stdTime: 20 },
+      { title: "ถอดเปลี่ยนไส้กรองอากาศ Air Intake Filter และเป่าทำความสะอาด", stdTime: 15 },
+      { title: "ตรวจเช็คสายพาน ตรวจจุดรั่วซึมลม และทดสอบเดินเครื่องวัดกระแส", stdTime: 15 }
+    ],
+    spareParts: "น้ำมันคอมเพรสเซอร์ Roto-Inject Fluid, กรองอากาศ 1622065800, กรองน้ำมัน 1622314200",
+    ttm: 60,
+    targetMonths: [3, 6, 9, 12]
+  },
+  {
+    id: "plan-pm-mch02",
+    machineId: "MCH-002",
+    title: "ตรวจเช็คระบบสายพานและจาระบีเพลาขับ (Spindle Lubrication & Belt Inspection)",
+    frequency: "ราย 6 เดือน",
+    intervalDays: 180,
+    category: "Lubrication",
+    steps: [
+      { title: "ตรวจสอบความตึงสายพานขับสปินเดิลและระยะฟรี", stdTime: 20 },
+      { title: "อัดจาระบีสังเคราะห์ชุดลูกปืนลิเนียร์ไกด์และบอลสกรู", stdTime: 30 },
+      { title: "ตรวจเช็คระดับแรงดันน้ำมันหล่อลื่นและระบบ Coolant", stdTime: 20 },
+      { title: "Calibrate Backlash แกน X, Y, Z", stdTime: 20 }
+    ],
+    spareParts: "จาระบี LHL-X100-7, กรองน้ำมันไฮดรอลิก",
+    ttm: 90,
+    targetMonths: [6, 12]
+  },
+  {
+    id: "plan-pm-chl01",
+    machineId: "CHL-001",
+    title: "ล้างคอนเดนเซอร์ & เช็คสารทำความเย็นประจำปี (Condenser Cleaning & Refrigerant Overhaul)",
+    frequency: "รายปี",
+    intervalDays: 365,
+    category: "Mechanical",
+    steps: [
+      { title: "ล้างทำความสะอาดแผงคอนเดนเซอร์ด้วยน้ำยาเฉพาะทาง", stdTime: 45 },
+      { title: "ตรวจสอบแรงดันสารทำความเย็น R-134a และตรวจหารอยรั่วซึม", stdTime: 30 },
+      { title: "ตรวจวัดค่าความเป็นฉนวนมอเตอร์คอมเพรสเซอร์ (Megger Test)", stdTime: 20 },
+      { title: "ทดสอบระบบความปลอดภัย High/Low Pressure Cut-out", stdTime: 25 }
+    ],
+    spareParts: "น้ำยาล้างคอนเดนเซอร์, ซีลโอริงเกจวัด, สารทำความเย็น R-134a",
+    ttm: 120,
+    targetMonths: [12]
+  },
+  {
+    id: "plan-pm-pmp05",
+    machineId: "PMP-005",
+    title: "ตรวจเช็คระบบซีลกลไก & ลูกปืนปั๊มน้ำ (Mechanical Seal & Bearing Check)",
+    frequency: "รายเดือน",
+    intervalDays: 30,
+    category: "Mechanical",
+    steps: [
+      { title: "ตรวจเช็คการรั่วซึมของแมคคานิคอลซีล (Mechanical Seal)", stdTime: 10 },
+      { title: "ตรวจวัดระดับการสั่นสะเทือน (Vibration) และอุณหภูมิลูกปืน", stdTime: 15 },
+      { title: "ตรวจสอบกระแสไฟฟ้ามอเตอร์และแรงดันจ่ายหน้าปั๊ม (Pressure Gauge)", stdTime: 10 },
+      { title: "หยอดน้ำมันหล่อลื่นและเช็คจุดยึดฐานรอง", stdTime: 10 }
+    ],
+    spareParts: "แมคคานิคอลซีล CR-32, จาระบีทนน้ำ",
+    ttm: 45,
+    targetMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  },
+  {
     id: "plan-pm-01",
     machineId: "RIM01",
     title: "ตรวจสภาพและทำความสะอาด Rice Mixer ประจำสัปดาห์",
     frequency: "รายสัปดาห์",
+    intervalDays: 7,
+    category: "Sanitation",
     steps: [
       { title: "ตรวจสอบใบกวนและจุดยึด", stdTime: 15 },
       { title: "ทำความสะอาดหัวฉีดน้ำส้มสายชู", stdTime: 10 },
       { title: "ตรวจสอบระบบขับเคลื่อนและเฟืองเกียร์", stdTime: 20 }
     ],
     spareParts: "น้ำมันหล่อลื่นเกรดอาหาร NSF-H1",
-    ttm: 45
+    ttm: 45,
+    targetMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
   },
   {
     id: "plan-pm-02",
     machineId: "VAC01",
     title: "ตรวจสอบระบบสุญญากาศและซีลยางประตู",
     frequency: "รายเดือน",
+    intervalDays: 30,
+    category: "Pneumatic",
     steps: [
       { title: "ตรวจวัดประสิทธิภาพปั๊มสุญญากาศ", stdTime: 30 },
       { title: "ตรวจสอบความตึงและการล้าของซีลยาง", stdTime: 15 },
       { title: "ตรวจเช็ควาล์วควบคุมแรงดันลม", stdTime: 15 }
     ],
     spareParts: "ซีลยางขอบประตู VAC01, น้ำมันแวคคั่มปั๊ม",
-    ttm: 60
+    ttm: 60,
+    targetMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
   },
   {
     id: "plan-pm-03",
     machineId: "FFS01",
     title: "ตรวจเช็คชุดฮีตเตอร์และใบมีดตัดซองสไลด์",
     frequency: "รายสัปดาห์",
+    intervalDays: 7,
+    category: "Electrical",
     steps: [
       { title: "ตรวจสอบอุณหภูมิฮีตเตอร์และสายไฟ", stdTime: 15 },
       { title: "ทดลองความคมของใบมีดตัดสไลด์", stdTime: 15 }
     ],
     spareParts: "ใบมีดเตเปอร์คัตเตอร์, ลวดความร้อนสำรอง",
-    ttm: 30
+    ttm: 30,
+    targetMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
   }
 ];
 
@@ -364,6 +442,63 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
 ];
 
 export const PRELOADED_SCHEDULES = [
+  {
+    id: "sched-tbm-mch01-q1",
+    type: "PM",
+    technician: "ช่างสมชาย",
+    technicians: ["ช่างสมชาย", "ช่างวิชัย"],
+    date: "2026-03-15",
+    machineId: "MCH-001",
+    pmPlanId: "plan-pm-mch01",
+    status: "เสร็จสิ้น",
+    duration: 60,
+    actualDuration: 55
+  },
+  {
+    id: "sched-tbm-mch01-q2",
+    type: "PM",
+    technician: "ช่างสมชาย",
+    technicians: ["ช่างสมชาย"],
+    date: "2026-06-12",
+    machineId: "MCH-001",
+    pmPlanId: "plan-pm-mch01",
+    status: "กำลังทำ",
+    duration: 60
+  },
+  {
+    id: "sched-tbm-mch02-h1",
+    type: "PM",
+    technician: "ช่างวิชัย",
+    technicians: ["ช่างวิชัย"],
+    date: "2026-06-18",
+    machineId: "MCH-002",
+    pmPlanId: "plan-pm-mch02",
+    status: "รอดำเนินการ",
+    duration: 90
+  },
+  {
+    id: "sched-tbm-chl01-y",
+    type: "PM",
+    technician: "Outsource (ซัพพลายเออร์)",
+    technicians: ["Outsource (ซัพพลายเออร์)"],
+    date: "2026-12-15",
+    machineId: "CHL-001",
+    pmPlanId: "plan-pm-chl01",
+    status: "รอดำเนินการ",
+    duration: 120
+  },
+  {
+    id: "sched-tbm-pmp05-m6",
+    type: "PM",
+    technician: "ช่างประสิทธิ์",
+    technicians: ["ช่างประสิทธิ์"],
+    date: "2026-06-05",
+    machineId: "PMP-005",
+    pmPlanId: "plan-pm-pmp05",
+    status: "เสร็จสิ้น",
+    duration: 45,
+    actualDuration: 40
+  },
   {
     id: "sched-01",
     type: "PM",

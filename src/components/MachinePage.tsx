@@ -5,12 +5,16 @@ import {
   Plus, Search, ChevronDown, ChevronUp, FileText, Settings, 
   Trash2, Edit3, AlertTriangle, UploadCloud, CheckCircle2, RefreshCw,
   SlidersHorizontal, Download, Eye, Zap, MapPin, Calendar, Building2,
-  FileCheck2, Info, X
+  FileCheck2, Info, X, CalendarRange, Activity
 } from 'lucide-react';
 import { parseMachineRegistryPDF, ParseResult } from '../utils/pdfMachineParser';
 import { CPRAM_PDF_MACHINES } from '../data/cpramMachines';
 
-export const MachinePage: React.FC = () => {
+interface MachinePageProps {
+  onNavigateToTbm?: (machineId?: string) => void;
+}
+
+export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => {
   const { machines, setMachines, pmPlans, repairs, canEdit, canDelete } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string>('ALL');
@@ -583,10 +587,25 @@ export const MachinePage: React.FC = () => {
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {/* PM list */}
                                 <div className="space-y-2">
-                                  <h4 className="text-xs font-semibold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
-                                    <span className="w-2 h-2 rounded bg-cyan-400"></span>
-                                    รายการแผน PM ประจำเครื่อง
-                                  </h4>
+                                  <div className="flex items-center justify-between">
+                                    <h4 className="text-xs font-semibold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                                      <span className="w-2 h-2 rounded bg-cyan-400"></span>
+                                      รายการแผน PM ประจำเครื่อง ({stats.linkedPlans.length})
+                                    </h4>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onNavigateToTbm) {
+                                          onNavigateToTbm(m.id);
+                                        }
+                                      }}
+                                      className="flex items-center gap-1.5 px-3 py-1 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-xs font-semibold rounded-lg transition cursor-pointer"
+                                    >
+                                      <CalendarRange size={13} />
+                                      ตารางแผน PM (TBM) เครื่องนี้
+                                    </button>
+                                  </div>
                                   {stats.linkedPlans.length === 0 ? (
                                     <p className="text-xs text-slate-500 italic py-2">
                                       ยังไม่มีการระบุแผนบำรุงรักษาเชิงป้องกัน (PM) สำหรับเครื่องนี้

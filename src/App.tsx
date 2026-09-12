@@ -2,19 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { MachinePage } from './components/MachinePage';
 import { PMPlanPage } from './components/PMPlanPage';
+import { MachineAndPMPlanHub } from './components/MachineAndPMPlanHub';
 import { SchedulePage } from './components/SchedulePage';
 import { RepairPage } from './components/RepairPage';
 import { ImprovementPage } from './components/ImprovementPage';
+import { CostDownAndKaizenHub } from './components/CostDownAndKaizenHub';
 import { DashboardPage } from './components/DashboardPage';
 import { DispatchPage } from './components/DispatchPage';
 import { SetupPage } from './components/SetupPage';
-import { PresentationPage } from './components/PresentationPage';
+import { MaintenanceHistoryHub } from './components/MaintenanceHistoryHub';
+import { SetupAndDispatchHub } from './components/SetupAndDispatchHub';
+import { AnalyticsAndPresentationHub } from './components/AnalyticsAndPresentationHub';
 import { SettingsModal } from './components/SettingsModal';
 import { InventoryPage } from './components/InventoryPage';
 import { PMHistoryPage } from './components/PMHistoryPage';
 import { TechnicianPortfolioPage } from './components/TechnicianPortfolioPage';
 import { CostDown5Page } from './components/CostDown5Page';
 import { WorkRequestPage } from './components/WorkRequestPage';
+import { TBMPlanSchedulePage } from './components/TBMPlanSchedulePage';
 import { PMOverdueAlertModal } from './components/PMOverdueAlertModal';
 import { LoginPage } from './components/LoginPage';
 import { UserManagementModal } from './components/UserManagementModal';
@@ -24,7 +29,7 @@ import {
   Wrench, Activity, CalendarDays, ClipboardList, PenTool, 
   BarChart3, Settings, Menu, ChevronLeft, ChevronRight, Clock, ShieldCheck, Send, Presentation, Users,
   Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell, Cloud,
-  LogOut, Shield, UserCheck, Eye, BellRing, Factory
+  LogOut, Shield, UserCheck, Eye, BellRing, Factory, CalendarRange
 } from 'lucide-react';
 
 function AppContent() {
@@ -121,18 +126,36 @@ function AppContent() {
 
     switch (activePage) {
       case 14: return <WorkRequestPage />;
-      case 1: return <MachinePage />;
-      case 2: return <PMPlanPage />;
+      case 1: return (
+        <MachineAndPMPlanHub 
+          defaultTab="machines" 
+          onNavigateToSchedule={() => setActivePage(3)} 
+          onNavigateToHistory={() => setActivePage(11)} 
+        />
+      );
+      case 2: return (
+        <MachineAndPMPlanHub 
+          defaultTab="plans" 
+          onNavigateToSchedule={() => setActivePage(3)} 
+          onNavigateToHistory={() => setActivePage(11)} 
+        />
+      );
+      case 15: return (
+        <TBMPlanSchedulePage 
+          onNavigateToSchedule={() => setActivePage(3)} 
+          onNavigateToHistory={() => setActivePage(11)} 
+        />
+      );
       case 3: return <SchedulePage />;
-      case 4: return <RepairPage />;
-      case 11: return <PMHistoryPage />;
-      case 5: return <ImprovementPage />;
-      case 13: return <CostDown5Page />;
-      case 8: return <SetupPage />;
-      case 7: return <DispatchPage />;
+      case 4: return <MaintenanceHistoryHub defaultTab="repair" />;
+      case 11: return <MaintenanceHistoryHub defaultTab="pm" />;
+      case 5: return <CostDownAndKaizenHub defaultTab="kaizen" />;
+      case 13: return <CostDownAndKaizenHub defaultTab="costdown" />;
+      case 8: return <SetupAndDispatchHub defaultTab="setup" />;
+      case 7: return <SetupAndDispatchHub defaultTab="dispatch" />;
       case 10: return <InventoryPage />;
-      case 6: return <DashboardPage />;
-      case 9: return <PresentationPage />;
+      case 6: return <AnalyticsAndPresentationHub defaultTab="analytics" />;
+      case 9: return <AnalyticsAndPresentationHub defaultTab="presentation" />;
       case 12: return <TechnicianPortfolioPage />;
       default: return <SchedulePage />;
     }
@@ -142,17 +165,12 @@ function AppContent() {
   const navigationItems = [
     { id: 14, label: "🔔 แจ้งซ่อมและตอบรับงาน", icon: BellRing, desc: "ฝ่ายผลิตแจ้ง / วิศวกรรมตอบ" },
     { id: 3, label: "📅 ตารางงานช่าง", icon: CalendarDays, desc: "มาสเตอร์พิกัดกะ" },
-    { id: 1, label: "🏭 เครื่องจักร", icon: Activity, desc: "ทะเบียนระบบ/สถานะ" },
-    { id: 2, label: "⏱ แผน PM", icon: ClipboardList, desc: "ความถี่อิ่มกาก/กระบวน" },
-    { id: 4, label: "🔧 งานบันทึกประวัติซ่อม", icon: Wrench, desc: "วิเคราะห์ Why-Why" },
-    { id: 11, label: "📋 งานบันทึกประวัติ PM", icon: ClipboardCheck, desc: "เทียบเวลามาตรฐาน/จริง" },
-    { id: 5, label: "🔨 งานพัฒนา Kaizen", icon: PenTool, desc: "บอร์ดสเตตัสงาน" },
-    { id: 13, label: "💰 Cost Down 5 (CD5)", icon: TrendingDown, desc: "ยืดอายุอะไหล่/สั่งทำเอง" },
-    { id: 8, label: "⏱ งาน Setup เครื่อง", icon: Clock, desc: "เตรียมเครื่องก่อนและระหว่างวัน" },
-    { id: 7, label: "📋 ระบบจ่ายงาน", icon: Send, desc: "ศูนย์ควบคุมสั่งจ่ายงาน" },
+    { id: 1, label: "🏭 เครื่องจักร & แผน PM", icon: Activity, desc: "ทะเบียน, แผนงาน PM & TBM Matrix" },
+    { id: 4, label: "🔧 ประวัติซ่อม & ประวัติ PM", icon: Wrench, desc: "บันทึกซ่อม Why-Why & งาน PM" },
+    { id: 13, label: "💰 Cost Down 5 & Kaizen", icon: TrendingDown, desc: "ลดต้นทุนอะไหล่ & งานพัฒนา Kaizen" },
+    { id: 7, label: "📋 ระบบจ่ายงาน & Setup เครื่อง", icon: Send, desc: "ศูนย์สั่งจ่ายงาน & บันทึก Setup" },
     { id: 10, label: "📦 คลังอะไหล่สำรอง", icon: Package, desc: "ควบคุมความปลอดภัยสต็อก" },
-    { id: 6, label: "📊 ระบบสถิติ", icon: BarChart3, desc: "Dashboard/MTTR" },
-    { id: 9, label: "📈 สรุปนำเสนอ", icon: Presentation, desc: "บอร์ดนำเสนอผู้บริหาร" },
+    { id: 6, label: "📊 ระบบสถิติ & สรุปนำเสนอ", icon: BarChart3, desc: "Dashboard KPI/MTTR & บอร์ดผู้บริหาร" },
     { id: 12, label: "🏆 Portfolio ช่าง", icon: Award, desc: "ประวัติผลงาน Kaizen & ปรับปรุง" }
   ];
 
@@ -221,8 +239,13 @@ function AppContent() {
           <nav className="p-3 space-y-1 mt-4" id="app-sidebar-nav">
             {visibleNavigationItems.map((item) => {
               const IconComp = item.icon;
-              const isSelected = activePage === item.id;
-              const hasOverdueBadge = (item.id === 11 || item.id === 3) && totalOverdueCount > 0;
+              const isSelected = activePage === item.id 
+                || (item.id === 1 && (activePage === 2 || activePage === 15)) 
+                || (item.id === 13 && activePage === 5)
+                || (item.id === 4 && activePage === 11)
+                || (item.id === 7 && activePage === 8)
+                || (item.id === 6 && activePage === 9);
+              const hasOverdueBadge = (item.id === 4 || item.id === 11 || item.id === 3) && totalOverdueCount > 0;
               const hasWorkRequestBadge = item.id === 14 && pendingWorkRequestCount > 0;
               
               return (
@@ -329,7 +352,13 @@ function AppContent() {
                 </div>
               ) : (
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                  {navigationItems.find(n => n.id === activePage)?.label} / พื้นที่สถิติและการทำงานหลัก
+                  {navigationItems.find(n => n.id === activePage 
+                    || (n.id === 1 && activePage === 2) 
+                    || (n.id === 13 && activePage === 5)
+                    || (n.id === 4 && activePage === 11)
+                    || (n.id === 7 && activePage === 8)
+                    || (n.id === 6 && activePage === 9)
+                  )?.label} / พื้นที่สถิติและการทำงานหลัก
                 </h2>
               )}
             </div>
@@ -364,6 +393,8 @@ function AppContent() {
                   ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/40 hover:border-emerald-500/50'
                   : firebaseStatus === 'syncing'
                   ? 'bg-amber-950/40 border-amber-500/30 text-amber-300 hover:bg-amber-900/40'
+                  : firebaseStatus === 'quota-exceeded'
+                  ? 'bg-amber-950/40 border-amber-500/50 text-amber-300 hover:bg-amber-900/50'
                   : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
               }`}
               title={`Cloud Firestore: ${
@@ -371,6 +402,8 @@ function AppContent() {
                   ? `เชื่อมต่อเรียลไทม์แล้ว (${lastFirebaseSync ? `ซิงค์ล่าสุด ${lastFirebaseSync}` : 'ออนไลน์'})`
                   : firebaseStatus === 'syncing'
                   ? 'กำลังซิงค์ข้อมูลกับ Cloud Firestore...'
+                  : firebaseStatus === 'quota-exceeded'
+                  ? 'โควตาคลาวด์ฟรีรายวันเต็ม (20,000 writes/day) ระบบสลับใช้ Local Server อัตโนมัติ ปลอดภัย 100%'
                   : 'ออฟไลน์ / ใช้ฐานข้อมูลเครื่องนี้'
               } (คลิกเพื่อซิงค์ข้อมูลกับคลาวด์ทันที)`}
             >
@@ -380,12 +413,13 @@ function AppContent() {
                 )}
                 <span className={`relative inline-flex rounded-full h-2 w-2 ${
                   firebaseStatus === 'connected' ? 'bg-emerald-500' :
-                  firebaseStatus === 'syncing' ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'
+                  firebaseStatus === 'syncing' ? 'bg-amber-400 animate-pulse' :
+                  firebaseStatus === 'quota-exceeded' ? 'bg-amber-500' : 'bg-slate-500'
                 }`}></span>
               </span>
-              <Cloud size={14} className={firebaseStatus === 'syncing' ? 'animate-spin text-amber-400' : ''} />
+              <Cloud size={14} className={firebaseStatus === 'syncing' ? 'animate-spin text-amber-400' : firebaseStatus === 'quota-exceeded' ? 'text-amber-400' : ''} />
               <span className="font-semibold text-[11px] hidden sm:inline">
-                {firebaseStatus === 'connected' ? 'Cloud Live' : firebaseStatus === 'syncing' ? 'ซิงค์...' : 'Offline'}
+                {firebaseStatus === 'connected' ? 'Cloud Live' : firebaseStatus === 'syncing' ? 'ซิงค์...' : firebaseStatus === 'quota-exceeded' ? 'Local Server (โควตาเต็ม)' : 'Offline'}
               </span>
             </button>
 

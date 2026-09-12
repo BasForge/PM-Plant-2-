@@ -1,8 +1,14 @@
 import { Machine } from '../types';
 
 export const CPRAM_PDF_MACHINES: Machine[] = [
-  // Page 1 (1 - 53)
-  { orderNo: 1, id: "RIM01", name: "RICE MIXER", model: "AIHO - ADU-20H", power: "1.50", installDate: "1 มี.ค. 61", vendor: "เบทเตอร์แพ็ค", location: "RICE COOKING ROOM", lineGroup: "RICE COOKING ROOM", serialNumber: "ไม่มี", remark: "-", status: "ปกติ" },
+  // Reference industrial machines from TBM Master Plan guidelines
+  { orderNo: 1, id: "MCH-001", name: "Air Compressor A", model: "Atlas Copco GA-37", power: "37.0 kW", installDate: "10 ม.ค. 62", vendor: "Atlas Copco Thailand", location: "Line 1 / Utility", lineGroup: "Line 1", serialNumber: "AC-2019-882", remark: "วิกฤต - Class A", status: "ปกติ" },
+  { orderNo: 2, id: "MCH-002", name: "CNC Machine 01", model: "Mazak VCN-530C", power: "18.5 kW", installDate: "15 พ.ค. 61", vendor: "Yamazen Thailand", location: "Main Shop", lineGroup: "Main Shop", serialNumber: "MZ-530-041", remark: "วิกฤต - Class A", status: "ปกติ" },
+  { orderNo: 3, id: "CHL-001", name: "Chiller System 1", model: "Trane RTHD 250", power: "45.0 kW", installDate: "20 ส.ค. 60", vendor: "Trane Thailand", location: "Building A / Roof", lineGroup: "Building A", serialNumber: "TR-250-9921", remark: "วิกฤต - Class A", status: "ปกติ" },
+  { orderNo: 4, id: "PMP-005", name: "Water Pump 05", model: "Grundfos CR-32", power: "7.5 kW", installDate: "5 มี.ค. 62", vendor: "Grundfos Thailand", location: "Pump Room", lineGroup: "Pump Room", serialNumber: "GF-CR-5541", remark: "สำคัญ - Class B", status: "ปกติ" },
+
+  // Plant machinery
+  { orderNo: 5, id: "RIM01", name: "RICE MIXER", model: "AIHO - ADU-20H", power: "1.50", installDate: "1 มี.ค. 61", vendor: "เบทเตอร์แพ็ค", location: "RICE COOKING ROOM", lineGroup: "RICE COOKING ROOM", serialNumber: "ไม่มี", remark: "-", status: "ปกติ" },
   { orderNo: 2, id: "RIM02", name: "RICE MIXER", model: "AIHO - ADU-20H", power: "1.50", installDate: "1 มี.ค. 61", vendor: "เบทเตอร์แพ็ค", location: "RICE COOKING ROOM", lineGroup: "RICE COOKING ROOM", serialNumber: "ไม่มี", remark: "-", status: "ปกติ" },
   { orderNo: 3, id: "TOC01", name: "RICE TAKE-OUT CONVEYOR", model: "AIHO - ABC - 40", power: "0.75", installDate: "1 มี.ค. 61", vendor: "เบทเตอร์แพ็ค", location: "RICE COOKING ROOM", lineGroup: "RICE COOKING ROOM", serialNumber: "AG-10-0103", remark: "-", status: "ปกติ" },
   { orderNo: 4, id: "TOC02", name: "RICE TAKE-OUT CONVEYOR", model: "AIHO - ABC - 40", power: "0.75", installDate: "1 มี.ค. 61", vendor: "เบทเตอร์แพ็ค", location: "RICE COOKING ROOM", lineGroup: "RICE COOKING ROOM", serialNumber: "AG-10-0104", remark: "-", status: "ปกติ" },
