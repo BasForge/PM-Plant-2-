@@ -1,8 +1,8 @@
 export function compressImageFile(
   file: File, 
-  maxWidth = 1200, 
-  maxHeight = 1200, 
-  quality = 0.8
+  maxWidth = 960, 
+  maxHeight = 960, 
+  quality = 0.7
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // Fallback for non-image or SVG
@@ -43,8 +43,11 @@ export function compressImageFile(
 
         ctx.drawImage(img, 0, 0, width, height);
 
-        const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-        const dataUrl = canvas.toDataURL(mimeType, quality);
+        // Prefer image/jpeg with 0.7 quality to keep document sizes within Firestore limits
+        const mimeType = file.type === 'image/png' && file.name.toLowerCase().endsWith('.png')
+          ? 'image/jpeg' 
+          : (file.type || 'image/jpeg');
+        const dataUrl = canvas.toDataURL(mimeType === 'image/png' ? 'image/jpeg' : mimeType, quality);
         resolve(dataUrl);
       };
       img.onerror = (err) => reject(err);

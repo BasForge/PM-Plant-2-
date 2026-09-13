@@ -7,7 +7,7 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
-  const { login, loginAsViewer, loginAsProduction, users } = useApp();
+  const { login, loginAsViewer } = useApp();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -33,11 +33,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
   const handleDirectViewerAccess = () => {
     loginAsViewer();
-    if (onLoginSuccess) onLoginSuccess();
-  };
-
-  const handleDirectProductionAccess = () => {
-    loginAsProduction();
     if (onLoginSuccess) onLoginSuccess();
   };
 
@@ -82,39 +77,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </p>
           </div>
 
-          {/* Direct Portals: Production Staff & Viewer */}
-          <div className="space-y-3 mb-5">
-            {/* 1. Production Department Quick Entrance */}
-            <div className="p-4 rounded-xl bg-gradient-to-r from-amber-950/70 to-orange-950/60 border border-orange-500/50 shadow-lg shadow-orange-950/30">
-              <div className="flex items-center gap-2.5 mb-2.5">
-                <div className="p-2 rounded-lg bg-orange-500/20 text-orange-400 shrink-0">
-                  <Factory size={18} />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-orange-300 flex items-center gap-1.5">
-                    <span>สำหรับฝ่ายผลิต (Production Staff)</span>
-                    <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-200 border border-orange-500/30">
-                      เข้าเฉพาะหน้าแจ้งซ่อม
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-300">
-                    แจ้งซ่อมเครื่องจักรฉุกเฉิน ติดตามงาน และตรวจรับมอบงาน
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                id="btn-login-production-direct"
-                onClick={handleDirectProductionAccess}
-                className="w-full py-2.5 px-4 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 active:scale-[0.99] text-slate-950 font-bold text-xs rounded-xl shadow transition flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Factory size={15} />
-                <span>เข้าสู่ระบบฝ่ายผลิต (เปิดหน้าแจ้งซ่อมทันที)</span>
-                <ArrowRight size={14} />
-              </button>
-            </div>
-
-            {/* 2. Direct Viewer Entrance (No credentials needed) */}
+          {/* Direct Portal: Viewer */}
+          <div className="mb-5">
+            {/* Direct Viewer Entrance (No credentials needed) */}
             <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-950/70 to-teal-950/50 border border-emerald-500/40 shadow-lg shadow-emerald-950/30">
               <div className="flex items-center gap-2.5 mb-2.5">
                 <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0">

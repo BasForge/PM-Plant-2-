@@ -540,7 +540,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await executeSave(dataToSave, currentJson);
     };
 
-    const timerId = setTimeout(syncToBackends, 400);
+    const timerId = setTimeout(syncToBackends, 1500);
     return () => clearTimeout(timerId);
   }, [
     machines, technicians, employees, pmPlans, schedules,
