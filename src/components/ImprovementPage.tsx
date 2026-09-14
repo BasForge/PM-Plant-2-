@@ -3,19 +3,20 @@ import { useApp } from '../context/AppContext';
 import { ImprovementProject, KaizenCategory, PDFFileAttachment } from '../types';
 import { 
   Wrench, BookOpen, Search as SearchIcon, HelpCircle, Plus, 
-  BarChart3, Filter, FileText, Image as ImageIcon, Sparkles, Layers 
+  BarChart3, Filter, FileText, Image as ImageIcon, Sparkles, Layers, FileCheck 
 } from 'lucide-react';
 import { KaizenKanbanView } from './kaizen/KaizenKanbanView';
 import { OPLView } from './kaizen/OPLView';
 import { FailureAnalysisView } from './kaizen/FailureAnalysisView';
 import { WhyWhyAnalysisView } from './kaizen/WhyWhyAnalysisView';
+import { MPInformationView } from './kaizen/MPInformationView';
 import { KaizenOverviewView } from './kaizen/KaizenOverviewView';
 import { CreateEditKaizenModal } from './kaizen/CreateEditKaizenModal';
 import { KaizenDetailModal } from './kaizen/KaizenDetailModal';
 import { PDFViewerModal } from './kaizen/PDFViewerModal';
 import { PhotoLightboxModal } from './kaizen/PhotoLightboxModal';
 
-type ActiveTab = 'kaizen' | 'opl' | 'fa' | 'why_why' | 'overview';
+type ActiveTab = 'kaizen' | 'opl' | 'fa' | 'why_why' | 'mp_info' | 'overview';
 
 export const ImprovementPage: React.FC = () => {
   const { improvements, setImprovements, machines, technicians } = useApp();
@@ -45,6 +46,7 @@ export const ImprovementPage: React.FC = () => {
     if (activeTab === 'opl') return 'OPL';
     if (activeTab === 'fa') return 'FA';
     if (activeTab === 'why_why') return 'WHY_WHY';
+    if (activeTab === 'mp_info') return 'MP_INFO';
     return 'KAIZEN';
   }, [activeTab]);
 
@@ -70,8 +72,9 @@ export const ImprovementPage: React.FC = () => {
         const matchPart = item.faData?.failurePartName?.toLowerCase().includes(query);
         const matchSop = item.oplData?.sopDocumentRef?.toLowerCase().includes(query);
         const matchWhy = item.whyWhyData?.problemStatement?.toLowerCase().includes(query);
+        const matchMp = item.mpData?.issueDescription?.toLowerCase().includes(query) || item.mpData?.proposedDesignChange?.toLowerCase().includes(query) || item.mpData?.mpCategory?.toLowerCase().includes(query);
 
-        if (!matchTitle && !matchDesc && !matchMachine && !matchTech && !matchPart && !matchSop && !matchWhy) {
+        if (!matchTitle && !matchDesc && !matchMachine && !matchTech && !matchPart && !matchSop && !matchWhy && !matchMp) {
           return false;
         }
       }
@@ -94,6 +97,10 @@ export const ImprovementPage: React.FC = () => {
 
   const whyWhyProjects = useMemo(() => {
     return filteredImprovements.filter(i => i.category === 'WHY_WHY');
+  }, [filteredImprovements]);
+
+  const mpProjects = useMemo(() => {
+    return filteredImprovements.filter(i => i.category === 'MP_INFO');
   }, [filteredImprovements]);
 
   // Handlers for Save (Create & Edit)
@@ -123,6 +130,8 @@ export const ImprovementPage: React.FC = () => {
         ? `fa-${Date.now()}`
         : projData.category === 'WHY_WHY'
         ? `why-${Date.now()}`
+        : projData.category === 'MP_INFO'
+        ? `mp-${Date.now()}`
         : `imp-${Date.now()}`;
 
       const newProj: ImprovementProject = {
@@ -151,7 +160,8 @@ export const ImprovementPage: React.FC = () => {
         ...(projData.photoAfter ? { photoAfter: projData.photoAfter } : {}),
         ...(projData.oplData ? { oplData: projData.oplData } : {}),
         ...(projData.faData ? { faData: projData.faData } : {}),
-        ...(projData.whyWhyData ? { whyWhyData: projData.whyWhyData } : {})
+        ...(projData.whyWhyData ? { whyWhyData: projData.whyWhyData } : {}),
+        ...(projData.mpData ? { mpData: projData.mpData } : {})
       };
 
       setImprovements(prev => [newProj, ...prev]);
@@ -296,6 +306,23 @@ export const ImprovementPage: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('mp_info')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+              activeTab === 'mp_info'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <FileCheck size={15} />
+            <span>MP Information sheet</span>
+            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+              activeTab === 'mp_info' ? 'bg-emerald-800 text-white' : 'bg-slate-800 text-slate-400'
+            }`}>
+              {mpProjects.length}
+            </span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('overview')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
               activeTab === 'overview'
@@ -427,6 +454,23 @@ export const ImprovementPage: React.FC = () => {
         {activeTab === 'why_why' && (
           <WhyWhyAnalysisView
             whyList={whyWhyProjects}
+            machines={machines}
+            onSelectProject={(proj) => setSelectedProject(proj)}
+            onOpenPDF={(pdf) => setActivePDF(pdf)}
+            onOpenPhoto={(photo) => setActivePhoto(photo)}
+            onOpenCreateModal={() => {
+              setEditingProject(null);
+              setIsCreateModalOpen(true);
+            }}
+            onDeleteProject={handleDeleteProject}
+            onEditProject={handleEditProject}
+            onUpdateProject={handleUpdateProject}
+          />
+        )}
+
+        {activeTab === 'mp_info' && (
+          <MPInformationView
+            mpList={mpProjects}
             machines={machines}
             onSelectProject={(proj) => setSelectedProject(proj)}
             onOpenPDF={(pdf) => setActivePDF(pdf)}

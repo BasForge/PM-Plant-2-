@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Machine, RepairLog } from '../../types';
+import { Machine, RepairLog, detectStoppageType } from '../../types';
 import { 
   X, Sparkles, Clock, Wrench, CheckCircle2, AlertTriangle, 
   Trash2, Plus, MessageSquare, ArrowRight, Check, HelpCircle, FileText
@@ -365,6 +365,8 @@ export const LineTextImportModal: React.FC<LineTextImportModalProps> = ({
         correctiveAction: item.correctiveAction,
         duration: item.duration,
         status: item.status,
+        stoppageType: detectStoppageType(false, item.duration),
+        hasPartsReplaced: false,
         usedParts: [],
         otherCost: 0
       };

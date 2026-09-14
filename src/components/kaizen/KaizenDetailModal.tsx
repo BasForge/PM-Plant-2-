@@ -2,7 +2,8 @@ import React, { useState, useRef } from 'react';
 import { ImprovementProject, Machine, WorkLog, isExcelAttachment, MediaPhotoItem, PDFFileAttachment } from '../../types';
 import { 
   X, Clock, Calendar, Users, Wrench, FileText, FileSpreadsheet, Image as ImageIcon, 
-  CheckCircle2, Plus, Trash2, Edit3, Sparkles, BookOpen, Search, HelpCircle, Upload
+  CheckCircle2, Plus, Trash2, Edit3, Sparkles, BookOpen, Search, HelpCircle, Upload,
+  FileCheck, Send, AlertCircle
 } from 'lucide-react';
 import { compressImageFile } from '../../utils/imageUtils';
 
@@ -187,11 +188,15 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
                 ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
                 : 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
             }`}>
-              {project.category === 'OPL' ? <BookOpen size={20} /> : project.category === 'FA' ? <Search size={20} /> : project.category === 'WHY_WHY' ? <HelpCircle size={20} /> : <Wrench size={20} />}
+              {project.category === 'OPL' ? <BookOpen size={20} /> : project.category === 'FA' ? <Search size={20} /> : project.category === 'WHY_WHY' ? <HelpCircle size={20} /> : project.category === 'MP_INFO' ? <FileCheck size={20} className="text-emerald-400" /> : <Wrench size={20} />}
             </span>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                  project.category === 'MP_INFO' 
+                    ? 'bg-emerald-950/60 text-emerald-400 border-emerald-500/40' 
+                    : 'bg-slate-800 text-slate-300 border-slate-700'
+                }`}>
                   {project.category || 'KAIZEN'}
                 </span>
                 <span className="text-xs text-slate-400">ID: {project.id}</span>
@@ -277,6 +282,77 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
               {project.description}
             </p>
           </div>
+
+          {/* MP Information Sheet Specific Section */}
+          {(project.category === 'MP_INFO' || project.mpData) && project.mpData && (
+            <div className="bg-emerald-950/20 p-5 rounded-2xl border border-emerald-800/40 space-y-4">
+              <div className="flex items-center gap-2">
+                <FileCheck size={18} className="text-emerald-400" />
+                <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                  ข้อมูลแผ่นป้องกันการบำรุงรักษา (TPM MP Information Sheet)
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">หมวดหมู่ MP:</span>
+                  <span className="text-white font-bold block">{project.mpData.mpCategory || 'ความง่ายในการบำรุงรักษา'}</span>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">เป้าหมาย (Phase):</span>
+                  <span className="text-cyan-300 font-bold block">{project.mpData.targetPhase || 'ปรับปรุงเครื่องจักรปัจจุบัน'}</span>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">สถานะข้อเสนอแนะ:</span>
+                  <span className="text-purple-300 font-bold block">{project.mpData.actionStatus || 'เสนอแนะ'}</span>
+                </div>
+              </div>
+
+              {/* Weakness vs MP Design */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="bg-rose-950/20 p-3.5 rounded-xl border border-rose-900/40 space-y-1">
+                  <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1">
+                    <AlertCircle size={13} />
+                    สภาพปัญหา / จุดอ่อนเดิม:
+                  </span>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {project.mpData.issueDescription || project.description}
+                  </p>
+                </div>
+                <div className="bg-emerald-950/20 p-3.5 rounded-xl border border-emerald-900/40 space-y-1">
+                  <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                    <Sparkles size={13} />
+                    ข้อเสนอแนะการออกแบบ (MP Design):
+                  </span>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {project.mpData.proposedDesignChange || 'รอดำเนินการระบุ'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Benefits & Handover */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">ประโยชน์ที่คาดว่าจะได้รับ:</span>
+                  <span className="text-slate-200 font-medium block">{project.mpData.expectedBenefits || '-'}</span>
+                  {project.mpData.costSavingEstimate && (
+                    <span className="text-emerald-400 font-mono font-bold block mt-1">
+                      ประหยัดงบประเมิน: ฿{project.mpData.costSavingEstimate.toLocaleString()} บาท/ปี
+                    </span>
+                  )}
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">ส่งต่อข้อมูลถึง (Feedback To):</span>
+                  <span className="text-amber-300 font-bold block">{project.mpData.feedbackTarget || 'แผนกวิศวกรรม'}</span>
+                  {project.mpData.referenceSource && (
+                    <span className="text-slate-400 text-[11px] block mt-1">
+                      อ้างอิง: {project.mpData.referenceSource}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Photos: Before/After and Additional Photos Gallery */}
           <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">

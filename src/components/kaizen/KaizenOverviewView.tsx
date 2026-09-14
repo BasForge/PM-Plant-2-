@@ -2,7 +2,7 @@ import React from 'react';
 import { ImprovementProject, Machine, isExcelAttachment } from '../../types';
 import { 
   Sparkles, BookOpen, Search, HelpCircle, Wrench, Clock, 
-  Users, FileText, FileSpreadsheet, Image as ImageIcon, CheckCircle2, TrendingUp, BarChart3 
+  Users, FileText, FileSpreadsheet, Image as ImageIcon, CheckCircle2, TrendingUp, BarChart3, FileCheck 
 } from 'lucide-react';
 
 interface KaizenOverviewViewProps {
@@ -11,7 +11,7 @@ interface KaizenOverviewViewProps {
   technicians: string[];
   onOpenPDF: (pdf: any) => void;
   onOpenPhoto: (photo: any) => void;
-  onSwitchTab: (tabId: 'kaizen' | 'opl' | 'fa' | 'why_why') => void;
+  onSwitchTab: (tabId: 'kaizen' | 'opl' | 'fa' | 'why_why' | 'mp_info') => void;
 }
 
 export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
@@ -27,6 +27,7 @@ export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
   const oplList = improvements.filter(i => i.category === 'OPL');
   const faList = improvements.filter(i => i.category === 'FA');
   const whyList = improvements.filter(i => i.category === 'WHY_WHY');
+  const mpList = improvements.filter(i => i.category === 'MP_INFO');
 
   const totalHours = improvements.reduce((sum, item) => {
     return sum + (item.workLogs?.reduce((wSum, l) => wSum + l.hours, 0) || 0);
@@ -60,6 +61,7 @@ export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
     const oCount = techItems.filter(i => i.category === 'OPL').length;
     const fCount = techItems.filter(i => i.category === 'FA').length;
     const wCount = techItems.filter(i => i.category === 'WHY_WHY').length;
+    const mpCount = techItems.filter(i => i.category === 'MP_INFO').length;
 
     return {
       tech,
@@ -68,15 +70,16 @@ export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
       kzCount,
       oCount,
       fCount,
-      wCount
+      wCount,
+      mpCount
     };
   }).sort((a, b) => b.totalCount - a.totalCount);
 
   return (
     <div className="space-y-6">
       
-      {/* 4 Category Summary Hero Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 5 Category Summary Hero Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         
         {/* Kaizen Card */}
         <div 
@@ -174,6 +177,30 @@ export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
           </div>
         </div>
 
+        {/* MP Information sheet Card */}
+        <div 
+          onClick={() => onSwitchTab('mp_info')}
+          className="bg-slate-900/90 hover:bg-slate-850 border border-emerald-500/30 hover:border-emerald-400 rounded-2xl p-5 cursor-pointer transition-all shadow-lg group relative overflow-hidden"
+        >
+          <div className="flex justify-between items-start">
+            <div className="p-3 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <FileCheck size={22} />
+            </div>
+            <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded">
+              MP Sheet
+            </span>
+          </div>
+          <div className="mt-4">
+            <h3 className="text-2xl font-extrabold text-white font-mono">{mpList.length}</h3>
+            <p className="text-xs font-bold text-slate-300 mt-1">MP Information sheet</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">ป้องกันบำรุงรักษา & สเปกใหม่</p>
+          </div>
+          <div className="mt-3 pt-3 border-t border-slate-800 flex justify-between items-center text-[11px] text-emerald-400 font-semibold group-hover:translate-x-0.5 transition-transform">
+            <span>เข้าสู่ MP Sheet</span>
+            <span>→</span>
+          </div>
+        </div>
+
       </div>
 
       {/* Aggregate Highlights & Attachment Metrics */}
@@ -248,6 +275,7 @@ export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
                 <th className="py-2.5 px-3 text-center">OPL</th>
                 <th className="py-2.5 px-3 text-center">FA</th>
                 <th className="py-2.5 px-3 text-center">5 Whys</th>
+                <th className="py-2.5 px-3 text-center">MP Sheet</th>
                 <th className="py-2.5 px-3 text-center">รวมผลงาน</th>
                 <th className="py-2.5 px-3 text-right">ชั่วโมงรวม</th>
               </tr>
@@ -265,6 +293,7 @@ export const KaizenOverviewView: React.FC<KaizenOverviewViewProps> = ({
                   <td className="py-3 px-3 text-center font-mono text-blue-400 font-bold">{stat.oCount}</td>
                   <td className="py-3 px-3 text-center font-mono text-rose-400 font-bold">{stat.fCount}</td>
                   <td className="py-3 px-3 text-center font-mono text-amber-400 font-bold">{stat.wCount}</td>
+                  <td className="py-3 px-3 text-center font-mono text-emerald-400 font-bold">{stat.mpCount}</td>
                   <td className="py-3 px-3 text-center font-mono font-extrabold text-white">
                     <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
                       {stat.totalCount} งาน

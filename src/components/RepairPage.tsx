@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { RepairLog } from '../types';
+import { 
+  RepairLog, 
+  StoppageType, 
+  STOPPAGE_TYPE_DEFINITIONS, 
+  detectStoppageType, 
+  getRepairStoppageType 
+} from '../types';
 import { 
   Plus, Search, SlidersHorizontal, Image as ImageIcon, 
   Trash2, AlertTriangle, CheckCircle, HelpCircle, ArrowUpDown,
-  Edit, FileSpreadsheet, Upload, X, MessageSquare
+  Edit, FileSpreadsheet, Upload, X, MessageSquare, Tag, Check, Sparkles,
+  CheckCircle2, Clock, Wrench
 } from 'lucide-react';
 import { notifyRepairOpened, notifyRepairClosed, sendLineNotification } from '../utils/lineNotify';
 import { compressImageFile } from '../utils/imageUtils';
@@ -20,6 +27,7 @@ export const RepairPage: React.FC = () => {
   const [techFilter, setTechFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
   const [mttrFilter, setMttrFilter] = useState<number>(0); // MTTR > X minutes
+  const [stoppageFilter, setStoppageFilter] = useState<string>('ALL'); // 'ALL' | 'BREAKDOWN' | 'MINOR_STOPPAGE' | 'ADJUSTMENT_LOSS'
   const [sortBy, setSortBy] = useState<'date' | 'duration'>('date'); // default to date descending (newest first)
 
   // LINE Smart Text Import state
@@ -77,6 +85,11 @@ export const RepairPage: React.FC = () => {
   const [selectedPartPrice, setSelectedPartPrice] = useState<number>(0);
   const [formOtherCost, setFormOtherCost] = useState<number>(0);
 
+  // Stoppage Classification state (Breakdown / Minor stoppage / Adjustment loss)
+  const [formStoppageType, setFormStoppageType] = useState<StoppageType>('BREAKDOWN');
+  const [formHasPartsReplaced, setFormHasPartsReplaced] = useState<boolean>(false);
+  const [isStoppageManual, setIsStoppageManual] = useState<boolean>(false);
+
   // Helper companion to add part to current list
   const handleAddPartToForm = () => {
     if (!selectedPartId) {
@@ -114,6 +127,12 @@ export const RepairPage: React.FC = () => {
       }]);
     }
 
+    // Since parts are added, mark hasPartsReplaced as true and auto-recommend Breakdown
+    setFormHasPartsReplaced(true);
+    if (!isStoppageManual) {
+      setFormStoppageType('BREAKDOWN');
+    }
+
     // Reset part inputs
     setSelectedPartId('');
     setSelectedPartQty(1);
@@ -121,7 +140,15 @@ export const RepairPage: React.FC = () => {
   };
 
   const handleRemovePartFromForm = (partId: string) => {
-    setFormUsedParts(prev => prev.filter(p => p.partId !== partId));
+    setFormUsedParts(prev => {
+      const updated = prev.filter(p => p.partId !== partId);
+      if (updated.length === 0 && !formHasPartsReplaced && !isStoppageManual) {
+        // Recalculate based on live duration
+        const duration = getLiveMttr();
+        setFormStoppageType(duration < 15 ? 'MINOR_STOPPAGE' : 'ADJUSTMENT_LOSS');
+      }
+      return updated;
+    });
   };
   
   // Why-Why Analysis inputs
@@ -234,6 +261,11 @@ export const RepairPage: React.FC = () => {
     }
     setSpareParts(tempSpareParts);
 
+    const hasParts = (formUsedParts.length > 0) || formHasPartsReplaced;
+    const finalStoppageType: StoppageType = isStoppageManual
+      ? formStoppageType
+      : detectStoppageType(hasParts, calculatedDuration);
+
     if (editingId) {
       const oldRepair = repairs.find(r => r.id === editingId);
       const isStatusChangedToClosed = oldRepair && oldRepair.status === 'กำลังซ่อม' && formStatus === 'ปิดงาน';
@@ -248,6 +280,8 @@ export const RepairPage: React.FC = () => {
         breakdownTime: formBreakdown,
         repairDoneTime: formDone,
         symptoms: formSymptoms.trim(),
+        stoppageType: finalStoppageType,
+        hasPartsReplaced: hasParts,
         why1: why1.trim(),
         why2: why2.trim(),
         why3: why3.trim(),
@@ -281,6 +315,8 @@ export const RepairPage: React.FC = () => {
         breakdownTime: formBreakdown,
         repairDoneTime: formDone,
         symptoms: formSymptoms.trim(),
+        stoppageType: finalStoppageType,
+        hasPartsReplaced: hasParts,
         why1: why1.trim(),
         why2: why2.trim(),
         why3: why3.trim(),
@@ -326,6 +362,9 @@ export const RepairPage: React.FC = () => {
     setPartSearchQuery('');
     setSelectedPartQty(1);
     setSelectedPartPrice(0);
+    setFormStoppageType('BREAKDOWN');
+    setFormHasPartsReplaced(false);
+    setIsStoppageManual(false);
   };
 
   const handleEditClick = (log: RepairLog) => {
@@ -351,6 +390,12 @@ export const RepairPage: React.FC = () => {
     else if (log.why3) count = 3;
     else if (log.why2) count = 2;
     setWhyCount(count);
+
+    const hasParts = Boolean(log.hasPartsReplaced || (log.usedParts && log.usedParts.length > 0));
+    const detectedType = getRepairStoppageType(log);
+    setFormStoppageType(log.stoppageType || detectedType);
+    setFormHasPartsReplaced(hasParts);
+    setIsStoppageManual(Boolean(log.stoppageType));
 
     setPhotoBase64(log.photo || '');
     setFormExcelName(log.excelFile?.name || '');
@@ -392,10 +437,14 @@ export const RepairPage: React.FC = () => {
       'รหัสเครื่องจักร',
       'ชื่อเครื่องจักร',
       'กลุ่มระบบสายผลิต',
+      'ประเภทความสูญเสีย (Loss Classification)',
+      'นิยามความสูญเสีย',
+      'หน่วยนับ',
+      'การเปลี่ยนอะไหล่',
       'อาการเสียชำรุด',
       'เวลารายงานเสีย',
       'เวลาซ่อมเสร็จ',
-      'ระยะเวลา (นาที)',
+      'ระยะเวลา MTTR (นาที)',
       'เกณฑ์มาตรฐาน (MTTR)',
       'ช่างเทคนิคปฏิบัติการ',
       'มาตรการแก้และป้องกันถาวร',
@@ -414,12 +463,20 @@ export const RepairPage: React.FC = () => {
       const machName = machDetail ? machDetail.name : 'เครื่องจักรทั่วไป';
       const dept = machDetail ? machDetail.lineGroup : '-';
       const techsStr = r.technicians && r.technicians.length > 0 ? r.technicians.join(' / ') : r.technician;
+      const sType = getRepairStoppageType(r);
+      const sDef = STOPPAGE_TYPE_DEFINITIONS[sType];
+      const hasParts = (r.usedParts && r.usedParts.length > 0) || r.hasPartsReplaced;
+      const partsText = hasParts ? `มีการเปลี่ยนอะไหล่ (${r.usedParts?.length || 1} รายการ)` : 'ไม่มีการเปลี่ยนอะไหล่';
       
       const row = [
         r.id,
         r.machineId,
         machName,
         dept,
+        sDef.name,
+        sDef.definition,
+        sDef.unit,
+        partsText,
         r.symptoms,
         r.breakdownTime || r.date,
         r.repairDoneTime || '-',
@@ -457,12 +514,23 @@ export const RepairPage: React.FC = () => {
     const machDetail = machines.find(m => m.id === r.machineId);
     const machName = machDetail ? machDetail.name : 'เครื่องจักรทั่วไป';
     const dept = machDetail ? machDetail.lineGroup : '-';
+    const sType = getRepairStoppageType(r);
+    const sDef = STOPPAGE_TYPE_DEFINITIONS[sType];
+    const hasParts = (r.usedParts && r.usedParts.length > 0) || r.hasPartsReplaced;
+    const partsText = hasParts ? `มีการเปลี่ยนอะไหล่ (${r.usedParts?.length || 1} รายการ)` : 'ไม่มีการเปลี่ยนอะไหล่';
     
     const rows = [
       ['รายงานผลวิเคราะห์การชำรุดและการหยุดงานเครื่องจักร (Breakdown Analysis File)'],
       [],
       ['รหัสเอกสารการซ่อม', r.id],
       ['สถานะของใบงาน', r.status === 'กำลังซ่อม' ? 'อยู่ระหว่างดำเนินการซ่อมบำรุง' : 'ปิดประวัติซ่อมสมบูรณ์'],
+      [],
+      ['จำแนกประเภทความสูญเสีย (Loss & Failure Classification)'],
+      ['ประเภทความสูญเสีย', sDef.name],
+      ['คำนิยามตามมาตรฐาน', sDef.definition],
+      ['หน่วยนับ', sDef.unit],
+      ['บันทึกเวลา MTTR', `${r.duration} นาที`],
+      ['สถานะการเปลี่ยนอะไหล่', partsText],
       [],
       ['รายละเอียดหน่วยขัดข้องเครื่องจักร'],
       ['รหัสเครื่องจักร (Machine ID)', r.machineId],
@@ -800,6 +868,22 @@ export const RepairPage: React.FC = () => {
     XLSX.writeFile(wb, "maintenance_repair_import_template.xlsx");
   };
 
+  // Summary counts and MTTR metrics for loss categories
+  const totalCount = repairs.length;
+  const totalDuration = repairs.reduce((sum, r) => sum + (r.duration || 0), 0);
+
+  const breakdownLogs = repairs.filter(r => getRepairStoppageType(r) === 'BREAKDOWN');
+  const breakdownCount = breakdownLogs.length;
+  const breakdownDuration = breakdownLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
+
+  const minorLogs = repairs.filter(r => getRepairStoppageType(r) === 'MINOR_STOPPAGE');
+  const minorCount = minorLogs.length;
+  const minorDuration = minorLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
+
+  const adjustmentLogs = repairs.filter(r => getRepairStoppageType(r) === 'ADJUSTMENT_LOSS');
+  const adjustmentCount = adjustmentLogs.length;
+  const adjustmentDuration = adjustmentLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
+
   // Filter & Sort core logs
   const filteredRepairs = repairs
     .filter(r => {
@@ -809,7 +893,10 @@ export const RepairPage: React.FC = () => {
         : true;
       const matchMonth = monthFilter ? r.date.startsWith(monthFilter) : true;
       const matchMttr = mttrFilter ? r.duration > mttrFilter : true;
-      return matchMachine && matchTech && matchMonth && matchMttr;
+      const matchStoppage = stoppageFilter === 'ALL'
+        ? true
+        : getRepairStoppageType(r) === stoppageFilter;
+      return matchMachine && matchTech && matchMonth && matchMttr && matchStoppage;
     })
     .sort((a, b) => {
       if (sortBy === 'date') {
@@ -894,6 +981,9 @@ export const RepairPage: React.FC = () => {
                 setWhy1(''); setWhy2(''); setWhy3(''); setWhy4(''); setWhy5('');
                 setWhyCount(1);
                 setPhotoBase64('');
+                setFormStoppageType('BREAKDOWN');
+                setFormHasPartsReplaced(false);
+                setIsStoppageManual(false);
                 setShowFormModal(true);
               }}
               className="flex items-center gap-2 bg-gradient-to-r from-rose-500 to-red-650 hover:from-rose-400 hover:to-red-500 text-white font-bold px-4 py-2.5 rounded-lg transition-all shadow-md focus:outline-none text-xs cursor-pointer"
@@ -909,6 +999,169 @@ export const RepairPage: React.FC = () => {
         </div>
       </div>
 
+      {/* LOSS CLASSIFICATION SUMMARY CARDS & QUICK SELECTOR */}
+      <div className="space-y-2.5" id="stoppage-classification-dashboard">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
+              <Tag size={15} className="text-cyan-400" />
+              การจำแนกข้อมูลงานซ่อมตามนิยามความสูญเสีย (Failure & Loss Classification)
+            </span>
+            <span className="text-[11px] text-slate-400 hidden lg:inline">
+              • คลิกการ์ดหมวดหมู่เพื่อกรองดูข้อมูลที่แยกประเภทได้ทันที
+            </span>
+          </div>
+          {stoppageFilter !== 'ALL' && (
+            <button
+              type="button"
+              onClick={() => setStoppageFilter('ALL')}
+              className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1.5 self-start sm:self-auto bg-slate-800 hover:bg-slate-750 px-2.5 py-1 rounded-lg border border-slate-700 transition"
+            >
+              ✕ ล้างตัวกรองหมวดหมู่ (แสดงทั้งหมด {totalCount} ครั้ง)
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {/* Card 1: ALL */}
+          <button
+            type="button"
+            id="filter-card-all"
+            onClick={() => setStoppageFilter('ALL')}
+            className={`text-left p-4 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+              stoppageFilter === 'ALL'
+                ? 'bg-slate-800 border-cyan-500 ring-2 ring-cyan-500/25 shadow-lg shadow-cyan-950/40'
+                : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-slate-650'
+            }`}
+          >
+            <div>
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-xs font-bold text-slate-200">ทั้งหมด (All Records)</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  stoppageFilter === 'ALL' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'bg-slate-750 text-slate-400'
+                }`}>
+                  {stoppageFilter === 'ALL' ? '✓ กำลังดูอยู่' : 'รวมทุกประเภท'}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black font-mono text-slate-100">{totalCount}</span>
+                <span className="text-xs text-slate-400">ครั้ง</span>
+                <span className="text-xs text-slate-600">|</span>
+                <span className="text-xs font-mono font-bold text-cyan-400">{totalDuration.toLocaleString()} นาที</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-3 border-t border-slate-750/70 pt-2 line-clamp-2">
+              รวมข้อมูลประวัติงานซ่อมบำรุงและเครื่องเสียทุกกรณีในโรงงาน
+            </p>
+          </button>
+
+          {/* Card 2: BREAKDOWN */}
+          <button
+            type="button"
+            id="filter-card-breakdown"
+            onClick={() => setStoppageFilter('BREAKDOWN')}
+            className={`text-left p-4 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+              stoppageFilter === 'BREAKDOWN'
+                ? 'bg-rose-950/30 border-rose-500 ring-2 ring-rose-500/30 shadow-lg shadow-rose-950/40'
+                : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-rose-500/50'
+            }`}
+          >
+            <div>
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50"></span>
+                  <span className="text-xs font-bold text-rose-300">Breakdown</span>
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  stoppageFilter === 'BREAKDOWN' ? 'bg-rose-500/25 text-rose-200 border border-rose-500/40' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                }`}>
+                  {stoppageFilter === 'BREAKDOWN' ? '✓ กำลังเลือกดู' : 'เครื่องเสีย'}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black font-mono text-rose-300">{breakdownCount}</span>
+                <span className="text-xs text-rose-400">ครั้ง</span>
+                <span className="text-xs text-slate-600">|</span>
+                <span className="text-xs font-mono font-bold text-rose-400">{breakdownDuration.toLocaleString()} นาที</span>
+              </div>
+            </div>
+            <p className="text-[10.5px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-2 rounded-lg border border-slate-750/80">
+              <strong>นิยาม:</strong> เครื่องเสียที่ไม่ทราบล่วงหน้า มีการเปลี่ยนอะไหล่ หน่วยเป็นครั้ง แต่เก็บเวลาด้วย
+            </p>
+          </button>
+
+          {/* Card 3: MINOR STOPPAGE */}
+          <button
+            type="button"
+            id="filter-card-minor"
+            onClick={() => setStoppageFilter('MINOR_STOPPAGE')}
+            className={`text-left p-4 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+              stoppageFilter === 'MINOR_STOPPAGE'
+                ? 'bg-amber-950/30 border-amber-500 ring-2 ring-amber-500/30 shadow-lg shadow-amber-950/40'
+                : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-amber-500/50'
+            }`}
+          >
+            <div>
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50"></span>
+                  <span className="text-xs font-bold text-amber-300">Minor stoppage</span>
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  stoppageFilter === 'MINOR_STOPPAGE' ? 'bg-amber-500/25 text-amber-200 border border-amber-500/40' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                }`}>
+                  {stoppageFilter === 'MINOR_STOPPAGE' ? '✓ กำลังเลือกดู' : '&lt; 15 นาที'}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black font-mono text-amber-300">{minorCount}</span>
+                <span className="text-xs text-amber-400">ครั้ง</span>
+                <span className="text-xs text-slate-600">|</span>
+                <span className="text-xs font-mono font-bold text-amber-400">{minorDuration.toLocaleString()} นาที</span>
+              </div>
+            </div>
+            <p className="text-[10.5px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-2 rounded-lg border border-slate-750/80">
+              <strong>นิยาม:</strong> เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ น้อยกว่า 15 นาที หน่วยเป็นครั้ง
+            </p>
+          </button>
+
+          {/* Card 4: ADJUSTMENT LOSS */}
+          <button
+            type="button"
+            id="filter-card-adjustment"
+            onClick={() => setStoppageFilter('ADJUSTMENT_LOSS')}
+            className={`text-left p-4 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+              stoppageFilter === 'ADJUSTMENT_LOSS'
+                ? 'bg-orange-950/30 border-orange-500 ring-2 ring-orange-500/30 shadow-lg shadow-orange-950/40'
+                : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-orange-500/50'
+            }`}
+          >
+            <div>
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-orange-400 shadow-sm shadow-orange-400/50"></span>
+                  <span className="text-xs font-bold text-orange-300">Adjustment loss</span>
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  stoppageFilter === 'ADJUSTMENT_LOSS' ? 'bg-orange-500/25 text-orange-200 border border-orange-500/40' : 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                }`}>
+                  {stoppageFilter === 'ADJUSTMENT_LOSS' ? '✓ กำลังเลือกดู' : '&gt; 15 นาที'}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black font-mono text-orange-300">{adjustmentCount}</span>
+                <span className="text-xs text-orange-400">ครั้ง</span>
+                <span className="text-xs text-slate-600">|</span>
+                <span className="text-xs font-mono font-bold text-orange-400">{adjustmentDuration.toLocaleString()} นาที</span>
+              </div>
+            </div>
+            <p className="text-[10.5px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-2 rounded-lg border border-slate-750/80">
+              <strong>นิยาม:</strong> เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ มากกว่า 15 นาที หน่วยเป็นครั้ง
+            </p>
+          </button>
+        </div>
+      </div>
+
       {/* SEARCH FILTERS BLOCK */}
       <div id="repair-filter-container" className="bg-slate-800 border border-slate-700/80 rounded-xl p-5 space-y-4">
         <h3 className="text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5 mb-2">
@@ -916,7 +1169,7 @@ export const RepairPage: React.FC = () => {
           ตัวกรองตรวจสอบประวัติละเอียด
         </h3>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
           <div className="space-y-1.5">
             <label className="text-[11px] font-semibold text-slate-400">ค้นหารหัสเครื่องจักร</label>
             <input
@@ -927,6 +1180,21 @@ export const RepairPage: React.FC = () => {
               onChange={(e) => setMachineFilter(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 font-mono focus:outline-none focus:border-cyan-500"
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold text-slate-400">ประเภทความสูญเสีย</label>
+            <select
+              id="filter-rep-stoppage"
+              value={stoppageFilter}
+              onChange={(e) => setStoppageFilter(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-sans"
+            >
+              <option value="ALL">-- ทุกประเภทความสูญเสีย --</option>
+              <option value="BREAKDOWN">🔴 Breakdown (มีเปลี่ยนอะไหล่)</option>
+              <option value="MINOR_STOPPAGE">🟡 Minor stoppage (&lt; 15 นาที)</option>
+              <option value="ADJUSTMENT_LOSS">🟠 Adjustment loss (&gt; 15 นาที)</option>
+            </select>
           </div>
 
           <div className="space-y-1.5">
@@ -1003,6 +1271,7 @@ export const RepairPage: React.FC = () => {
                 <th className="py-4 px-4 w-28">วันที่เสีย</th>
                 <th className="py-4 px-3 w-28 font-mono">เครื่อง (ID)</th>
                 <th className="py-4 px-4">ชื่อเครื่องจักร</th>
+                <th className="py-4 px-3 text-center w-36">ประเภทความสูญเสีย</th>
                 <th className="py-4 px-3 text-center">MTTR (นาที)</th>
                 <th className="py-4 px-3 text-center">Std. MTTR</th>
                 <th className="py-4 px-4">อาการเสียชำรุด</th>
@@ -1015,7 +1284,7 @@ export const RepairPage: React.FC = () => {
             <tbody className="divide-y divide-slate-700/50">
               {filteredRepairs.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-500 bg-slate-900/10">
+                  <td colSpan={11} className="py-12 text-center text-slate-500 bg-slate-900/10">
                     ไม่พบข้อมูลแจ้งซ่อมสำหรับตัวกรองที่เลือก
                   </td>
                 </tr>
@@ -1055,6 +1324,49 @@ export const RepairPage: React.FC = () => {
                       </td>
                       <td className="py-4 px-4 font-medium text-slate-200">
                         {mach?.name || 'เครื่องจักรทั่วไป'}
+                      </td>
+                      <td className="py-4 px-3 text-center">
+                        {(() => {
+                          const sType = getRepairStoppageType(r);
+                          const hasParts = (r.usedParts && r.usedParts.length > 0) || r.hasPartsReplaced;
+                          if (sType === 'BREAKDOWN') {
+                            return (
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="inline-flex items-center gap-1 bg-rose-500/15 text-rose-300 border border-rose-500/30 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shadow-xs">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                                  Breakdown
+                                </span>
+                                <span className="text-[9.5px] text-slate-400 font-mono">
+                                  1 ครั้ง {hasParts ? '• เปลี่ยนอะไหล่' : ''}
+                                </span>
+                              </div>
+                            );
+                          } else if (sType === 'MINOR_STOPPAGE') {
+                            return (
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="inline-flex items-center gap-1 bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shadow-xs">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                  Minor stoppage
+                                </span>
+                                <span className="text-[9.5px] text-slate-400 font-mono">
+                                  1 ครั้ง • ไม่เปลี่ยนอะไหล่ (&lt;15น.)
+                                </span>
+                              </div>
+                            );
+                          } else {
+                            return (
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="inline-flex items-center gap-1 bg-orange-500/15 text-orange-300 border border-orange-500/30 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shadow-xs">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400"></span>
+                                  Adjustment loss
+                                </span>
+                                <span className="text-[9.5px] text-slate-400 font-mono">
+                                  1 ครั้ง • ไม่เปลี่ยนอะไหล่ (&gt;15น.)
+                                </span>
+                              </div>
+                            );
+                          }
+                        })()}
                       </td>
                       <td className="py-4 px-3 text-center font-mono font-bold">
                         <span className={isExceed120Percent ? "text-rose-400 font-extrabold" : "text-slate-300"}>
@@ -1209,7 +1521,16 @@ export const RepairPage: React.FC = () => {
                     type="datetime-local"
                     required
                     value={formBreakdown}
-                    onChange={(e) => setFormBreakdown(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormBreakdown(val);
+                      if (!isStoppageManual && formUsedParts.length === 0 && !formHasPartsReplaced) {
+                        const start = new Date(val).getTime();
+                        const end = new Date(formDone).getTime();
+                        const diffMin = end > start ? Math.floor((end - start) / 60000) : 0;
+                        setFormStoppageType(diffMin < 15 ? 'MINOR_STOPPAGE' : 'ADJUSTMENT_LOSS');
+                      }
+                    }}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 font-mono text-center focus:outline-none focus:border-cyan-500"
                   />
                 </div>
@@ -1221,9 +1542,192 @@ export const RepairPage: React.FC = () => {
                     type="datetime-local"
                     required
                     value={formDone}
-                    onChange={(e) => setFormDone(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormDone(val);
+                      if (!isStoppageManual && formUsedParts.length === 0 && !formHasPartsReplaced) {
+                        const start = new Date(formBreakdown).getTime();
+                        const end = new Date(val).getTime();
+                        const diffMin = end > start ? Math.floor((end - start) / 60000) : 0;
+                        setFormStoppageType(diffMin < 15 ? 'MINOR_STOPPAGE' : 'ADJUSTMENT_LOSS');
+                      }
+                    }}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 font-mono text-center focus:outline-none focus:border-cyan-500"
                   />
+                </div>
+              </div>
+
+              {/* Row 2.5: Stoppage & Loss Classification Definition Block */}
+              <div className="bg-slate-900/60 p-4 border border-slate-700/80 rounded-xl space-y-3.5" id="form-stoppage-classification-block">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-2 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-wide flex items-center gap-1.5">
+                      <Tag size={13} />
+                      การจำแนกประเภทความสูญเสีย (Failure Classification ตามนิยาม)
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      • หน่วยบันทึก: <strong>ครั้ง</strong> (เก็บบันทึกเวลา MTTR ควบคู่)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <span className="text-[11px] text-slate-400">เวลาซ่อม (MTTR):</span>
+                    <span className="px-2 py-0.5 rounded font-mono font-bold text-xs bg-slate-800 border border-slate-700 text-cyan-300">
+                      ⏱ {getLiveMttr()} นาที
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3 Selectable classification cards according to exact user definition */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  {/* Option 1: Breakdown */}
+                  <label
+                    className={`p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between select-none ${
+                      formStoppageType === 'BREAKDOWN'
+                        ? 'bg-rose-950/40 border-rose-500/80 ring-1 ring-rose-500/40'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/40'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="formStoppageRadio"
+                            value="BREAKDOWN"
+                            checked={formStoppageType === 'BREAKDOWN'}
+                            onChange={() => {
+                              setFormStoppageType('BREAKDOWN');
+                              setFormHasPartsReplaced(true);
+                              setIsStoppageManual(true);
+                            }}
+                            className="accent-rose-500"
+                          />
+                          <span className="text-xs font-bold text-rose-300">Breakdown</span>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300">
+                          หน่วย: ครั้ง
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-300 leading-relaxed">
+                        เครื่องเสียที่ไม่ทราบล่วงหน้า <strong>มีการเปลี่ยนอะไหล่</strong> หน่วยเป็นครั้ง แต่เก็บเวลาด้วย
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Option 2: Minor stoppage */}
+                  <label
+                    className={`p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between select-none ${
+                      formStoppageType === 'MINOR_STOPPAGE'
+                        ? 'bg-amber-950/40 border-amber-500/80 ring-1 ring-amber-500/40'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/40'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="formStoppageRadio"
+                            value="MINOR_STOPPAGE"
+                            checked={formStoppageType === 'MINOR_STOPPAGE'}
+                            onChange={() => {
+                              setFormStoppageType('MINOR_STOPPAGE');
+                              setFormHasPartsReplaced(false);
+                              setIsStoppageManual(true);
+                            }}
+                            className="accent-amber-500"
+                          />
+                          <span className="text-xs font-bold text-amber-300">Minor stoppage</span>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                          &lt; 15 นาที
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-300 leading-relaxed">
+                        เครื่องเสียที่ไม่ทราบล่วงหน้า <strong>ไม่มีการเปลี่ยนอะไหล่ น้อยกว่า 15 นาที</strong> หน่วยเป็นครั้ง
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Option 3: Adjustment loss */}
+                  <label
+                    className={`p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between select-none ${
+                      formStoppageType === 'ADJUSTMENT_LOSS'
+                        ? 'bg-orange-950/40 border-orange-500/80 ring-1 ring-orange-500/40'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/40'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="formStoppageRadio"
+                            value="ADJUSTMENT_LOSS"
+                            checked={formStoppageType === 'ADJUSTMENT_LOSS'}
+                            onChange={() => {
+                              setFormStoppageType('ADJUSTMENT_LOSS');
+                              setFormHasPartsReplaced(false);
+                              setIsStoppageManual(true);
+                            }}
+                            className="accent-orange-500"
+                          />
+                          <span className="text-xs font-bold text-orange-300">Adjustment loss</span>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300">
+                          &gt; 15 นาที
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-300 leading-relaxed">
+                        เครื่องเสียที่ไม่ทราบล่วงหน้า <strong>ไม่มีการเปลี่ยนอะไหล่ มากกว่า 15 นาที</strong> หน่วยเป็นครั้ง
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Parts replaced checkbox & auto-detection recommendation status */}
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pt-2 border-t border-slate-800/80 text-[11px]">
+                  <label className="flex items-center gap-2 text-slate-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      id="frm-has-parts-replaced"
+                      checked={formHasPartsReplaced || formUsedParts.length > 0}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setFormHasPartsReplaced(checked);
+                        setIsStoppageManual(true);
+                        if (checked) {
+                          setFormStoppageType('BREAKDOWN');
+                        } else {
+                          setFormStoppageType(getLiveMttr() < 15 ? 'MINOR_STOPPAGE' : 'ADJUSTMENT_LOSS');
+                        }
+                      }}
+                      className="w-4 h-4 rounded accent-rose-500 cursor-pointer"
+                    />
+                    <span className="font-semibold text-slate-200">
+                      🔧 มีการเปลี่ยนอะไหล่จริงในงานนี้ (Has Parts Replaced)
+                    </span>
+                    {formUsedParts.length > 0 && (
+                      <span className="text-[10px] text-cyan-400 font-mono">
+                        (มีรายการในตารางอะไหล่ {formUsedParts.length} รายการ)
+                      </span>
+                    )}
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsStoppageManual(false);
+                      const hasParts = formUsedParts.length > 0 || formHasPartsReplaced;
+                      const detected = detectStoppageType(hasParts, getLiveMttr());
+                      setFormStoppageType(detected);
+                    }}
+                    className="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 underline self-start sm:self-auto cursor-pointer"
+                    title="ให้ระบบคำนวณหมวดหมู่ตามเวลาซ่อมและการใช้อะไหล่อัตโนมัติ"
+                  >
+                    🤖 คำนวณตามสูตรอัตโนมัติ (Auto-detect)
+                  </button>
                 </div>
               </div>
 
@@ -1663,6 +2167,55 @@ export const RepairPage: React.FC = () => {
                   </p>
                 </div>
               </div>
+
+              {/* Stoppage Classification in Detail View */}
+              {(() => {
+                const sType = getRepairStoppageType(selectedRepairDetail);
+                const info = STOPPAGE_TYPE_DEFINITIONS[sType];
+                const hasParts = (selectedRepairDetail.usedParts && selectedRepairDetail.usedParts.length > 0) || selectedRepairDetail.hasPartsReplaced;
+                
+                return (
+                  <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-750 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider flex items-center gap-1">
+                          <Tag size={13} className="text-cyan-400" />
+                          การจำแนกประเภทความสูญเสีย (Loss Classification)
+                        </span>
+                        <span className={`px-2.5 py-0.5 rounded-full font-bold text-xs border ${
+                          sType === 'BREAKDOWN'
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            : sType === 'MINOR_STOPPAGE'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : 'bg-orange-500/20 text-orange-300 border-orange-500/40'
+                        }`}>
+                          {info.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] font-mono">
+                        <span className="text-slate-400">หน่วยนับ:</span>
+                        <span className="text-slate-200 font-bold">1 ครั้ง</span>
+                        <span className="text-slate-500">|</span>
+                        <span className="text-slate-400">เก็บเวลา MTTR:</span>
+                        <span className="text-cyan-400 font-bold">{selectedRepairDetail.duration} นาที</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950/70 p-3 rounded-lg border border-slate-800 space-y-1">
+                      <p className="text-[11px] text-slate-300 leading-relaxed">
+                        <strong className="text-cyan-400 font-semibold">นิยาม:</strong> {info.definition}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-3 text-[10.5px] text-slate-400 pt-1 border-t border-slate-850">
+                        <span>สถานะอะไหล่: {hasParts ? '🛠 มีการเปลี่ยนอะไหล่' : '✓ ไม่มีการเปลี่ยนอะไหล่'}</span>
+                        <span>•</span>
+                        <span>เกณฑ์เวลา: {info.condition}</span>
+                        <span>•</span>
+                        <span>หน่วย: {info.unit}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Problem Symptoms & Corrective Action */}
               <div className="space-y-4">

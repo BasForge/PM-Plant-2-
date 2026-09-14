@@ -1,4 +1,4 @@
-import { Machine, CD5Project, ImprovementProject } from '../types';
+import { Machine, CD5Project, ImprovementProject, RepairLog } from '../types';
 import { CPRAM_PDF_MACHINES } from './cpramMachines';
 
 export const PRELOADED_MACHINES: Machine[] = CPRAM_PDF_MACHINES;
@@ -131,40 +131,103 @@ export const PRELOADED_PM_PLANS = [
   }
 ];
 
-export const PRELOADED_REPAIRS = [
+export const PRELOADED_REPAIRS: RepairLog[] = [
   {
     id: "rep-01",
     type: "Repair",
     technician: "ช่าง 1",
+    technicians: ["ช่าง 1"],
     date: "2026-06-08",
     machineId: "FFS02",
     breakdownTime: "2026-06-08T09:15",
     repairDoneTime: "2026-06-08T10:45",
-    symptoms: "เครื่องซีลแนวนอนไม่ร้อน ซีลปากถุงไม่ได้",
+    symptoms: "เครื่องซีลแนวนอนไม่ร้อน ซีลปากถุงไม่ได้ เปลี่ยนหัวฮีตเตอร์",
     why1: "หัวฮีตเตอร์ไม่ร้อนและอุณหภูมิหน้าจอตกต่อเนื่อง",
     why2: "ไม่มีกระแสไฟฟ้าไหลผ่านขดลวดฮีตเตอร์ตัวนำความร้อน",
     why3: "ตรวจพบว่าสายไฟด้านล่างหลวมจากแรงสั่นสะเทือนเครื่องจักร",
     why4: "สายไม่ได้ยึดเข้ากับสายเกลียวเก็บสายและแคลมป์ยึดแน่นพอ",
     why5: "ไม่มีการตรวจสอบความแน่นของขั้วสายไฟในแผน PM ประจำเครื่อง",
-    correctiveAction: "เข้าสายไฟใหม่ ยึดแคลมป์ท่อหดแรงสั่นสะเทือน และเพิ่มจุดตรวจสอบขั้วไฟฟ้าลงในแผน PM ประจำสัปดาห์",
-    duration: 90
+    correctiveAction: "เปลี่ยนหัวฮีตเตอร์ใหม่และเข้าสายไฟ ยึดแคลมป์ท่อหดแรงสั่นสะเทือน พร้อมเพิ่มจุดตรวจใน PM",
+    duration: 90,
+    status: "ปิดงาน",
+    stoppageType: "BREAKDOWN",
+    hasPartsReplaced: true,
+    usedParts: [
+      { partId: "HEATER-01", quantity: 1, pricePerUnit: 1200, totalCost: 1200 }
+    ],
+    otherCost: 0
   },
   {
     id: "rep-02",
     type: "Repair",
     technician: "ช่าง 2",
+    technicians: ["ช่าง 2"],
     date: "2026-06-09",
     machineId: "VAC02",
     breakdownTime: "2026-06-09T14:00",
     repairDoneTime: "2026-06-09T16:15",
-    symptoms: "แวคคั่มห้องเย็นไม่ลดแรงดันอุณหภูมิสูงเกินขีดจำกัด",
+    symptoms: "แวคคั่มห้องเย็นไม่ลดแรงดันอุณหภูมิสูงเกินขีดจำกัด โซลินอยด์วาล์วไหม้",
     why1: "ปั๊มทำลมช้าผิดรูป",
     why2: "โซลินอยด์วาล์วเสียขดลวดละลาย",
     why3: "ไฟกระชากเกิดความร้อนสะสมที่คอยล์ควบคุม",
     why4: "พัดลมระบายความร้อนตู้ควบคุมด้านบนฝุ่นจับหนาแน่นจนหยุดทำงาน",
-    why5: "ไม่ได้ทำความสะอาดตู้คอโทรลมากกว่า 3 เดือนเนื่องจากการซ่อมบำรุงเน้นเครื่องจักรเป็นหลัก",
+    why5: "ไม่ได้ทำความสะอาดตู้คอนโทรลมากกว่า 3 เดือนเนื่องจากการซ่อมบำรุงเน้นเครื่องจักรเป็นหลัก",
     correctiveAction: "เปลี่ยนโซลินอยด์วาล์วใหม่ ทำความสะอาดฝุ่นตู้คอนโทรล และเปลี่ยนพัดลมระบายความร้อนตัวใหม่",
-    duration: 135 // > 120 minutes breakdown! Red warning!
+    duration: 135, // > 120 minutes breakdown! Red warning!
+    status: "ปิดงาน",
+    stoppageType: "BREAKDOWN",
+    hasPartsReplaced: true,
+    usedParts: [
+      { partId: "SOLENOID-24V", quantity: 1, pricePerUnit: 1850, totalCost: 1850 },
+      { partId: "FAN-220V", quantity: 1, pricePerUnit: 650, totalCost: 650 }
+    ],
+    otherCost: 0
+  },
+  {
+    id: "rep-03",
+    type: "Repair",
+    technician: "ช่าง 1",
+    technicians: ["ช่าง 1"],
+    date: "2026-06-10",
+    machineId: "RIM01",
+    breakdownTime: "2026-06-10T08:20",
+    repairDoneTime: "2026-06-10T08:28",
+    symptoms: "เซ็นเซอร์จับถาดข้าวติดขัด สัญญาณเตือน Alarm ดังชั่วคราว",
+    why1: "ตัวรับสัญญาณแสงโฟโต้อิเล็กทริกมีเศษแป้งข้าวบดบังเลนส์",
+    why2: "ไม่ได้เช็ดทำความสะอาดหัวเซ็นเซอร์ก่อนเริ่มเดินสายการผลิต",
+    why3: "ไม่มีผ้ารวมในชุดทำความสะอาดประจำจุด",
+    why4: "",
+    why5: "",
+    correctiveAction: "ใช้ผ้าแห้งและลมเป่าทำความสะอาดเลนส์เซ็นเซอร์ ทดสอบเดินเครื่องปกติ (< 15 นาที ไม่เปลี่ยนอะไหล่)",
+    duration: 8,
+    status: "ปิดงาน",
+    stoppageType: "MINOR_STOPPAGE",
+    hasPartsReplaced: false,
+    usedParts: [],
+    otherCost: 0
+  },
+  {
+    id: "rep-04",
+    type: "Repair",
+    technician: "ช่าง 2",
+    technicians: ["ช่าง 2"],
+    date: "2026-06-11",
+    machineId: "STK06",
+    breakdownTime: "2026-06-11T13:10",
+    repairDoneTime: "2026-06-11T13:45",
+    symptoms: "ปรับตั้งแนวฉลากสติกเกอร์และแรงดึงม้วนฟิล์มหลุดศูนย์กลาง รอยตัดเบี้ยว",
+    why1: "ตำแหน่งไกด์นำทางฟิล์มเคลื่อนตัวจากการกระแทกของม้วนใหม่",
+    why2: "มือขันล็อคปรับระยะคลายตัวเล็กน้อย",
+    why3: "แรงตึงของสายพานขับเคลื่อนลูกกลิ้งยางหย่อนยาน",
+    why4: "",
+    why5: "",
+    correctiveAction: "ตั้งศูนย์ Alignment ปรับระยะไกด์นำทางและขันแน่นสลักล็อค ทดสอบรอยตัดฉลาก 50 ชิ้นเสร็จสมบูรณ์ (> 15 นาที ไม่เปลี่ยนอะไหล่)",
+    duration: 35,
+    status: "ปิดงาน",
+    stoppageType: "ADJUSTMENT_LOSS",
+    hasPartsReplaced: false,
+    usedParts: [],
+    otherCost: 0
   }
 ];
 
@@ -434,6 +497,84 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
         name: "5Whys_Analysis_VAC02_Overheating.pdf",
         size: "1.6 MB",
         uploadedAt: "2026-06-10",
+        content: "sample_pdf",
+        fileType: "pdf"
+      }
+    ]
+  },
+
+  // 5. MAINTENANCE PREVENTION (MP) INFORMATION SHEET
+  {
+    id: "mp-01",
+    type: "Improvement",
+    category: "MP_INFO",
+    title: "MP-2026-01: ออกแบบชุดโครงยึดใบมีดและแผ่นรองฮีตเตอร์ระบบ Quick-Release สำหรับเครื่อง FFS",
+    description: "แผ่นข้อมูลส่งต่อวิศวกรรม (MP Information Sheet) เพื่อนำปัญหาหน้างานที่ต้องใช้หกเหลี่ยมไขในมุมแคบ 20 นาที เปลี่ยนเป็นระบบสลักปลดเร็ว Snap-Lock สามารถสลับเปลี่ยนชุดใบมีดได้ภายใน 3 นาที",
+    machineId: "FFS01",
+    startDate: "2026-06-04",
+    plannedEndDate: "2026-06-18",
+    workLogs: [
+      { id: "wl-mp-01", date: "2026-06-04", hours: 3, note: "บันทึกข้อมูลปัญหาจุดเข้าถึงยากและระยะเวลา Downtime สะสมในรอบ 6 เดือน" },
+      { id: "wl-mp-02", date: "2026-06-08", hours: 4, note: "สเก็ตช์ภาพแบบปรับปรุง MP ข้อเสนอแนะส่งต่อวิศวกรรมเครื่องจักรใหม่" }
+    ],
+    status: "กำลังดำเนินการ",
+    technician: "ช่าง 1",
+    technicians: ["ช่าง 1", "ช่าง 2"],
+    mpData: {
+      mpCategory: "ความง่ายในการบำรุงรักษา (Maintainability)",
+      targetPhase: "จัดซื้อเครื่องจักรใหม่ในอนาคต (Future Machine Spec)",
+      issueDescription: "โครงเครื่องเดิมติดน็อตยึดใบมีดด้านในมุมอับ ช่างต้องใช้ประแจหกเหลี่ยมตัวแอลเอื้อมมือเข้าไป ขันได้ทีละครึ่งรอบ เสี่ยงน็อตรูดและหัวน็อตหล่นลงในไลน์ผลิต ใช้เวลาเฉลี่ย 20 นาทีต่อครั้ง",
+      proposedDesignChange: "ขอให้วิศวกรรมเครื่องจักรใหม่กำหนดสเปกเป็นชุดบล็อก Modular แบบ Snap-Lock หรือคานสลักปลดเร็ว พร้อม Safety Interlock ปลดได้จากด้านหน้าเครื่องโดยไม่ต้องใช้เครื่องมือมือ (Tool-less)",
+      expectedBenefits: "ลดระยะเวลา MTTR ในการเปลี่ยนใบมีดและลวดฮีตเตอร์จาก 20 นาที เหลือ 3 นาที ลดความเสี่ยง FOD ตกหล่นในอาหาร 100%",
+      feedbackTarget: "ฝ่ายวิศวกรรมจัดซื้อ (Engineering & Procurement)",
+      actionStatus: "เสนอแนะ (Proposed)",
+      costSavingEstimate: 48000,
+      referenceSource: "ประวัติงานซ่อม REP-2026-038 & TPM Pillar 5 MP"
+    },
+    pdfFiles: [
+      {
+        id: "pdf-mp-01",
+        name: "MP_Info_Sheet_FFS_QuickRelease.pdf",
+        size: "1.2 MB",
+        uploadedAt: "2026-06-08",
+        content: "sample_pdf",
+        fileType: "pdf"
+      }
+    ]
+  },
+  {
+    id: "mp-02",
+    type: "Improvement",
+    category: "MP_INFO",
+    title: "MP-2026-02: ปรับตำแหน่งเกจวัดระดับน้ำมันและจุดเดรนน้ำทิ้งแวคคั่มปั๊ม VAC01 ให้อยู่ภายนอกฝาครอบ",
+    description: "แผ่นข้อมูล MP เสนอแนะวิศวกรรมโรงงานและฝ่ายบำรุงรักษา ย้ายจุดตรวจสอบ Autonomous Maintenance และจุดเปลี่ยนถ่ายน้ำมันหล่อลื่นออกมานอกตู้เครื่องจักร",
+    machineId: "VAC01",
+    startDate: "2026-06-02",
+    plannedEndDate: "2026-06-06",
+    workLogs: [
+      { id: "wl-mp-03", date: "2026-06-02", hours: 2, note: "รวบรวมข้อเสนอแนะช่างประจำเครื่องเรื่องความลำบากในการตรวจเช็คประจำกะ" },
+      { id: "wl-mp-04", date: "2026-06-05", hours: 2, note: "ออกแบบท่อต่อสายน้ำมันและหน้าต่างใสอะคริลิกมองระดับน้ำมัน" }
+    ],
+    status: "เสร็จแล้ว",
+    technician: "ช่าง 3",
+    technicians: ["ช่าง 3"],
+    mpData: {
+      mpCategory: "การทำความสะอาดและตรวจสอบ (Clean & Inspect)",
+      targetPhase: "ปรับปรุงเครื่องจักรปัจจุบัน (Current Machine Modification)",
+      issueDescription: "ตาแมวดูน้ำมันหล่อลื่นปั๊มสุญญากาศอยู่ลึกใต้โครงสแตนเลสด้านหลัง ช่างต้องก้มมุดเปิดฝาครอบทุกวัน ทำให้บางกะละเลยการตรวจระดับน้ำมันจนเกือบเกิด Overheating",
+      proposedDesignChange: "ต่อท่อ Sight Glass แสดงระดับน้ำมันพร้อมสเกลสีเขียว-แดงออกมาที่ผนังด้านนอกของเครื่อง และเจาะช่องใส่อะคริลิกใสกันกระแทก สำหรับส่องไฟตรวจเช็ค",
+      expectedBenefits: "ช่างและ Operator ตรวจสอบระดับและสีน้ำมันได้ทันทีขณะเดินตรวจหน้างาน ลดเวลาตรวจสอบจาก 5 นาที เหลือ 10 วินาที ป้องกันปั๊มพัง 100%",
+      feedbackTarget: "หัวหน้าฝ่ายซ่อมบำรุง & ฝ่ายความปลอดภัย",
+      actionStatus: "ปรับปรุงสำเร็จแล้ว (Implemented)",
+      costSavingEstimate: 35000,
+      referenceSource: "กิจกรรม TPM กลุ่ม Kaizen โรงงานอาหาร"
+    },
+    pdfFiles: [
+      {
+        id: "pdf-mp-02",
+        name: "MP_Info_Sheet_VAC01_SightGlass.pdf",
+        size: "820 KB",
+        uploadedAt: "2026-06-06",
         content: "sample_pdf",
         fileType: "pdf"
       }

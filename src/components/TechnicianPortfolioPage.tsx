@@ -6,7 +6,7 @@ import {
   Lightbulb, ExternalLink, Activity, Image as ImageIcon, CheckCircle,
   ThumbsUp, Target, TrendingUp, Users, ZoomIn, UploadCloud, X,
   FileSpreadsheet, Download, Loader2, Trash2, BookOpen, HelpCircle,
-  AlertTriangle
+  AlertTriangle, FileCheck
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -32,7 +32,7 @@ export const TechnicianPortfolioPage: React.FC = () => {
   // Selected technician state - default to first technician
   const [selectedTech, setSelectedTech] = useState<string>(technicians[0] || 'ช่าง 1');
   const [activeTab, setActiveTab] = useState<'all' | 'kaizen' | 'repairs' | 'pm_setup'>('all');
-  const [kaizenCategoryFilter, setKaizenCategoryFilter] = useState<'all' | 'KAIZEN' | 'OPL' | 'FA' | 'WHY_WHY'>('all');
+  const [kaizenCategoryFilter, setKaizenCategoryFilter] = useState<'all' | 'KAIZEN' | 'OPL' | 'FA' | 'WHY_WHY' | 'MP_INFO'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [activePDF, setActivePDF] = useState<PDFFileAttachment | null>(null);
@@ -193,6 +193,7 @@ export const TechnicianPortfolioPage: React.FC = () => {
   const techOPLCount = allTechImprovements.filter(i => i.category === 'OPL').length;
   const techFACount = allTechImprovements.filter(i => i.category === 'FA').length;
   const techKaizenWhyWhyCount = allTechImprovements.filter(i => i.category === 'WHY_WHY').length;
+  const techMPCount = allTechImprovements.filter(i => i.category === 'MP_INFO').length;
 
   // Filter Repair logs for selected technician (all)
   const allTechRepairs = repairs.filter(rep => {
@@ -1437,6 +1438,18 @@ export const TechnicianPortfolioPage: React.FC = () => {
                 <HelpCircle size={12} />
                 <span>5 Whys ({totalTechWhyWhyCount})</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setKaizenCategoryFilter('MP_INFO')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                  kaizenCategoryFilter === 'MP_INFO'
+                    ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-sm'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <FileCheck size={12} />
+                <span>MP Sheet ({techMPCount})</span>
+              </button>
             </div>
           </div>
 
@@ -1495,9 +1508,11 @@ export const TechnicianPortfolioPage: React.FC = () => {
                                 ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
                                 : cat === 'WHY_WHY'
                                 ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                : cat === 'MP_INFO'
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
                                 : 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
                             }`}>
-                              {cat === 'OPL' ? '📖 One Point Lesson' : cat === 'FA' ? '🔍 Failure Analysis' : cat === 'WHY_WHY' ? '❓ Why-Why Analysis' : '🔨 Kaizen Project'}
+                              {cat === 'OPL' ? '📖 One Point Lesson' : cat === 'FA' ? '🔍 Failure Analysis' : cat === 'WHY_WHY' ? '❓ Why-Why Analysis' : cat === 'MP_INFO' ? '📋 MP Information sheet' : '🔨 Kaizen Project'}
                             </span>
                             <span className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono text-cyan-400 inline-block">
                               ⚙️ {getMachineName(imp.machineId)}
@@ -1550,6 +1565,18 @@ export const TechnicianPortfolioPage: React.FC = () => {
                             {imp.whyWhyData.why2 && <p>2. {imp.whyWhyData.why2}</p>}
                             {imp.whyWhyData.why3 && <p>3. {imp.whyWhyData.why3}</p>}
                           </div>
+                        </div>
+                      )}
+
+                      {cat === 'MP_INFO' && imp.mpData && (
+                        <div className="p-2.5 bg-emerald-950/30 border border-emerald-900/40 rounded-xl space-y-1 text-xs">
+                          <div className="flex justify-between items-center text-[11px]">
+                            <span className="text-emerald-300 font-semibold">หมวด MP: {imp.mpData.mpCategory || 'บำรุงรักษาง่าย'}</span>
+                            <span className="text-emerald-400 font-mono">สถานะ: {imp.mpData.actionStatus || 'เสนอแนะ'}</span>
+                          </div>
+                          {imp.mpData.proposedDesignChange && (
+                            <p className="text-[11px] text-slate-300">ข้อเสนอแนะ: {imp.mpData.proposedDesignChange}</p>
+                          )}
                         </div>
                       )}
 

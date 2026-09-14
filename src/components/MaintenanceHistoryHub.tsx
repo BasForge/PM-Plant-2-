@@ -4,6 +4,7 @@ import { RepairPage } from './RepairPage';
 import { PMHistoryPage } from './PMHistoryPage';
 import { Wrench, ClipboardCheck, AlertTriangle, CheckCircle2, History, Clock } from 'lucide-react';
 import { getTodayDateString } from '../utils/pmAlerts';
+import { getRepairStoppageType } from '../types';
 
 interface MaintenanceHistoryHubProps {
   defaultTab?: 'repair' | 'pm';
@@ -19,8 +20,12 @@ export const MaintenanceHistoryHub: React.FC<MaintenanceHistoryHubProps> = ({ de
   }, [defaultTab]);
 
   // Statistics for quick badge display
-  const completedRepairs = repairs.filter(r => r.status === 'Completed').length;
-  const ongoingRepairs = repairs.filter(r => r.status === 'Ongoing' || r.status === 'Pending').length;
+  const completedRepairs = repairs.filter(r => r.status === 'ปิดงาน' || r.status === 'Completed' || !r.status).length;
+  const ongoingRepairs = repairs.filter(r => r.status === 'กำลังซ่อม' || r.status === 'Ongoing' || r.status === 'Pending').length;
+
+  const breakdownCount = repairs.filter(r => getRepairStoppageType(r) === 'BREAKDOWN').length;
+  const minorCount = repairs.filter(r => getRepairStoppageType(r) === 'MINOR_STOPPAGE').length;
+  const adjustmentCount = repairs.filter(r => getRepairStoppageType(r) === 'ADJUSTMENT_LOSS').length;
 
   const todayStr = getTodayDateString();
   const completedPMSchedules = schedules.filter(s => s.status === 'Completed' || (s.actualDate && s.actualDate !== ''));
@@ -103,15 +108,20 @@ export const MaintenanceHistoryHub: React.FC<MaintenanceHistoryHubProps> = ({ de
         {/* Info badge on the right */}
         <div className="hidden lg:flex items-center gap-3 px-3.5 py-1.5 bg-slate-800/60 border border-slate-700/60 rounded-xl text-xs text-slate-300">
           {activeSubTab === 'repair' ? (
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                <CheckCircle2 size={13} />
-                ซ่อมเสร็จแล้ว: <strong className="text-white font-mono">{completedRepairs}</strong>
+            <div className="flex items-center gap-2.5 text-[11px]">
+              <span className="flex items-center gap-1 text-rose-400 font-medium bg-rose-500/10 px-2 py-0.5 rounded-md border border-rose-500/20" title="Breakdown: เครื่องเสียที่ไม่ทราบล่วงหน้า มีการเปลี่ยนอะไหล่ (หน่วยเป็นครั้ง บันทึกเวลา)">
+                🔴 Breakdown: <strong className="text-white font-mono">{breakdownCount}</strong> ครั้ง
+              </span>
+              <span className="flex items-center gap-1 text-amber-300 font-medium bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20" title="Minor stoppage: ไม่เปลี่ยนอะไหล่ < 15 นาที (หน่วยเป็นครั้ง)">
+                🟡 Minor: <strong className="text-white font-mono">{minorCount}</strong> ครั้ง
+              </span>
+              <span className="flex items-center gap-1 text-orange-400 font-medium bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/20" title="Adjustment loss: ไม่เปลี่ยนอะไหล่ > 15 นาที (หน่วยเป็นครั้ง)">
+                🟠 Adjustment: <strong className="text-white font-mono">{adjustmentCount}</strong> ครั้ง
               </span>
               <span className="text-slate-600">|</span>
-              <span className="flex items-center gap-1.5 text-amber-400 font-medium">
-                <Clock size={13} />
-                กำลังซ่อม/รอดำเนินการ: <strong className="text-white font-mono">{ongoingRepairs}</strong>
+              <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                <CheckCircle2 size={12} />
+                ปิดงาน: <strong className="text-white font-mono">{completedRepairs}</strong>
               </span>
             </div>
           ) : (

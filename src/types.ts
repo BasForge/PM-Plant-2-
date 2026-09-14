@@ -82,6 +82,97 @@ export interface OperationScheduleItem {
   duration: number; // in minutes (end - start)
 }
 
+export type StoppageType = 'BREAKDOWN' | 'MINOR_STOPPAGE' | 'ADJUSTMENT_LOSS';
+
+export interface StoppageTypeDefinition {
+  type: StoppageType;
+  name: string;
+  label: string;
+  shortLabel: string;
+  definition: string;
+  unit: string;
+  condition: string;
+  color: string;
+  badgeClass: string;
+  borderClass: string;
+  bgClass: string;
+  icon: string;
+}
+
+export const STOPPAGE_TYPE_DEFINITIONS: Record<StoppageType, StoppageTypeDefinition> = {
+  BREAKDOWN: {
+    type: 'BREAKDOWN',
+    name: 'Breakdown',
+    label: 'Breakdown (เครื่องเสียไม่คาดคิด)',
+    shortLabel: 'Breakdown',
+    definition: 'เครื่องเสียที่ไม่ทราบล่วงหน้า มีการเปลี่ยนอะไหล่ หน่วยเป็นครั้ง แต่เก็บเวลาด้วย',
+    unit: 'ครั้ง (บันทึกเวลา MTTR)',
+    condition: 'มีการเปลี่ยนอะไหล่',
+    color: 'rose',
+    badgeClass: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+    borderClass: 'border-rose-500',
+    bgClass: 'bg-rose-950/30',
+    icon: '🔴'
+  },
+  MINOR_STOPPAGE: {
+    type: 'MINOR_STOPPAGE',
+    name: 'Minor stoppage',
+    label: 'Minor stoppage (หยุดชะงักเล็กน้อย)',
+    shortLabel: 'Minor stoppage',
+    definition: 'เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ น้อยกว่า 15 นาที หน่วยเป็นครั้ง',
+    unit: 'ครั้ง (< 15 นาที)',
+    condition: 'ไม่เปลี่ยนอะไหล่ & เวลา < 15 นาที',
+    color: 'amber',
+    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    borderClass: 'border-amber-500',
+    bgClass: 'bg-amber-950/30',
+    icon: '🟡'
+  },
+  ADJUSTMENT_LOSS: {
+    type: 'ADJUSTMENT_LOSS',
+    name: 'Adjustment loss',
+    label: 'Adjustment loss (สูญเสียจากการปรับแต่ง)',
+    shortLabel: 'Adjustment loss',
+    definition: 'เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ มากกว่า 15 นาที หน่วยเป็นครั้ง',
+    unit: 'ครั้ง (> 15 นาที)',
+    condition: 'ไม่เปลี่ยนอะไหล่ & เวลา > 15 นาที',
+    color: 'orange',
+    badgeClass: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    borderClass: 'border-orange-500',
+    bgClass: 'bg-orange-950/30',
+    icon: '🟠'
+  }
+};
+
+/**
+ * คำนวณจำแนกประเภทความสูญเสียตามนิยามมาตรฐาน
+ * - Breakdown: เครื่องเสียที่ไม่ทราบล่วงหน้า มีการเปลี่ยนอะไหล่ หน่วยเป็นครั้ง แต่เก็บเวลาด้วย
+ * - Minor stoppage: เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ น้อยกว่า 15 นาที หน่วยเป็นครั้ง
+ * - Adjustment loss: เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ มากกว่า 15 นาที หน่วยเป็นครั้ง
+ */
+export function detectStoppageType(hasUsedParts: boolean, durationMinutes: number): StoppageType {
+  if (hasUsedParts) {
+    return 'BREAKDOWN';
+  }
+  if (durationMinutes < 15) {
+    return 'MINOR_STOPPAGE';
+  }
+  return 'ADJUSTMENT_LOSS';
+}
+
+export function getRepairStoppageType(repair: {
+  stoppageType?: StoppageType;
+  usedParts?: { partId: string; quantity: number }[];
+  hasPartsReplaced?: boolean;
+  duration?: number;
+}): StoppageType {
+  if (repair.stoppageType) {
+    return repair.stoppageType;
+  }
+  const hasParts = Boolean((repair.usedParts && repair.usedParts.length > 0) || repair.hasPartsReplaced);
+  return detectStoppageType(hasParts, repair.duration || 0);
+}
+
 export interface RepairLog {
   id: string;
   type: 'Repair';
@@ -102,11 +193,13 @@ export interface RepairLog {
   duration: number; // MTTR in minutes (repairDoneTime - breakdownTime)
   status?: 'กำลังซ่อม' | 'ปิดงาน'; // สถานะใบงานซ่อม
   usedParts?: { partId: string; quantity: number; pricePerUnit: number; totalCost: number }[];
+  hasPartsReplaced?: boolean; // ระบุว่ามีการเปลี่ยนอะไหล่หรือไม่ (กรณีอะไหล่นอกคลัง)
+  stoppageType?: StoppageType; // การจำแนกประเภท: Breakdown, Minor stoppage, Adjustment loss
   otherCost?: number;
   excelFile?: { name: string; content: string }; // ไฟล์ Excel แนบประกอบใบซ่อม (Base64)
 }
 
-export type KaizenCategory = 'KAIZEN' | 'OPL' | 'FA' | 'WHY_WHY';
+export type KaizenCategory = 'KAIZEN' | 'OPL' | 'FA' | 'WHY_WHY' | 'MP_INFO';
 
 export interface PDFFileAttachment {
   id: string;
@@ -171,6 +264,18 @@ export interface WhyWhyData {
   effectivenessVerification?: string; // การติดตามประสิทธิผลหลังแก้ไข
 }
 
+export interface MPInfoData {
+  mpCategory?: 'ความง่ายในการบำรุงรักษา (Maintainability)' | 'ความน่าเชื่อถือ/ยืดอายุการใช้งาน (Reliability)' | 'ความปลอดภัยและการยศาสตร์ (Safety & Ergonomics)' | 'การทำความสะอาดและตรวจสอบ (Clean & Inspect)' | 'ลดเวลาปรับตั้ง/เปลี่ยนรุ่น (Quick Setup)' | 'ข้อกำหนดจัดซื้อเครื่องจักรใหม่ (New Machine Spec)';
+  targetPhase?: 'ปรับปรุงเครื่องจักรปัจจุบัน (Current Machine Modification)' | 'จัดซื้อเครื่องจักรใหม่ในอนาคต (Future Machine Spec)' | 'ปรับปรุงแบบวิศวกรรม (Engineering Design Standard)' | 'สเปกอะไหล่และชิ้นส่วน (Component Spec)';
+  issueDescription: string; // สภาพปัญหา / จุดอ่อนเดิมที่พบหน้างาน (Current Weakness / Difficulty)
+  proposedDesignChange: string; // ข้อเสนอแนะการออกแบบ / มาตรการ MP (Proposed MP Design Change / Preventive Idea)
+  expectedBenefits: string; // ผลลัพธ์หรือประโยชน์ที่คาดว่าจะได้รับ (Expected Benefits: เช่น ลด MTTR, เพิ่มอายุใช้งาน)
+  feedbackTarget: string; // ส่งต่อข้อมูลถึง (เช่น แผนกวิศวกรรม / ผู้ผลิตเครื่องจักร Maker / จัดซื้อ)
+  actionStatus?: 'เสนอแนะ (Proposed)' | 'กำลังศึกษาและออกแบบ (Under Review)' | 'ปรับปรุงสำเร็จแล้ว (Implemented)' | 'บรรจุในมาตรฐานเครื่องใหม่ (Standardized in Spec)';
+  costSavingEstimate?: number; // ผลประหยัดคาดการณ์ (บาท/ปี)
+  referenceSource?: string; // ที่มาข้อมูลอ้างอิง (เช่น ใบแจ้งซ่อม, งาน FA, Why-Why)
+}
+
 export interface ImprovementWorkLog {
   id: string;
   date: string; // YYYY-MM-DD
@@ -202,6 +307,7 @@ export interface ImprovementProject {
   oplData?: OPLData;
   faData?: FAData;
   whyWhyData?: WhyWhyData;
+  mpData?: MPInfoData;
 }
 
 export type ScheduleItem = PMScheduleItem | OperationScheduleItem;

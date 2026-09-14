@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ImprovementProject, Machine, KaizenCategory, OPLData, FAData, WhyWhyData, PDFFileAttachment, MediaPhotoItem, isExcelAttachment } from '../../types';
+import { ImprovementProject, Machine, KaizenCategory, OPLData, FAData, WhyWhyData, MPInfoData, PDFFileAttachment, MediaPhotoItem, isExcelAttachment } from '../../types';
 import { 
   X, Plus, Trash2, Upload, FileText, FileSpreadsheet, Image as ImageIcon, CheckCircle2, 
   HelpCircle, Search, BookOpen, Wrench, Calendar, User, DollarSign, 
-  ShieldAlert, Sparkles, Layers, Clock, AlertTriangle 
+  ShieldAlert, Sparkles, Layers, Clock, AlertTriangle, FileCheck, Send, Sliders, Tag
 } from 'lucide-react';
 import { compressImageFile } from '../../utils/imageUtils';
 
@@ -79,6 +79,17 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
   const [whyStdRef, setWhyStdRef] = useState(initialProject?.whyWhyData?.standardizationRef || '');
   const [whyVerification, setWhyVerification] = useState(initialProject?.whyWhyData?.effectivenessVerification || '');
 
+  // MP Information Sheet Fields
+  const [mpCategory, setMpCategory] = useState<any>(initialProject?.mpData?.mpCategory || 'ความง่ายในการบำรุงรักษา (Maintainability)');
+  const [mpTargetPhase, setMpTargetPhase] = useState<any>(initialProject?.mpData?.targetPhase || 'ปรับปรุงเครื่องจักรปัจจุบัน (Current Machine Modification)');
+  const [mpIssueDescription, setMpIssueDescription] = useState(initialProject?.mpData?.issueDescription || '');
+  const [mpProposedDesign, setMpProposedDesign] = useState(initialProject?.mpData?.proposedDesignChange || '');
+  const [mpExpectedBenefits, setMpExpectedBenefits] = useState(initialProject?.mpData?.expectedBenefits || '');
+  const [mpFeedbackTarget, setMpFeedbackTarget] = useState(initialProject?.mpData?.feedbackTarget || 'แผนกวิศวกรรม & ผู้ผลิตเครื่องจักร Maker');
+  const [mpActionStatus, setMpActionStatus] = useState<any>(initialProject?.mpData?.actionStatus || 'เสนอแนะ (Proposed)');
+  const [mpCostSaving, setMpCostSaving] = useState<number | string>(initialProject?.mpData?.costSavingEstimate || '');
+  const [mpReferenceSource, setMpReferenceSource] = useState(initialProject?.mpData?.referenceSource || '');
+
   // Keep state synchronized with initialProject when opening modal
   useEffect(() => {
     if (isOpen) {
@@ -129,6 +140,17 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
       setWhyCountermeasure(initialProject?.whyWhyData?.countermeasure || '');
       setWhyStdRef(initialProject?.whyWhyData?.standardizationRef || '');
       setWhyVerification(initialProject?.whyWhyData?.effectivenessVerification || '');
+
+      // MP Information Sheet
+      setMpCategory(initialProject?.mpData?.mpCategory || 'ความง่ายในการบำรุงรักษา (Maintainability)');
+      setMpTargetPhase(initialProject?.mpData?.targetPhase || 'ปรับปรุงเครื่องจักรปัจจุบัน (Current Machine Modification)');
+      setMpIssueDescription(initialProject?.mpData?.issueDescription || '');
+      setMpProposedDesign(initialProject?.mpData?.proposedDesignChange || '');
+      setMpExpectedBenefits(initialProject?.mpData?.expectedBenefits || '');
+      setMpFeedbackTarget(initialProject?.mpData?.feedbackTarget || 'แผนกวิศวกรรม & ผู้ผลิตเครื่องจักร Maker');
+      setMpActionStatus(initialProject?.mpData?.actionStatus || 'เสนอแนะ (Proposed)');
+      setMpCostSaving(initialProject?.mpData?.costSavingEstimate || '');
+      setMpReferenceSource(initialProject?.mpData?.referenceSource || '');
     }
   }, [isOpen, initialProject, defaultCategory, machines, technicians]);
 
@@ -268,6 +290,21 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
       };
     }
 
+    let mpData: MPInfoData | undefined = undefined;
+    if (category === 'MP_INFO') {
+      mpData = {
+        mpCategory: mpCategory,
+        targetPhase: mpTargetPhase,
+        issueDescription: mpIssueDescription.trim() || description.trim() || title.trim(),
+        proposedDesignChange: mpProposedDesign.trim() || 'รอดำเนินการระบุแนวทางการออกแบบ',
+        expectedBenefits: mpExpectedBenefits.trim() || 'ลดเวลาซ่อมบำรุงและป้องกันปัญหาการเกิดซ้ำ',
+        feedbackTarget: mpFeedbackTarget.trim() || 'แผนกวิศวกรรม & Maker',
+        actionStatus: mpActionStatus,
+        costSavingEstimate: mpCostSaving !== '' ? Number(mpCostSaving) : undefined,
+        referenceSource: mpReferenceSource.trim() || undefined
+      };
+    }
+
     const payload: Partial<ImprovementProject> = {
       type: 'Improvement',
       category: category,
@@ -285,7 +322,8 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
       ...(photoAfter ? { photoAfter } : {}),
       ...(oplData ? { oplData } : {}),
       ...(faData ? { faData } : {}),
-      ...(whyWhyData ? { whyWhyData } : {})
+      ...(whyWhyData ? { whyWhyData } : {}),
+      ...(mpData ? { mpData } : {})
     };
 
     onSave(payload);
@@ -331,6 +369,14 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
       icon: <HelpCircle size={18} />,
       color: 'from-amber-500/20 to-orange-500/10 text-amber-400',
       activeBorder: 'border-amber-500 bg-amber-950/40 text-amber-300'
+    },
+    {
+      id: 'MP_INFO',
+      title: 'MP Information sheet',
+      sub: 'ข้อมูลป้องกันบำรุงรักษา & สเปกใหม่',
+      icon: <FileCheck size={18} />,
+      color: 'from-emerald-500/20 to-teal-500/10 text-emerald-400',
+      activeBorder: 'border-emerald-500 bg-emerald-950/40 text-emerald-300'
     }
   ];
 
@@ -370,7 +416,7 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
             <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
               เลือกประเภทงาน (Work Category):
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
               {categoryOptions.map(opt => (
                 <button
                   key={opt.id}
@@ -918,6 +964,156 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
             </div>
           )}
 
+          {/* MP INFORMATION SHEET SPECIFIC FIELDS */}
+          {category === 'MP_INFO' && (
+            <div className="bg-emerald-950/20 p-5 rounded-2xl border border-emerald-800/40 space-y-4 animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <FileCheck size={18} className="text-emerald-400" />
+                <h4 className="text-sm font-bold text-white">รายละเอียด MP Information Sheet (Maintenance Prevention)</h4>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                {/* MP Category */}
+                <div>
+                  <label className="text-xs font-semibold text-emerald-400 block mb-1">
+                    🏷️ หมวดหมู่ MP (MP Category):
+                  </label>
+                  <select
+                    value={mpCategory}
+                    onChange={(e) => setMpCategory(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="ความง่ายในการบำรุงรักษา (Maintainability)">ความง่ายในการบำรุงรักษา (Maintainability)</option>
+                    <option value="ความน่าเชื่อถือ/ยืดอายุการใช้งาน (Reliability)">ความน่าเชื่อถือ/ยืดอายุการใช้งาน (Reliability)</option>
+                    <option value="ความปลอดภัยและการยศาสตร์ (Safety & Ergonomics)">ความปลอดภัยและการยศาสตร์ (Safety & Ergonomics)</option>
+                    <option value="การทำความสะอาดและตรวจสอบ (Clean & Inspect)">การทำความสะอาดและตรวจสอบ (Clean & Inspect)</option>
+                    <option value="ลดเวลาปรับตั้ง/เปลี่ยนรุ่น (Quick Setup)">ลดเวลาปรับตั้ง/เปลี่ยนรุ่น (Quick Setup)</option>
+                    <option value="ข้อกำหนดจัดซื้อเครื่องจักรใหม่ (New Machine Spec)">ข้อกำหนดจัดซื้อเครื่องจักรใหม่ (New Machine Spec)</option>
+                  </select>
+                </div>
+
+                {/* Target Phase */}
+                <div>
+                  <label className="text-xs font-semibold text-cyan-400 block mb-1">
+                    🎯 เป้าหมายการประยุกต์ใช้ (Target Phase):
+                  </label>
+                  <select
+                    value={mpTargetPhase}
+                    onChange={(e) => setMpTargetPhase(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="ปรับปรุงเครื่องจักรปัจจุบัน (Current Machine Modification)">ปรับปรุงเครื่องจักรปัจจุบัน (Current Machine Modification)</option>
+                    <option value="จัดซื้อเครื่องจักรใหม่ในอนาคต (Future Machine Spec)">จัดซื้อเครื่องจักรใหม่ในอนาคต (Future Machine Spec)</option>
+                    <option value="ปรับปรุงแบบวิศวกรรม (Engineering Design Standard)">ปรับปรุงแบบวิศวกรรม (Engineering Design Standard)</option>
+                    <option value="สเปกอะไหล่และชิ้นส่วน (Component Spec)">สเปกอะไหล่และชิ้นส่วน (Component Spec)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Weakness & Proposed MP Design */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div>
+                  <label className="text-xs font-semibold text-rose-400 block mb-1">
+                    ⚠️ สภาพปัญหา / จุดอ่อนเดิมหน้างาน (Current Weakness / Difficulty):
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={mpIssueDescription}
+                    onChange={(e) => setMpIssueDescription(e.target.value)}
+                    placeholder="เช่น หัวอัดจาระบีอยู่ลึกหลังฝาครอบโซ่ ช่างต้องถอดน็อต 4 ตัว มุดเข้าไปอัด เสี่ยงโดนหนีบและใช้เวลา 25 นาที..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white resize-none focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-emerald-400 block mb-1">
+                    💡 ข้อเสนอแนะการออกแบบ / มาตรการ MP (Proposed MP Design Change):
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={mpProposedDesign}
+                    onChange={(e) => setMpProposedDesign(e.target.value)}
+                    placeholder="เช่น เดินท่อทองแดง 6mm รวมศูนย์ (Remote Greasing Manifold) นำหัวอัดมาไว้ที่แผงหน้าเครื่องจักร พร้อมติดป้ายกำกับ..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white resize-none focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Benefits & Feedback Target */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="md:col-span-2">
+                  <label className="text-xs font-semibold text-cyan-400 block mb-1">
+                    ✓ ประโยชน์ที่คาดว่าจะได้รับ (Expected Benefits):
+                  </label>
+                  <input
+                    type="text"
+                    value={mpExpectedBenefits}
+                    onChange={(e) => setMpExpectedBenefits(e.target.value)}
+                    placeholder="เช่น ลดเวลาอัดจาระบีจาก 25 เหลือ 2 นาที ปลอดภัย 100% และลดโอกาสลืมหล่อลื่น"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-emerald-400 block mb-1">
+                    💰 ผลประหยัดประเมิน (บาท/ปี):
+                  </label>
+                  <input
+                    type="number"
+                    value={mpCostSaving}
+                    onChange={(e) => setMpCostSaving(e.target.value)}
+                    placeholder="เช่น 18000"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <label className="text-xs font-semibold text-amber-400 block mb-1">
+                    📤 ส่งต่อข้อมูลถึง (Feedback To / Handover):
+                  </label>
+                  <input
+                    type="text"
+                    value={mpFeedbackTarget}
+                    onChange={(e) => setMpFeedbackTarget(e.target.value)}
+                    placeholder="เช่น แผนกวิศวกรรม & Maker ผู้ผลิตเครื่อง"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-purple-400 block mb-1">
+                    📊 สถานะข้อเสนอแนะ (Action Status):
+                  </label>
+                  <select
+                    value={mpActionStatus}
+                    onChange={(e) => setMpActionStatus(e.target.value as any)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="เสนอแนะ (Proposed)">เสนอแนะ (Proposed)</option>
+                    <option value="กำลังศึกษาและออกแบบ (Under Review)">กำลังศึกษาและออกแบบ (Under Review)</option>
+                    <option value="ปรับปรุงสำเร็จแล้ว (Implemented)">ปรับปรุงสำเร็จแล้ว (Implemented)</option>
+                    <option value="บรรจุในมาตรฐานเครื่องใหม่ (Standardized in Spec)">บรรจุในมาตรฐานเครื่องใหม่ (Standardized in Spec)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 block mb-1">
+                    📑 เอกสาร/เคสอ้างอิง (Reference Source):
+                  </label>
+                  <input
+                    type="text"
+                    value={mpReferenceSource}
+                    onChange={(e) => setMpReferenceSource(e.target.value)}
+                    placeholder="เช่น PM-CHK-FFS01 หรือ ใบแจ้งซ่อม #402"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-slate-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ATTACHMENT SECTION: EXCEL, PDF & PHOTOS */}
           <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 space-y-4">
             <h4 className="text-xs font-bold text-slate-300 flex items-center gap-2">
@@ -932,7 +1128,7 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
                     <ImageIcon size={14} />
-                    {category === 'OPL' ? 'ภาพตัวอย่างที่ไม่ถูกต้อง (Don\'t)' : category === 'FA' ? 'ภาพชิ้นส่วนชำรุด' : 'ภาพถ่ายก่อนปรับปรุง (Before)'}
+                    {category === 'OPL' ? 'ภาพตัวอย่างที่ไม่ถูกต้อง (Don\'t)' : category === 'FA' ? 'ภาพชิ้นส่วนชำรุด' : category === 'MP_INFO' ? 'ภาพสภาพปัญหาเดิมหน้างาน (Current Weakness)' : 'ภาพถ่ายก่อนปรับปรุง (Before)'}
                   </span>
                   {photoBefore && (
                     <button
@@ -974,7 +1170,7 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
                     <ImageIcon size={14} />
-                    {category === 'OPL' ? 'ภาพตัวอย่างที่ถูกต้อง (Do / Standard)' : 'ภาพถ่ายหลังปรับปรุง (After / Result)'}
+                    {category === 'OPL' ? 'ภาพตัวอย่างที่ถูกต้อง (Do / Standard)' : category === 'MP_INFO' ? 'ภาพแบบเสนอ MP / หลังปรับปรุง (MP Design Proposal)' : 'ภาพถ่ายหลังปรับปรุง (After / Result)'}
                   </span>
                   {photoAfter && (
                     <button
