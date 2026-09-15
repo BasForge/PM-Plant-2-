@@ -47,8 +47,12 @@ import {
   ExternalLink,
   Edit,
   Trash2,
-  MapPin
+  MapPin,
+  FileUp
 } from 'lucide-react';
+import { PdfWorkRequestImportModal } from './workRequest/PdfWorkRequestImportModal';
+import { ParsedWorkRequestItem } from '../utils/pdfWorkRequestParser';
+import { getTodayDateString } from '../utils/pmAlerts';
 
 export const WorkRequestPage: React.FC = () => {
   const { 
@@ -90,11 +94,42 @@ export const WorkRequestPage: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [activeRequest, setActiveRequest] = useState<WorkRequest | null>(null);
 
+  // PDF Work Request Import Modal state
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+
   // Quick toast feedback message
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleImportPdfRequests = (items: ParsedWorkRequestItem[], notifyLine: boolean) => {
+    let count = 0;
+    items.forEach(item => {
+      const created = addWorkRequest({
+        requestDate: item.requestDate || getTodayDateString(),
+        requestTime: item.requestTime || '09:00',
+        machineId: item.machineId,
+        machineName: item.machineName,
+        lineGroup: item.lineGroup,
+        locationPoint: item.locationPoint,
+        isCustomLocation: !item.isMachineFound,
+        priority: item.priority,
+        problemTitle: item.problemTitle,
+        problemDetails: item.problemDetails || item.problemTitle,
+        productionDepartment: item.productionDepartment,
+        requesterName: item.requesterName || (currentUser?.name || 'ฝ่ายผลิต'),
+        requesterPhone: item.requesterPhone,
+      });
+
+      if (notifyLine) {
+        notifyWorkRequestSubmitted(created);
+      }
+      count++;
+    });
+
+    showToast(`✅ นำเข้าใบแจ้งซ่อมจากไฟล์ PDF เรียบร้อยแล้ว จำนวน ${count} ใบ`);
   };
 
   // --- Form States for New Request (Production) ---
@@ -844,6 +879,15 @@ export const WorkRequestPage: React.FC = () => {
             >
               <Plus className="w-4 h-4" />
               + แจ้งซ่อมใหม่ (ฝ่ายผลิต)
+            </button>
+            <button
+              id="btn-import-pdf-work-request"
+              onClick={() => setIsPdfModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:from-emerald-700 active:to-teal-700 text-white rounded-xl text-sm font-semibold shadow-xs transition-all cursor-pointer"
+              title="โยนหรืออัปโหลดไฟล์แจ้งซ่อม PDF พร้อมระบบสแกนหา ID เครื่องจักรและข้อมูลแจ้งซ่อมอัตโนมัติ"
+            >
+              <FileUp className="w-4 h-4" />
+              📄 นำเข้าใบแจ้งซ่อม PDF
             </button>
             <button
               onClick={handleExportCSV}
@@ -2860,6 +2904,15 @@ export const WorkRequestPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* PDF Work Request Import Modal */}
+      <PdfWorkRequestImportModal
+        isOpen={isPdfModalOpen}
+        onClose={() => setIsPdfModalOpen(false)}
+        machines={machines}
+        defaultRequester={currentUser?.name || 'ฝ่ายผลิต'}
+        onImportRequests={handleImportPdfRequests}
+      />
     </div>
   );
 };
