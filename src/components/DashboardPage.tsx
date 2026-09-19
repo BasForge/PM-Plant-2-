@@ -1560,9 +1560,9 @@ export const DashboardPage: React.FC = () => {
                     <th className="py-3 px-4 text-left">ชื่อเครื่องจักร</th>
                     <th className="py-3 px-3 text-center">จำนวนครั้งที่เสีย</th>
                     <th className="py-3 px-3 text-center">รวมเวลาซ่อม (นาที)</th>
-                    <th className="py-3 px-3 text-center bg-rose-500/5 text-rose-300">⏱ MTTR (นาที)</th>
-                    <th className="py-3 px-3 text-center bg-amber-500/5 text-amber-300">⚡ MTBF (วัน)</th>
-                    <th className="py-3 px-3 text-center">อัตรา breakdown (%)</th>
+                    <th className="py-3 px-3 text-center bg-rose-500/10 text-rose-300 font-bold">1. % Breakdown</th>
+                    <th className="py-3 px-3 text-center bg-blue-500/5 text-cyan-300">2. ⏱ MTTR (นาที)</th>
+                    <th className="py-3 px-3 text-center bg-amber-500/5 text-amber-300">3. ⚡ MTBF (วัน)</th>
                     <th className="py-3 px-3 text-center">การจัดการ</th>
                   </tr>
                 </thead>
@@ -1570,8 +1570,12 @@ export const DashboardPage: React.FC = () => {
                   {machines.map((m, idx) => {
                     const machReps = repairs.filter(r => r.machineId === m.id && r.date.startsWith(selectedMonth));
                     const totalMins = machReps.reduce((sum, r) => sum + r.duration, 0);
-                    const percentBd = parseFloat(((totalMins / 60 / operatingHoursFactor) * 100).toFixed(2)) || 0;
-                    const mtbfVal = parseFloat((daysInMonth / (machReps.length + 1)).toFixed(1));
+                    const machPlannedHrs = m.plannedProductionHours ?? (settings.defaultPlannedProductionHours || 600);
+                    const machPlannedMins = machPlannedHrs * 60;
+                    const percentBd = machPlannedMins > 0 ? parseFloat(((totalMins / machPlannedMins) * 100).toFixed(2)) : 0;
+                    const opHours = Math.max(0, machPlannedHrs - (totalMins / 60));
+                    const mtbfHours = machReps.length > 0 ? parseFloat((opHours / machReps.length).toFixed(1)) : parseFloat(opHours.toFixed(1));
+                    const mtbfVal = parseFloat((mtbfHours / (machPlannedHrs / daysInMonth)).toFixed(1));
                     const mttrVal = machReps.length > 0 ? parseFloat((totalMins / machReps.length).toFixed(1)) : 0;
                     const prefix = m.id.substring(0, 3).toUpperCase();
                     const stdMttr = settings.stdMttr[prefix] || 60;
@@ -1597,20 +1601,22 @@ export const DashboardPage: React.FC = () => {
                         <td className="py-3 px-3 font-mono text-slate-200">
                           {totalMins > 0 ? `${totalMins} นาที` : '-'}
                         </td>
-                        <td className="py-3 px-3 font-mono font-bold bg-rose-500/5">
+                        <td className="py-3 px-3 font-mono font-bold bg-rose-500/10">
+                          <span className={percentBd > 2 ? 'text-rose-400' : 'text-emerald-400'}>
+                            {percentBd}%
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-mono font-bold bg-blue-500/5">
                           {machReps.length === 0 ? (
                             <span className="text-emerald-400 text-[10.5px]">0 น. (สมบูรณ์)</span>
                           ) : (
-                            <span className={isOver ? 'text-rose-400 font-black' : 'text-emerald-400'}>
+                            <span className={isOver ? 'text-rose-400 font-black' : 'text-cyan-300'}>
                               {mttrVal} น. {isOver && '⚠️'}
                             </span>
                           )}
                         </td>
                         <td className="py-3 px-3 font-mono text-amber-400 font-bold bg-amber-500/5">
                           {mtbfVal} วัน
-                        </td>
-                        <td className="py-3 px-3 font-mono font-semibold text-slate-300">
-                          {percentBd}%
                         </td>
                         <td className="py-3 px-3 text-center">
                           <button

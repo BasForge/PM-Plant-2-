@@ -5,7 +5,7 @@ import { CPRAM_PDF_MACHINES } from '../data/cpramMachines';
 // Configure pdfjs worker if available
 try {
   if (typeof window !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || '3.11.174'}/pdf.worker.min.js`;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || '6.3.289'}/build/pdf.worker.min.mjs`;
   }
 } catch (e) {
   console.warn('PDF Worker setup note:', e);

@@ -11,6 +11,7 @@ export interface Machine {
   serialNumber?: string; // Serial Number
   remark?: string; // หมายเหตุ เช่น "ยกเลิกใช้", "ใช้งบโรง 1", "สลัด"
   status?: 'ปกติ' | 'เสีย/ซ่อม' | 'ยกเลิกใช้'; // สถานะ
+  plannedProductionHours?: number; // เวลาที่วางแผนให้เครื่องจักรพร้อมสำหรับการผลิต Planned Production Time (ชม./เดือน เช่น 600 ชม.)
 }
 
 export type PMFrequency = 'รายวัน' | 'รายสัปดาห์' | 'ราย 2 สัปดาห์' | 'รายเดือน' | 'ราย 3 เดือน' | 'ราย 6 เดือน' | 'รายปี';
@@ -46,6 +47,16 @@ export interface PMRescheduleHistoryItem {
   notes?: string; // หมายเหตุเพิ่มเติม
 }
 
+export interface UsedPartItem {
+  partId: string;
+  partName?: string; // ชื่ออะไหล่ที่ใช้ (กรณีอะไหล่นอกคลัง หรือพิมพ์ระบุเอง)
+  quantity: number;
+  pricePerUnit: number;
+  totalCost: number;
+  isCustom?: boolean; // true หากเป็นอะไหล่ที่พิมพ์ระบุเพิ่มเองนอกคลัง
+  unit?: string; // หน่วยนับ เช่น ชิ้น, ตัว, เมตร, ชุด
+}
+
 export interface PMScheduleItem {
   id: string;
   type: 'PM';
@@ -58,7 +69,7 @@ export interface PMScheduleItem {
   duration: number; // TTM in minutes
   actualDuration?: number; // actual time spent on PM tasks in minutes
   overtimeReason?: string; // สาเหตุที่ใช้เวลาเกินเกณฑ์มาตรฐาน (Overtime / Delay Reason)
-  usedParts?: { partId: string; quantity: number; pricePerUnit: number; totalCost: number }[];
+  usedParts?: UsedPartItem[];
   otherCost?: number;
   rescheduledFromDate?: string; // วันที่ตามแผนเดิมก่อนเลื่อน
   rescheduledReason?: string; // เหตุผลในการเลื่อนแผน (เช่น เครื่องติดไลน์ผลิตเร่งด่วน, รออะไหล่)
@@ -192,7 +203,7 @@ export interface RepairLog {
   photo?: string; // base64
   duration: number; // MTTR in minutes (repairDoneTime - breakdownTime)
   status?: 'กำลังซ่อม' | 'ปิดงาน'; // สถานะใบงานซ่อม
-  usedParts?: { partId: string; quantity: number; pricePerUnit: number; totalCost: number }[];
+  usedParts?: UsedPartItem[];
   hasPartsReplaced?: boolean; // ระบุว่ามีการเปลี่ยนอะไหล่หรือไม่ (กรณีอะไหล่นอกคลัง)
   stoppageType?: StoppageType; // การจำแนกประเภท: Breakdown, Minor stoppage, Adjustment loss
   otherCost?: number;
@@ -315,6 +326,7 @@ export type ScheduleItem = PMScheduleItem | OperationScheduleItem;
 export interface SystemSettings {
   workingHoursPerDay: number; // working hours per day, defaults to 8 (480 mins)
   stdMttr: Record<string, number>; // machine ID prefix or type -> standard MTTR (mins)
+  defaultPlannedProductionHours?: number; // ค่าเวลา Planned Production Time มาตรฐานต่อเดือน (เช่น 600 ชม.)
   lineNotifyEnabled?: boolean;
   lineNotifyToken?: string;
 }
@@ -379,6 +391,8 @@ export interface EngineeringResponse {
 
 export interface WorkRequest {
   id: string; // e.g. "REQ-202609-001"
+  sequenceNo?: number; // ลำดับที่ในเอกสาร/รายการ เช่น 1, 2, 3...
+  ticketNo?: string; // เลขที่แจ้งซ่อม (เช่น 167311, 167312)
   requestDate: string; // YYYY-MM-DD
   requestTime: string; // HH:MM
   
@@ -456,6 +470,8 @@ export interface SparePart {
   pricePerUnit: number; // ราคารวมต่อหน่วย (เช่น 450)
   lastRestockedDate?: string; // วันที่อัปเดตสต็อกล่าสุด (YYYY-MM-DD)
   specifications?: string; // ข้อมูลทางเทคนิค/รายละเอียดเพิ่มเติม
+  workRequestNo?: string; // เลขที่แจ้งซ่อมที่ผูกกับอะไหล่นี้
+  lastWorkRequestNo?: string; // เลขที่แจ้งซ่อมที่เบิกใช้ล่าสุด
 }
 
 export type CD5Category = 

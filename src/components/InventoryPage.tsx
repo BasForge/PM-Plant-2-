@@ -5,12 +5,13 @@ import {
   Package, Search, AlertTriangle, Plus, Edit2, Trash2, 
   RefreshCw, CheckCircle, Settings, HelpCircle, ArrowUpDown, Filter, 
   MapPin, Tag, CircleDollarSign, Compass, Info, FileText, ChevronRight,
-  FileSpreadsheet, Download, Upload, AlertCircle, RefreshCw as LoopIcon
+  FileSpreadsheet, Download, Upload, AlertCircle, RefreshCw as LoopIcon,
+  Copy
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export const InventoryPage: React.FC = () => {
-  const { spareParts, setSpareParts, machines } = useApp();
+  const { spareParts, setSpareParts, machines, workRequests } = useApp();
 
   // Selection state for spare parts (bulk operations)
   const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
@@ -64,8 +65,9 @@ export const InventoryPage: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedMachine, setSelectedMachine] = useState('ALL');
   const [filterLowStock, setFilterLowStock] = useState(false);
-  const [sortBy, setSortBy] = useState<'id' | 'name' | 'quantity' | 'pricePerUnit'>('id');
+  const [sortBy, setSortBy] = useState<'id' | 'name' | 'quantity' | 'pricePerUnit' | 'workRequestNo'>('id');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [copiedTicket, setCopiedTicket] = useState<string | null>(null);
 
   // Modal State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -84,6 +86,7 @@ export const InventoryPage: React.FC = () => {
   const [formLocation, setFormLocation] = useState('');
   const [formPrice, setFormPrice] = useState(0);
   const [formSpecs, setFormSpecs] = useState('');
+  const [formWorkRequestNo, setFormWorkRequestNo] = useState('');
 
   // Excel Import States
   const [showImportModal, setShowImportModal] = useState(false);
@@ -353,6 +356,7 @@ export const InventoryPage: React.FC = () => {
   const [adjustmentQty, setAdjustmentQty] = useState(1);
   const [adjustmentType, setAdjustmentType] = useState<'IN' | 'OUT'>('IN');
   const [adjustmentNote, setAdjustmentNote] = useState('');
+  const [adjustmentWorkRequestNo, setAdjustmentWorkRequestNo] = useState('');
 
   // Dropdown Categories
   const categories = [
@@ -365,7 +369,7 @@ export const InventoryPage: React.FC = () => {
   ];
 
   // Handle Sort Change
-  const triggerSort = (field: 'id' | 'name' | 'quantity' | 'pricePerUnit') => {
+  const triggerSort = (field: 'id' | 'name' | 'quantity' | 'pricePerUnit' | 'workRequestNo') => {
     if (sortBy === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
@@ -384,7 +388,9 @@ export const InventoryPage: React.FC = () => {
   const filteredParts = spareParts.filter(part => {
     const matchesSearch = part.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           part.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (part.specifications && part.specifications.toLowerCase().includes(searchQuery.toLowerCase()));
+                          (part.specifications && part.specifications.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                          (part.workRequestNo && part.workRequestNo.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                          (part.lastWorkRequestNo && part.lastWorkRequestNo.toLowerCase().includes(searchQuery.toLowerCase()));
     
     const matchesCategory = selectedCategory === 'ALL' || part.category === selectedCategory;
     
@@ -427,6 +433,7 @@ export const InventoryPage: React.FC = () => {
     setFormLocation('ตู้ A ชั้น 1');
     setFormPrice(250);
     setFormSpecs('');
+    setFormWorkRequestNo('');
     setShowAddModal(true);
   };
 
@@ -451,7 +458,8 @@ export const InventoryPage: React.FC = () => {
       location: formLocation.trim() || 'ตู้แยกด่วน',
       pricePerUnit: formPrice,
       lastRestockedDate: new Date().toISOString().slice(0, 10),
-      specifications: formSpecs.trim()
+      specifications: formSpecs.trim(),
+      workRequestNo: formWorkRequestNo.trim() || undefined
     };
 
     setSpareParts([newPart, ...spareParts]);
@@ -471,6 +479,7 @@ export const InventoryPage: React.FC = () => {
     setFormLocation(part.location);
     setFormPrice(part.pricePerUnit);
     setFormSpecs(part.specifications || '');
+    setFormWorkRequestNo(part.workRequestNo || '');
     setShowEditModal(true);
   };
 
@@ -491,7 +500,8 @@ export const InventoryPage: React.FC = () => {
           unit: formUnit,
           location: formLocation.trim(),
           pricePerUnit: formPrice,
-          specifications: formSpecs.trim()
+          specifications: formSpecs.trim(),
+          workRequestNo: formWorkRequestNo.trim() || undefined
         };
       }
       return p;
@@ -508,6 +518,7 @@ export const InventoryPage: React.FC = () => {
     setAdjustmentQty(1);
     setAdjustmentType('IN');
     setAdjustmentNote('');
+    setAdjustmentWorkRequestNo(part.lastWorkRequestNo || part.workRequestNo || '');
     setShowStockModal(true);
   };
 
@@ -522,12 +533,14 @@ export const InventoryPage: React.FC = () => {
 
     const updatedParts = spareParts.map(p => {
       if (p.id === selectedPart.id) {
+        const wrNote = adjustmentWorkRequestNo.trim() ? ` [ใบแจ้งซ่อม #${adjustmentWorkRequestNo.trim()}]` : '';
         return {
           ...p,
           quantity: nextQty,
           lastRestockedDate: adjustmentType === 'IN' ? new Date().toISOString().slice(0, 10) : p.lastRestockedDate,
-          specifications: adjustmentNote.trim() 
-            ? `${p.specifications || ''}\n[ปรับสต็อก ${adjustmentType} ${adjustmentQty} ${p.unit} - ${new Date().toISOString().slice(0, 10)}: ${adjustmentNote}]`.trim()
+          lastWorkRequestNo: adjustmentType === 'OUT' && adjustmentWorkRequestNo.trim() ? adjustmentWorkRequestNo.trim() : p.lastWorkRequestNo,
+          specifications: (adjustmentNote.trim() || wrNote)
+            ? `${p.specifications || ''}\n[ปรับสต็อก ${adjustmentType} ${adjustmentQty} ${p.unit} - ${new Date().toISOString().slice(0, 10)}${wrNote}${adjustmentNote.trim() ? `: ${adjustmentNote.trim()}` : ''}]`.trim()
             : p.specifications
         };
       }
@@ -815,7 +828,7 @@ export const InventoryPage: React.FC = () => {
           <div className="flex items-center gap-2 text-[10px] text-slate-400 self-end sm:self-auto">
             <span>จัดเรียงตาม:</span>
             <span className="bg-slate-800 px-2.5 py-1 rounded border border-slate-700 text-cyan-400 uppercase font-mono font-bold font-sans">
-              {sortBy === 'id' ? 'SKU' : sortBy === 'name' ? 'ชื่ออะไหล่' : sortBy === 'quantity' ? 'จำนวนคงคลัง' : 'ราคา'} ({sortOrder})
+              {sortBy === 'id' ? 'SKU' : sortBy === 'name' ? 'ชื่ออะไหล่' : sortBy === 'quantity' ? 'จำนวนคงคลัง' : sortBy === 'workRequestNo' ? 'เลขที่แจ้งซ่อม' : 'ราคา'} ({sortOrder})
             </span>
           </div>
         </div>
@@ -833,7 +846,7 @@ export const InventoryPage: React.FC = () => {
               </div>
             </div>
           ) : (
-            <table className="w-full text-left text-xs min-w-[900px]" id="inventory-data-table">
+            <table className="w-full text-left text-xs min-w-[950px]" id="inventory-data-table">
               <thead>
                 <tr className="border-b border-slate-800 bg-[#0e1726]">
                   {/* Bulk Select Checkbox Head */}
@@ -858,6 +871,15 @@ export const InventoryPage: React.FC = () => {
                       className="w-4 h-4 rounded border-slate-800 text-cyan-500 bg-slate-950 focus:ring-0 cursor-pointer"
                       title="เลือกทั้งหมดหน้านี้"
                     />
+                  </th>
+                  <th className="p-3.5 text-center text-slate-400 font-bold uppercase tracking-wider font-mono text-[10px] w-14 select-none">
+                    ลำดับ
+                  </th>
+                  <th 
+                    onClick={() => triggerSort('workRequestNo')}
+                    className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-mono text-[10px] cursor-pointer hover:text-white hover:bg-slate-800 select-none w-36"
+                  >
+                    เลขที่แจ้งซ่อม <ArrowUpDown size={11} className="inline ml-1" />
                   </th>
                   <th 
                     onClick={() => triggerSort('id')}
@@ -898,7 +920,7 @@ export const InventoryPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
-                {filteredParts.map((item) => {
+                {filteredParts.map((item, index) => {
                   const isLow = item.quantity <= item.minRequired;
                   const isZero = item.quantity === 0;
 
@@ -923,6 +945,50 @@ export const InventoryPage: React.FC = () => {
                         />
                       </td>
 
+                      {/* ลำดับ (Row Sequence Number) */}
+                      <td className="p-3.5 text-center font-mono text-slate-400 font-bold text-xs select-none">
+                        <span className="w-6 h-6 rounded-md bg-slate-800/80 border border-slate-700/60 inline-flex items-center justify-center text-[11px] text-slate-300">
+                          {index + 1}
+                        </span>
+                      </td>
+
+                      {/* เลขที่แจ้งซ่อม (Work Request No.) */}
+                      <td className="p-3.5 font-mono">
+                        {item.workRequestNo ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40 text-xs font-bold font-mono" title={`ผูกกับใบแจ้งซ่อม #${item.workRequestNo}`}>
+                              <FileText size={11} className="text-blue-400" />
+                              #{item.workRequestNo}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard?.writeText(item.workRequestNo || '');
+                                setCopiedTicket(item.workRequestNo || '');
+                                setTimeout(() => setCopiedTicket(null), 2500);
+                              }}
+                              className="text-slate-500 hover:text-blue-400 p-1 transition rounded hover:bg-slate-800"
+                              title="คัดลอกเลขที่แจ้งซ่อม"
+                            >
+                              <Copy size={12} />
+                            </button>
+                            {copiedTicket === item.workRequestNo && (
+                              <span className="text-[10px] text-emerald-400 font-sans">คัดลอกแล้ว</span>
+                            )}
+                          </div>
+                        ) : item.lastWorkRequestNo ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-mono" title="เบิกล่าสุดตามใบงาน">
+                              <FileText size={10} className="text-purple-400" />
+                              #{item.lastWorkRequestNo}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-600 font-mono text-xs">-</span>
+                        )}
+                      </td>
+
                       {/* SKU */}
                       <td className="p-3.5 font-mono text-cyan-400 font-bold">
                         {item.id}
@@ -936,6 +1002,22 @@ export const InventoryPage: React.FC = () => {
                             <p className="text-[10px] text-slate-400 italic max-w-sm cut-text leading-relaxed font-sans" title={item.specifications}>
                               ⚙️ Spec: {item.specifications}
                             </p>
+                          )}
+                          {(item.workRequestNo || item.lastWorkRequestNo) && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                              {item.workRequestNo && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[9.5px] font-mono font-bold" title="เลขที่ใบแจ้งซ่อมที่ระบุผูกกับอะไหล่นี้">
+                                  <FileText size={10} className="text-blue-400" />
+                                  ใบแจ้งซ่อม: #{item.workRequestNo}
+                                </span>
+                              )}
+                              {item.lastWorkRequestNo && item.lastWorkRequestNo !== item.workRequestNo && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[9.5px] font-mono font-bold" title="เลขที่ใบแจ้งซ่อมที่เบิกใช้ล่าสุด">
+                                  <FileText size={10} className="text-purple-400" />
+                                  เบิกล่าสุดตามใบงาน: #{item.lastWorkRequestNo}
+                                </span>
+                              )}
+                            </div>
                           )}
                           {item.lastRestockedDate && (
                             <p className="text-[8.5px] text-slate-500">
@@ -1224,6 +1306,38 @@ export const InventoryPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Work Request No. (เลขที่ใบแจ้งซ่อม) */}
+              <div>
+                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">
+                  เลขที่ใบแจ้งซ่อมที่เกี่ยวข้อง (Work Request / Ticket No.)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={formWorkRequestNo}
+                    onChange={(e) => setFormWorkRequestNo(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none placeholder:font-sans"
+                    placeholder="เช่น 167311, 167446 หรือ REQ-..."
+                  />
+                  {workRequests && workRequests.length > 0 && (
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) setFormWorkRequestNo(e.target.value);
+                      }}
+                      className="bg-slate-900 border border-slate-800 text-slate-300 text-xs px-2.5 py-1.5 rounded hover:border-slate-700 cursor-pointer max-w-[200px]"
+                    >
+                      <option value="">เลือกจากใบแจ้งซ่อม...</option>
+                      {workRequests.slice(0, 15).map(wr => (
+                        <option key={wr.id} value={wr.ticketNo || wr.id}>
+                          {wr.ticketNo ? `#${wr.ticketNo}` : wr.id} : {wr.machineId}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+
               {/* Specifications / Notes */}
               <div>
                 <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">รายละเอียดทางเทคนิค / สเปคสกัด</label>
@@ -1403,6 +1517,38 @@ export const InventoryPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Work Request No. (เลขที่ใบแจ้งซ่อม) */}
+              <div>
+                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">
+                  เลขที่ใบแจ้งซ่อมที่เกี่ยวข้อง (Work Request / Ticket No.)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={formWorkRequestNo}
+                    onChange={(e) => setFormWorkRequestNo(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none placeholder:font-sans"
+                    placeholder="เช่น 167311, 167446 หรือ REQ-..."
+                  />
+                  {workRequests && workRequests.length > 0 && (
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) setFormWorkRequestNo(e.target.value);
+                      }}
+                      className="bg-slate-900 border border-slate-800 text-slate-300 text-xs px-2.5 py-1.5 rounded hover:border-slate-700 cursor-pointer max-w-[200px]"
+                    >
+                      <option value="">เลือกจากใบแจ้งซ่อม...</option>
+                      {workRequests.slice(0, 15).map(wr => (
+                        <option key={wr.id} value={wr.ticketNo || wr.id}>
+                          {wr.ticketNo ? `#${wr.ticketNo}` : wr.id} : {wr.machineId}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+
               {/* Specifications / Notes */}
               <div>
                 <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">รายละเอียดทางเทคนิค / สเปค/ ประวัติอัปเดต</label>
@@ -1525,9 +1671,41 @@ export const InventoryPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Work Request No for Quick Adjust */}
+              <div>
+                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">
+                  เลขที่ใบแจ้งซ่อม (Work Request No. / Ticket No.)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={adjustmentWorkRequestNo}
+                    onChange={(e) => setAdjustmentWorkRequestNo(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none placeholder:font-sans text-xs"
+                    placeholder="เช่น 167311, 167446 (ถ้ามี)"
+                  />
+                  {workRequests && workRequests.length > 0 && (
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) setAdjustmentWorkRequestNo(e.target.value);
+                      }}
+                      className="bg-slate-900 border border-slate-800 text-slate-300 text-xs px-2 py-1.5 rounded hover:border-slate-700 cursor-pointer max-w-[160px]"
+                    >
+                      <option value="">เลือกใบแจ้งซ่อม...</option>
+                      {workRequests.slice(0, 15).map(wr => (
+                        <option key={wr.id} value={wr.ticketNo || wr.id}>
+                          {wr.ticketNo ? `#${wr.ticketNo}` : wr.id}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+
               {/* Adjustment Notes */}
               <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">บันทึกบันทึกช่วยจำ (เช่น เบิกหน้าเครื่องไหน / รหัสผู้เบิก)</label>
+                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">บันทึกช่วยจำ (เช่น เบิกหน้าเครื่องไหน / รหัสผู้เบิก)</label>
                 <input
                   type="text"
                   required

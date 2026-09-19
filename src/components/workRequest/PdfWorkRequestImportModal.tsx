@@ -169,6 +169,8 @@ export const PdfWorkRequestImportModal: React.FC<PdfWorkRequestImportModalProps>
     const now = new Date();
     const newItem: ParsedWorkRequestItem = {
       tempId: `draft-manual-${Date.now()}`,
+      sequenceNo: parsedItems.length + 1,
+      ticketNo: '',
       machineId: firstMach?.id || 'ATS03',
       machineName: firstMach?.name || 'TOP SEALER',
       lineGroup: firstMach?.lineGroup || firstMach?.location || 'สายการผลิต',
@@ -468,12 +470,34 @@ export const PdfWorkRequestImportModal: React.FC<PdfWorkRequestImportModalProps>
                       key={item.tempId}
                       className="p-4 bg-slate-850/90 border border-slate-750 rounded-xl space-y-3.5 relative hover:border-slate-650 transition shadow-sm"
                     >
-                      {/* Top Bar of item: Badge & Index & Delete */}
+                      {/* Top Bar of item: Badge & Sequence & Ticket No & Delete */}
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-750 pb-2.5">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[11px] font-bold flex items-center justify-center">
-                            {index + 1}
-                          </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* Sequence input badge */}
+                          <div className="flex items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700">
+                            <span className="text-[10px] text-slate-400 font-bold">ลำดับ:</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={item.sequenceNo !== undefined ? item.sequenceNo : (index + 1)}
+                              onChange={(e) => handleUpdateItem(item.tempId, { sequenceNo: e.target.value ? parseInt(e.target.value) : undefined })}
+                              className="w-10 bg-slate-800 border border-slate-600 rounded px-1 text-xs text-cyan-300 font-mono font-bold text-center focus:outline-none focus:border-cyan-400"
+                              title="ลำดับที่"
+                            />
+                          </div>
+
+                          {/* Ticket No input */}
+                          <div className="flex items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700">
+                            <span className="text-[10px] text-blue-400 font-bold">เลขที่แจ้งซ่อม:</span>
+                            <input
+                              type="text"
+                              value={item.ticketNo || ''}
+                              onChange={(e) => handleUpdateItem(item.tempId, { ticketNo: e.target.value })}
+                              placeholder="เช่น 167311"
+                              className="w-24 bg-slate-800 border border-slate-600 rounded px-1.5 text-xs text-blue-200 font-mono font-bold focus:outline-none focus:border-blue-400"
+                              title="เลขที่ใบแจ้งซ่อม"
+                            />
+                          </div>
                           
                           {/* Machine Badge */}
                           <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${

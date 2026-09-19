@@ -5,13 +5,15 @@ import {
   StoppageType, 
   STOPPAGE_TYPE_DEFINITIONS, 
   detectStoppageType, 
-  getRepairStoppageType 
+  getRepairStoppageType,
+  SparePart,
+  UsedPartItem
 } from '../types';
 import { 
   Plus, Search, SlidersHorizontal, Image as ImageIcon, 
   Trash2, AlertTriangle, CheckCircle, HelpCircle, ArrowUpDown,
   Edit, FileSpreadsheet, Upload, X, MessageSquare, Tag, Check, Sparkles,
-  CheckCircle2, Clock, Wrench
+  CheckCircle2, Clock, Wrench, Package, PenLine, PlusCircle
 } from 'lucide-react';
 import { notifyRepairOpened, notifyRepairClosed, sendLineNotification } from '../utils/lineNotify';
 import { compressImageFile } from '../utils/imageUtils';
@@ -78,11 +80,23 @@ export const RepairPage: React.FC = () => {
   const [formStatus, setFormStatus] = useState<'กำลังซ่อม' | 'ปิดงาน'>('ปิดงาน');
   
   // Spare parts in form state
-  const [formUsedParts, setFormUsedParts] = useState<{ partId: string; quantity: number; pricePerUnit: number; totalCost: number }[]>([]);
+  const [formUsedParts, setFormUsedParts] = useState<UsedPartItem[]>([]);
+  const [partSourceMode, setPartSourceMode] = useState<'inventory' | 'custom'>('inventory');
+  
+  // Inventory selection state
   const [selectedPartId, setSelectedPartId] = useState('');
   const [partSearchQuery, setPartSearchQuery] = useState('');
   const [selectedPartQty, setSelectedPartQty] = useState<number>(1);
   const [selectedPartPrice, setSelectedPartPrice] = useState<number>(0);
+  
+  // Custom non-inventory spare part state
+  const [customPartName, setCustomPartName] = useState('');
+  const [customPartCode, setCustomPartCode] = useState('');
+  const [customPartUnit, setCustomPartUnit] = useState('ชิ้น');
+  const [customPartPrice, setCustomPartPrice] = useState<number>(0);
+  const [customPartQty, setCustomPartQty] = useState<number>(1);
+  const [saveCustomToMaster, setSaveCustomToMaster] = useState<boolean>(false);
+
   const [formOtherCost, setFormOtherCost] = useState<number>(0);
 
   // Stoppage Classification state (Breakdown / Minor stoppage / Adjustment loss)
@@ -90,7 +104,7 @@ export const RepairPage: React.FC = () => {
   const [formHasPartsReplaced, setFormHasPartsReplaced] = useState<boolean>(false);
   const [isStoppageManual, setIsStoppageManual] = useState<boolean>(false);
 
-  // Helper companion to add part to current list
+  // Helper companion to add part from inventory to current list
   const handleAddPartToForm = () => {
     if (!selectedPartId) {
       alert("กรุณาเลือกอะไหล่ก่อน");
@@ -121,9 +135,12 @@ export const RepairPage: React.FC = () => {
       const price = selectedPartPrice > 0 ? selectedPartPrice : partObj.pricePerUnit;
       setFormUsedParts(prev => [...prev, {
         partId: selectedPartId,
+        partName: partObj.name,
         quantity: selectedPartQty,
         pricePerUnit: price,
-        totalCost: selectedPartQty * price
+        totalCost: selectedPartQty * price,
+        isCustom: false,
+        unit: partObj.unit || 'ชิ้น'
       }]);
     }
 
@@ -137,6 +154,86 @@ export const RepairPage: React.FC = () => {
     setSelectedPartId('');
     setSelectedPartQty(1);
     setSelectedPartPrice(0);
+  };
+
+  // Helper companion to add custom non-inventory part
+  const handleAddCustomPartToForm = () => {
+    const trimmedName = customPartName.trim();
+    if (!trimmedName) {
+      alert("กรุณาระบุชื่อรายการอะไหล่");
+      return;
+    }
+    if (customPartQty <= 0) {
+      alert("จำนวนอะไหล่ต้องมากกว่า 0");
+      return;
+    }
+
+    const qty = Number(customPartQty) || 1;
+    const price = Math.max(0, Number(customPartPrice) || 0);
+    const unit = customPartUnit.trim() || 'ชิ้น';
+    const customId = customPartCode.trim() || `custom_${Date.now()}`;
+
+    // Check if part already in list
+    const existingIndex = formUsedParts.findIndex(p => 
+      p.partId === customId || (p.isCustom && p.partName?.toLowerCase() === trimmedName.toLowerCase())
+    );
+
+    if (existingIndex >= 0) {
+      setFormUsedParts(prev => prev.map((item, idx) => {
+        if (idx === existingIndex) {
+          const newQty = item.quantity + qty;
+          return {
+            ...item,
+            quantity: newQty,
+            totalCost: newQty * item.pricePerUnit
+          };
+        }
+        return item;
+      }));
+    } else {
+      setFormUsedParts(prev => [...prev, {
+        partId: customId,
+        partName: trimmedName,
+        quantity: qty,
+        pricePerUnit: price,
+        totalCost: qty * price,
+        isCustom: true,
+        unit: unit
+      }]);
+    }
+
+    // If user wants to also save this new part into Master Spare Parts inventory
+    if (saveCustomToMaster) {
+      const newMasterPart: SparePart = {
+        id: customPartCode.trim() || `SP-EXT-${Date.now().toString().slice(-5)}`,
+        name: trimmedName,
+        category: 'จัดซื้อเร่งด่วน / นอกคลัง',
+        machineIds: formMachine ? [formMachine] : [],
+        quantity: 0,
+        minRequired: 1,
+        unit: unit,
+        location: 'จัดซื้อเฉพาะกิจหน้างาน',
+        pricePerUnit: price,
+        lastRestockedDate: getTodayDateString()
+      };
+      if (!spareParts.some(sp => sp.id === newMasterPart.id)) {
+        setSpareParts(prev => [...prev, newMasterPart]);
+      }
+    }
+
+    // Since parts are added, mark hasPartsReplaced as true and auto-recommend Breakdown
+    setFormHasPartsReplaced(true);
+    if (!isStoppageManual) {
+      setFormStoppageType('BREAKDOWN');
+    }
+
+    // Reset custom inputs
+    setCustomPartName('');
+    setCustomPartCode('');
+    setCustomPartQty(1);
+    setCustomPartPrice(0);
+    setCustomPartUnit('ชิ้น');
+    setSaveCustomToMaster(false);
   };
 
   const handleRemovePartFromForm = (partId: string) => {
@@ -358,10 +455,17 @@ export const RepairPage: React.FC = () => {
     setFormStatus('ปิดงาน');
     setFormUsedParts([]);
     setFormOtherCost(0);
+    setPartSourceMode('inventory');
     setSelectedPartId('');
     setPartSearchQuery('');
     setSelectedPartQty(1);
     setSelectedPartPrice(0);
+    setCustomPartName('');
+    setCustomPartCode('');
+    setCustomPartQty(1);
+    setCustomPartPrice(0);
+    setCustomPartUnit('ชิ้น');
+    setSaveCustomToMaster(false);
     setFormStoppageType('BREAKDOWN');
     setFormHasPartsReplaced(false);
     setIsStoppageManual(false);
@@ -402,10 +506,17 @@ export const RepairPage: React.FC = () => {
     setFormExcelContent(log.excelFile?.content || '');
     setFormUsedParts(log.usedParts || []);
     setFormOtherCost(log.otherCost || 0);
+    setPartSourceMode('inventory');
     setSelectedPartId('');
     setPartSearchQuery('');
     setSelectedPartQty(1);
     setSelectedPartPrice(0);
+    setCustomPartName('');
+    setCustomPartCode('');
+    setCustomPartQty(1);
+    setCustomPartPrice(0);
+    setCustomPartUnit('ชิ้น');
+    setSaveCustomToMaster(false);
     
     setShowFormModal(true);
   };
@@ -1854,90 +1965,263 @@ export const RepairPage: React.FC = () => {
 
               {/* SPARE PARTS AND REPAIR COSTS SECTION */}
               <div className="bg-slate-900/50 p-4 border border-slate-700/80 rounded-xl space-y-3">
-                <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wide flex items-center gap-1 select-none">
-                  🛠️ อะไหล่ที่ใช้และค่าใช้จ่าย (Spare Parts & Repair Costs)
-                </span>
-                
-                {/* Add spare part widget */}
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
-                  <div className="sm:col-span-7 space-y-1">
-                    <label className="text-[10px] text-slate-400 font-bold flex justify-between items-center">
-                      <span>เลือกรายการอะไหล่ในคลัง</span>
-                      {partSearchQuery && (
-                        <button 
-                          type="button" 
-                          onClick={() => setPartSearchQuery('')} 
-                          className="text-[9px] text-cyan-400 hover:underline"
-                        >
-                          ล้างค้นหา ✕
-                        </button>
-                      )}
-                    </label>
-                    <div className="space-y-1">
-                      <input
-                        type="text"
-                        placeholder="🔍 พิมพ์ค้นหาอะไหล่ (ชื่อ หรือ รหัส)..."
-                        value={partSearchQuery}
-                        onChange={(e) => setPartSearchQuery(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10.5px] text-slate-200 focus:outline-none focus:border-cyan-500 placeholder-slate-500 font-sans"
-                      />
-                      <select
-                        value={selectedPartId}
-                        onChange={(e) => {
-                          const pid = e.target.value;
-                          setSelectedPartId(pid);
-                          const found = spareParts.find(p => p.id === pid);
-                          if (found) {
-                            setSelectedPartPrice(found.pricePerUnit);
-                          } else {
-                            setSelectedPartPrice(0);
-                          }
-                        }}
-                        className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500 font-sans"
-                      >
-                        <option value="">
-                          {partSearchQuery ? `-- อะไหล่ที่ตรงค้นหา (${spareParts.filter(sp => sp.name.toLowerCase().includes(partSearchQuery.toLowerCase()) || sp.id.toLowerCase().includes(partSearchQuery.toLowerCase())).length} รายการ) --` : "-- เลือกอะไหล่ --"}
-                        </option>
-                        {spareParts
-                          .filter(sp => {
-                            if (!partSearchQuery) return true;
-                            const q = partSearchQuery.toLowerCase();
-                            return sp.name.toLowerCase().includes(q) || sp.id.toLowerCase().includes(q);
-                          })
-                          .map(sp => {
-                            // Highlight if part matches this machine
-                            const isMatch = sp.machineIds?.includes(formMachine);
-                            return (
-                              <option key={sp.id} value={sp.id}>
-                                {isMatch ? "⭐ " : ""}{sp.name} [{sp.id}] - {sp.pricePerUnit.toLocaleString()} บาท/หน่วย (คงเหลือ: {sp.quantity} {sp.unit})
-                              </option>
-                            );
-                          })}
-                      </select>
-                    </div>
-                  </div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                  <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wide flex items-center gap-1.5 select-none">
+                    <Wrench className="w-3.5 h-3.5" /> อะไหล่ที่ใช้และค่าใช้จ่าย (Spare Parts & Costs)
+                  </span>
 
-                  <div className="sm:col-span-3 space-y-1">
-                    <label className="text-[10px] text-slate-400 text-center block">จำนวน</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={selectedPartQty}
-                      onChange={(e) => setSelectedPartQty(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500 text-center font-mono"
-                    />
-                  </div>
-
-                  <div className="sm:col-span-2 space-y-1 flex flex-col justify-end">
+                  {/* Mode switcher tabs */}
+                  <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[10.5px]">
                     <button
                       type="button"
-                      onClick={handleAddPartToForm}
-                      className="w-full bg-cyan-500/20 hover:bg-cyan-500 border border-cyan-500/30 hover:text-slate-950 text-cyan-400 font-bold text-[11px] py-1.5 rounded transition flex items-center justify-center"
+                      onClick={() => setPartSourceMode('inventory')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                        partSourceMode === 'inventory'
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
                     >
-                      เพิ่ม
+                      <Package className="w-3 h-3" /> เลือกจากคลังอะไหล่
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPartSourceMode('custom');
+                        if (partSearchQuery.trim() && !customPartName) {
+                          setCustomPartName(partSearchQuery.trim());
+                        }
+                      }}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                        partSourceMode === 'custom'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <PenLine className="w-3 h-3" /> พิมพ์ระบุอะไหล่เอง (นอกคลัง)
                     </button>
                   </div>
                 </div>
+                
+                {/* 1. INVENTORY MODE */}
+                {partSourceMode === 'inventory' && (
+                  <div className="space-y-2 pt-0.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                      <div className="sm:col-span-7 space-y-1">
+                        <label className="text-[10px] text-slate-400 font-bold flex justify-between items-center">
+                          <span>ค้นหาและเลือกอะไหล่ในคลัง</span>
+                          {partSearchQuery && (
+                            <button 
+                              type="button" 
+                              onClick={() => setPartSearchQuery('')} 
+                              className="text-[9px] text-cyan-400 hover:underline"
+                            >
+                              ล้างค้นหา ✕
+                            </button>
+                          )}
+                        </label>
+                        <div className="space-y-1">
+                          <input
+                            type="text"
+                            placeholder="🔍 พิมพ์ค้นหาอะไหล่ (ชื่อ หรือ รหัส)..."
+                            value={partSearchQuery}
+                            onChange={(e) => setPartSearchQuery(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-[10.5px] text-slate-200 focus:outline-none focus:border-cyan-500 placeholder-slate-500 font-sans"
+                          />
+                          <select
+                            value={selectedPartId}
+                            onChange={(e) => {
+                              const pid = e.target.value;
+                              setSelectedPartId(pid);
+                              const found = spareParts.find(p => p.id === pid);
+                              if (found) {
+                                setSelectedPartPrice(found.pricePerUnit);
+                              } else {
+                                setSelectedPartPrice(0);
+                              }
+                            }}
+                            className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500 font-sans"
+                          >
+                            <option value="">
+                              {partSearchQuery ? `-- อะไหล่ที่ตรงค้นหา (${spareParts.filter(sp => sp.name.toLowerCase().includes(partSearchQuery.toLowerCase()) || sp.id.toLowerCase().includes(partSearchQuery.toLowerCase())).length} รายการ) --` : "-- เลือกอะไหล่ในคลัง --"}
+                            </option>
+                            {spareParts
+                              .filter(sp => {
+                                if (!partSearchQuery) return true;
+                                const q = partSearchQuery.toLowerCase();
+                                return sp.name.toLowerCase().includes(q) || sp.id.toLowerCase().includes(q);
+                              })
+                              .map(sp => {
+                                const isMatch = sp.machineIds?.includes(formMachine);
+                                return (
+                                  <option key={sp.id} value={sp.id}>
+                                    {isMatch ? "⭐ " : ""}{sp.name} [{sp.id}] - {sp.pricePerUnit.toLocaleString()} บาท/หน่วย (คงเหลือ: {sp.quantity} {sp.unit})
+                                  </option>
+                                );
+                              })}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-400 text-center block">จำนวน</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={selectedPartQty}
+                          onChange={(e) => setSelectedPartQty(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-cyan-500 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2 space-y-1 flex flex-col justify-end">
+                        <button
+                          type="button"
+                          onClick={handleAddPartToForm}
+                          className="w-full bg-cyan-500/20 hover:bg-cyan-500 border border-cyan-500/30 hover:text-slate-950 text-cyan-300 hover:font-bold text-[11px] py-1.5 rounded transition flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> เพิ่ม
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Quick suggestion banner to jump to custom part */}
+                    {partSearchQuery.trim() && (
+                      <div className="flex items-center justify-between gap-2 p-2 bg-amber-500/10 border border-amber-500/25 rounded-lg text-[10px] text-amber-300">
+                        <span className="truncate">
+                          💡 ไม่พบในคลัง หรือต้องการระบุ <b>"{partSearchQuery.trim()}"</b> เป็นอะไหล่นอกคลัง?
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPartSourceMode('custom');
+                            setCustomPartName(partSearchQuery.trim());
+                          }}
+                          className="shrink-0 px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[9.5px] transition cursor-pointer flex items-center gap-1"
+                        >
+                          <PenLine className="w-2.5 h-2.5" /> พิมพ์เพิ่มเป็นอะไหล่นอกคลัง
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 2. CUSTOM NON-INVENTORY PART MODE */}
+                {partSourceMode === 'custom' && (
+                  <div className="bg-slate-950/60 p-3 rounded-lg border border-amber-500/30 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-amber-300 flex items-center gap-1">
+                        ✏️ พิมพ์ระบุอะไหล่นอกคลัง (จัดซื้อเร่งด่วน / สั่งทำพิเศษ / ซื้อหน้างาน)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPartSourceMode('inventory')}
+                        className="text-[9.5px] text-slate-400 hover:text-cyan-400 hover:underline cursor-pointer"
+                      >
+                        ← กลับไปเลือกจากคลัง
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                      <div className="sm:col-span-7 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">
+                          ชื่อรายการอะไหล่ <span className="text-rose-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="เช่น ปลั๊ก 3 ขา ทนความร้อน, สายพานร่องวี B-42..."
+                          value={customPartName}
+                          onChange={(e) => setCustomPartName(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 font-sans"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-5 space-y-1">
+                        <label className="text-[10px] text-slate-400">
+                          รหัส / ยี่ห้อ / สเปกอ้างอิง (ถ้ามี)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="เช่น PLUG-3P-HT หรือ ยี่ห้อ Omron"
+                          value={customPartCode}
+                          onChange={(e) => setCustomPartCode(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-amber-400 font-sans"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-12 gap-2">
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">
+                          จำนวน <span className="text-rose-400">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={customPartQty}
+                          onChange={(e) => setCustomPartQty(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 text-center font-mono"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">หน่วยนับ</label>
+                        <input
+                          type="text"
+                          placeholder="ชิ้น"
+                          value={customPartUnit}
+                          onChange={(e) => setCustomPartUnit(e.target.value)}
+                          list="custom-part-unit-suggestions"
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 text-center"
+                        />
+                        <datalist id="custom-part-unit-suggestions">
+                          <option value="ชิ้น" />
+                          <option value="ตัว" />
+                          <option value="เส้น" />
+                          <option value="ชุด" />
+                          <option value="เมตร" />
+                          <option value="ม้วน" />
+                          <option value="อัน" />
+                          <option value="กล่อง" />
+                        </datalist>
+                      </div>
+
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">ราคาต่อหน่วย (บาท)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={customPartPrice || ''}
+                          onChange={(e) => setCustomPartPrice(Math.max(0, parseFloat(e.target.value) || 0))}
+                          placeholder="0"
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 text-right font-mono"
+                        />
+                      </div>
+
+                      <div className="col-span-2 sm:col-span-3 space-y-1 flex flex-col justify-end">
+                        <button
+                          type="button"
+                          onClick={handleAddCustomPartToForm}
+                          className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] py-1.5 rounded transition flex items-center justify-center gap-1 shadow-sm cursor-pointer"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" /> + เพิ่มอะไหล่นอกคลัง
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
+                      <label className="flex items-center gap-1.5 text-[10px] text-slate-300 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={saveCustomToMaster}
+                          onChange={(e) => setSaveCustomToMaster(e.target.checked)}
+                          className="rounded border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
+                        />
+                        <span>บันทึกอะไหล่นี้เข้าฐานข้อมูลคลังพัสดุหลักด้วย (Master Inventory)</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
 
                 {/* Used spare parts list */}
                 {formUsedParts.length > 0 ? (
@@ -1955,20 +2239,33 @@ export const RepairPage: React.FC = () => {
                       <tbody className="divide-y divide-slate-850">
                         {formUsedParts.map(item => {
                           const originalPart = spareParts.find(p => p.id === item.partId);
+                          const displayName = item.partName || originalPart?.name || item.partId;
+                          const displayUnit = item.unit || originalPart?.unit || 'ชิ้น';
+                          const isCustom = item.isCustom || !originalPart;
+
                           return (
                             <tr key={item.partId} className="hover:bg-slate-900/50">
                               <td className="p-2 pl-3">
-                                <p className="font-semibold text-slate-200">{originalPart?.name || item.partId}</p>
-                                <p className="text-[8px] text-slate-500 font-mono">{item.partId}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="font-semibold text-slate-200">{displayName}</p>
+                                  {isCustom && (
+                                    <span className="px-1.5 py-0.2 rounded text-[8px] bg-amber-500/15 text-amber-300 border border-amber-500/30 font-sans">
+                                      อะไหล่นอกคลัง
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[8px] text-slate-500 font-mono">
+                                  {item.isCustom ? (item.partId.startsWith('custom_') ? 'กำหนดเอง' : item.partId) : item.partId}
+                                </p>
                               </td>
-                              <td className="p-2 text-center font-mono text-slate-300">{item.quantity} {originalPart?.unit}</td>
+                              <td className="p-2 text-center font-mono text-slate-300">{item.quantity} {displayUnit}</td>
                               <td className="p-2 text-right font-mono text-slate-350">{item.pricePerUnit.toLocaleString()} ฿</td>
                               <td className="p-2 text-right font-mono text-cyan-400 font-semibold">{item.totalCost.toLocaleString()} ฿</td>
                               <td className="p-2 text-center">
                                 <button
                                   type="button"
                                   onClick={() => handleRemovePartFromForm(item.partId)}
-                                  className="text-slate-500 hover:text-rose-400 p-0.5 rounded hover:bg-slate-900"
+                                  className="text-slate-500 hover:text-rose-400 p-0.5 rounded hover:bg-slate-900 cursor-pointer"
                                 >
                                   ✕
                                 </button>
@@ -2300,13 +2597,26 @@ export const RepairPage: React.FC = () => {
                       <tbody className="divide-y divide-slate-850">
                         {selectedRepairDetail.usedParts.map(item => {
                           const partInfo = spareParts.find(p => p.id === item.partId);
+                          const displayName = item.partName || partInfo?.name || item.partId;
+                          const displayUnit = item.unit || partInfo?.unit || 'ชิ้น';
+                          const isCustom = item.isCustom || !partInfo;
+
                           return (
                             <tr key={item.partId} className="hover:bg-slate-900/40 text-slate-300">
                               <td className="p-2.5 pl-3">
-                                <p className="font-semibold">{partInfo?.name || item.partId}</p>
-                                <p className="text-[9px] text-slate-500 font-mono">{item.partId}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="font-semibold">{displayName}</p>
+                                  {isCustom && (
+                                    <span className="px-1.5 py-0.2 rounded text-[8.5px] bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                      ระบุเองนอกคลัง
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[9px] text-slate-500 font-mono">
+                                  {item.isCustom ? (item.partId.startsWith('custom_') ? 'กำหนดเอง' : item.partId) : item.partId}
+                                </p>
                               </td>
-                              <td className="p-2.5 text-center font-mono">{item.quantity} {partInfo?.unit}</td>
+                              <td className="p-2.5 text-center font-mono">{item.quantity} {displayUnit}</td>
                               <td className="p-2.5 text-right font-mono">{item.pricePerUnit.toLocaleString()} ฿</td>
                               <td className="p-2.5 text-right font-mono text-cyan-400 font-bold">{item.totalCost.toLocaleString()} ฿</td>
                             </tr>

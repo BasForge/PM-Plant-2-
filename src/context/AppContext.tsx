@@ -53,6 +53,8 @@ interface AppContextType {
   setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>;
   workRequests: WorkRequest[];
   setWorkRequests: React.Dispatch<React.SetStateAction<WorkRequest[]>>;
+  updateMachinePlannedTime: (machineId: string, plannedHours: number) => void;
+  updateAllMachinesPlannedTime: (plannedHours: number) => void;
   addWorkRequest: (req: Omit<WorkRequest, 'id' | 'createdAt' | 'status'>) => WorkRequest;
   updateWorkRequest: (id: string, updates: Partial<WorkRequest>) => void;
   deleteWorkRequest: (id: string) => void;
@@ -127,6 +129,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   
   const [settings, setSettings] = useState<SystemSettings>({
     workingHoursPerDay: 8, // 8 hours * 60 = 480 mins
+    defaultPlannedProductionHours: 600, // ค่ามาตรฐาน 600 ชม./เดือน (ตามเอกสารมาตรฐาน TPM CPRAM PM Pillar)
     lineNotifyEnabled: false,
     lineNotifyToken: '',
     stdMttr: {
@@ -927,6 +930,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
+  const updateMachinePlannedTime = (machineId: string, plannedHours: number) => {
+    setMachines(prev => prev.map(m => m.id === machineId ? { ...m, plannedProductionHours: plannedHours } : m));
+  };
+
+  const updateAllMachinesPlannedTime = (plannedHours: number) => {
+    setMachines(prev => prev.map(m => ({ ...m, plannedProductionHours: plannedHours })));
+    setSettings(prev => ({ ...prev, defaultPlannedProductionHours: plannedHours }));
+  };
+
   const resetToDefaults = () => {
     setMachines(PRELOADED_MACHINES);
     setTechnicians(PRELOADED_TECHNICIANS);
@@ -954,6 +966,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLeaves(preloadingLeaves);
     setSettings({
       workingHoursPerDay: 8,
+      defaultPlannedProductionHours: 600,
       lineNotifyEnabled: false,
       lineNotifyToken: '',
       stdMttr: {
@@ -1055,6 +1068,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cd5Projects, setCd5Projects,
       users, setUsers,
       workRequests, setWorkRequests,
+      updateMachinePlannedTime, updateAllMachinesPlannedTime,
       addWorkRequest, updateWorkRequest, deleteWorkRequest,
       respondToWorkRequest, completeWorkRequest, acceptWorkRequestHandover,
       currentUser, setCurrentUser,

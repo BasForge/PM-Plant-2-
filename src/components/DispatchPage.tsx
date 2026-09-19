@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   ScheduleItem, PMScheduleItem, OperationScheduleItem, 
-  RepairLog, ImprovementProject, PMPlan, Machine 
+  RepairLog, ImprovementProject, PMPlan, Machine, UsedPartItem, SparePart 
 } from '../types';
 import { 
   Send, UserCheck, Activity, ClipboardList, Wrench, PenTool,
   Clock, CheckCircle, Flame, Calendar, Trash2, CheckSquare, 
   AlertTriangle, ShieldCheck, RefreshCw, Layers, Sparkles, Edit2, X,
-  Search, Info, Lock, Unlock, HelpCircle, SlidersHorizontal, Check
+  Search, Info, Lock, Unlock, HelpCircle, SlidersHorizontal, Check,
+  Package, PenLine, PlusCircle
 } from 'lucide-react';
 import { notifyPMDispatched, notifyRepairOpened, notifyRepairClosed } from '../utils/lineNotify';
 import { getTodayDateString } from '../utils/pmAlerts';
@@ -59,16 +60,30 @@ export const DispatchPage: React.FC = () => {
   const [repWhy4Field, setRepWhy4Field] = useState<string>("");
   const [repWhy5Field, setRepWhy5Field] = useState<string>("");
   const [repWhyCount, setRepWhyCount] = useState<number>(3);
-  const [repUsedParts, setRepUsedParts] = useState<{ partId: string; quantity: number; pricePerUnit: number; totalCost: number }[]>([]);
+  const [repUsedParts, setRepUsedParts] = useState<UsedPartItem[]>([]);
+  const [repPartSourceMode, setRepPartSourceMode] = useState<'inventory' | 'custom'>('inventory');
   const [repPartSearch, setRepPartSearch] = useState<string>("");
   const [repSelectedPartId, setRepSelectedPartId] = useState<string>("");
   const [repSelectedPartQty, setRepSelectedPartQty] = useState<number>(1);
+  const [repCustomName, setRepCustomName] = useState<string>("");
+  const [repCustomCode, setRepCustomCode] = useState<string>("");
+  const [repCustomUnit, setRepCustomUnit] = useState<string>("ชิ้น");
+  const [repCustomPrice, setRepCustomPrice] = useState<number>(0);
+  const [repCustomQty, setRepCustomQty] = useState<number>(1);
+  const [saveRepCustomToMaster, setSaveRepCustomToMaster] = useState<boolean>(false);
 
   // --- SPARE PARTS STATE FOR PM CLOSING ---
-  const [pmUsedParts, setPmUsedParts] = useState<{ partId: string; quantity: number; pricePerUnit: number; totalCost: number }[]>([]);
+  const [pmUsedParts, setPmUsedParts] = useState<UsedPartItem[]>([]);
+  const [pmPartSourceMode, setPmPartSourceMode] = useState<'inventory' | 'custom'>('inventory');
   const [pmPartSearch, setPmPartSearch] = useState<string>("");
   const [pmSelectedPartId, setPmSelectedPartId] = useState<string>("");
   const [pmSelectedPartQty, setPmSelectedPartQty] = useState<number>(1);
+  const [pmCustomName, setPmCustomName] = useState<string>("");
+  const [pmCustomCode, setPmCustomCode] = useState<string>("");
+  const [pmCustomUnit, setPmCustomUnit] = useState<string>("ชิ้น");
+  const [pmCustomPrice, setPmCustomPrice] = useState<number>(0);
+  const [pmCustomQty, setPmCustomQty] = useState<number>(1);
+  const [savePmCustomToMaster, setSavePmCustomToMaster] = useState<boolean>(false);
 
   // --- CLOSING PM TASK STATE FOR ACTUAL TIME TRACKING ---
   const [closingPMItem, setClosingPMItem] = useState<PMScheduleItem | null>(null);
@@ -639,7 +654,7 @@ export const DispatchPage: React.FC = () => {
     setPmUsedParts([]);
   };
 
-  // Helper to add a part during Repair closing
+  // Helper to add a part during Repair closing (Inventory)
   const handleAddRepairPart = () => {
     if (!repSelectedPartId) return;
     const partObj = spareParts.find(p => p.id === repSelectedPartId);
@@ -671,9 +686,12 @@ export const DispatchPage: React.FC = () => {
       const price = partObj.pricePerUnit || 150;
       setRepUsedParts(prev => [...prev, {
         partId: repSelectedPartId,
+        partName: partObj.name,
         quantity: repSelectedPartQty,
         pricePerUnit: price,
-        totalCost: repSelectedPartQty * price
+        totalCost: repSelectedPartQty * price,
+        isCustom: false,
+        unit: partObj.unit || 'ชิ้น'
       }]);
     }
 
@@ -683,7 +701,78 @@ export const DispatchPage: React.FC = () => {
     setRepPartSearch("");
   };
 
-  // Helper to add a part during PM closing
+  // Helper to add a custom non-inventory part during Repair closing
+  const handleAddRepairCustomPart = () => {
+    const trimmed = repCustomName.trim();
+    if (!trimmed) {
+      showFeedback('error', 'กรุณาระบุชื่อรายการอะไหล่');
+      return;
+    }
+    if (repCustomQty <= 0) {
+      showFeedback('error', 'จำนวนอะไหล่ต้องมากกว่า 0');
+      return;
+    }
+
+    const qty = Number(repCustomQty) || 1;
+    const price = Math.max(0, Number(repCustomPrice) || 0);
+    const unit = repCustomUnit.trim() || 'ชิ้น';
+    const customId = repCustomCode.trim() || `custom_${Date.now()}`;
+
+    const existingIndex = repUsedParts.findIndex(p => 
+      p.partId === customId || (p.isCustom && p.partName?.toLowerCase() === trimmed.toLowerCase())
+    );
+
+    if (existingIndex >= 0) {
+      setRepUsedParts(prev => prev.map((item, idx) => {
+        if (idx === existingIndex) {
+          const newQty = item.quantity + qty;
+          return {
+            ...item,
+            quantity: newQty,
+            totalCost: newQty * item.pricePerUnit
+          };
+        }
+        return item;
+      }));
+    } else {
+      setRepUsedParts(prev => [...prev, {
+        partId: customId,
+        partName: trimmed,
+        quantity: qty,
+        pricePerUnit: price,
+        totalCost: qty * price,
+        isCustom: true,
+        unit: unit
+      }]);
+    }
+
+    if (saveRepCustomToMaster) {
+      const newMasterPart: SparePart = {
+        id: repCustomCode.trim() || `SP-EXT-${Date.now().toString().slice(-5)}`,
+        name: trimmed,
+        category: 'จัดซื้อเร่งด่วน / นอกคลัง',
+        machineIds: closingRepairItem?.machineId ? [closingRepairItem.machineId] : [],
+        quantity: 0,
+        minRequired: 1,
+        unit: unit,
+        location: 'จัดซื้อเฉพาะกิจหน้างาน',
+        pricePerUnit: price,
+        lastRestockedDate: getTodayDateString()
+      };
+      if (!spareParts.some(sp => sp.id === newMasterPart.id)) {
+        setSpareParts(prev => [...prev, newMasterPart]);
+      }
+    }
+
+    setRepCustomName('');
+    setRepCustomCode('');
+    setRepCustomQty(1);
+    setRepCustomPrice(0);
+    setRepCustomUnit('ชิ้น');
+    setSaveRepCustomToMaster(false);
+  };
+
+  // Helper to add a part during PM closing (Inventory)
   const handleAddPMPart = () => {
     if (!pmSelectedPartId) return;
     const partObj = spareParts.find(p => p.id === pmSelectedPartId);
@@ -715,9 +804,12 @@ export const DispatchPage: React.FC = () => {
       const price = partObj.pricePerUnit || 150;
       setPmUsedParts(prev => [...prev, {
         partId: pmSelectedPartId,
+        partName: partObj.name,
         quantity: pmSelectedPartQty,
         pricePerUnit: price,
-        totalCost: pmSelectedPartQty * price
+        totalCost: pmSelectedPartQty * price,
+        isCustom: false,
+        unit: partObj.unit || 'ชิ้น'
       }]);
     }
 
@@ -725,6 +817,77 @@ export const DispatchPage: React.FC = () => {
     setPmSelectedPartId("");
     setPmSelectedPartQty(1);
     setPmPartSearch("");
+  };
+
+  // Helper to add a custom non-inventory part during PM closing
+  const handleAddPMCustomPart = () => {
+    const trimmed = pmCustomName.trim();
+    if (!trimmed) {
+      showFeedback('error', 'กรุณาระบุชื่อรายการอะไหล่');
+      return;
+    }
+    if (pmCustomQty <= 0) {
+      showFeedback('error', 'จำนวนอะไหล่ต้องมากกว่า 0');
+      return;
+    }
+
+    const qty = Number(pmCustomQty) || 1;
+    const price = Math.max(0, Number(pmCustomPrice) || 0);
+    const unit = pmCustomUnit.trim() || 'ชิ้น';
+    const customId = pmCustomCode.trim() || `custom_${Date.now()}`;
+
+    const existingIndex = pmUsedParts.findIndex(p => 
+      p.partId === customId || (p.isCustom && p.partName?.toLowerCase() === trimmed.toLowerCase())
+    );
+
+    if (existingIndex >= 0) {
+      setPmUsedParts(prev => prev.map((item, idx) => {
+        if (idx === existingIndex) {
+          const newQty = item.quantity + qty;
+          return {
+            ...item,
+            quantity: newQty,
+            totalCost: newQty * item.pricePerUnit
+          };
+        }
+        return item;
+      }));
+    } else {
+      setPmUsedParts(prev => [...prev, {
+        partId: customId,
+        partName: trimmed,
+        quantity: qty,
+        pricePerUnit: price,
+        totalCost: qty * price,
+        isCustom: true,
+        unit: unit
+      }]);
+    }
+
+    if (savePmCustomToMaster) {
+      const newMasterPart: SparePart = {
+        id: pmCustomCode.trim() || `SP-EXT-${Date.now().toString().slice(-5)}`,
+        name: trimmed,
+        category: 'จัดซื้อเร่งด่วน / นอกคลัง',
+        machineIds: closingPMItem?.machineId ? [closingPMItem.machineId] : [],
+        quantity: 0,
+        minRequired: 1,
+        unit: unit,
+        location: 'จัดซื้อเฉพาะกิจหน้างาน',
+        pricePerUnit: price,
+        lastRestockedDate: getTodayDateString()
+      };
+      if (!spareParts.some(sp => sp.id === newMasterPart.id)) {
+        setSpareParts(prev => [...prev, newMasterPart]);
+      }
+    }
+
+    setPmCustomName('');
+    setPmCustomCode('');
+    setPmCustomQty(1);
+    setPmCustomPrice(0);
+    setPmCustomUnit('ชิ้น');
+    setSavePmCustomToMaster(false);
   };
 
   // Save LOTO safety activation
@@ -2365,9 +2528,11 @@ export const DispatchPage: React.FC = () => {
                                     <div className="flex flex-wrap gap-1">
                                       {job.usedParts.map((up: any, idx: number) => {
                                         const actualPart = spareParts.find(p => p.id === up.partId);
+                                        const displayName = up.partName || actualPart?.name || up.partId;
+                                        const isCustom = up.isCustom || !actualPart;
                                         return (
-                                          <span key={idx} className="bg-slate-950 px-1.5 py-0.5 text-[8px] rounded border border-slate-800 text-slate-500">
-                                            ⚙️ {actualPart?.name || up.partId} x{up.quantity}
+                                          <span key={idx} className={`px-1.5 py-0.5 text-[8px] rounded border ${isCustom ? 'bg-amber-500/10 border-amber-500/25 text-amber-300' : 'bg-slate-950 border-slate-800 text-slate-400'}`}>
+                                            ⚙️ {displayName} x{up.quantity}{isCustom ? ' (นอกคลัง)' : ''}
                                           </span>
                                         );
                                       })}
@@ -3030,52 +3195,190 @@ export const DispatchPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Autocomplete spare part search (matches Request 1) */}
-              <div className="bg-slate-955 p-4 rounded-xl border border-slate-800 space-y-3 bg-slate-950">
-                <label className="font-extrabold text-slate-350 block text-[11px] uppercase tracking-wider text-cyan-400">🔍 ตัดจ่ายวัสดุอะไหล่บำรุงรักษา (Spare Parts Search & Use)</label>
-                
-                <div className="flex gap-2 items-center">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      value={pmPartSearch}
-                      onChange={(e) => {
-                        setPmPartSearch(e.target.value);
-                        // find if matches any part
-                        const matched = spareParts.find(p => p.name.toLowerCase().includes(e.target.value.toLowerCase()) || p.id.toLowerCase().includes(e.target.value.toLowerCase()));
-                        if (matched && e.target.value.trim() !== "") {
-                          setPmSelectedPartId(matched.id);
-                        } else {
-                          setPmSelectedPartId("");
+              {/* Autocomplete spare part search & Custom spare parts */}
+              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                  <label className="font-extrabold text-slate-350 block text-[11px] uppercase tracking-wider text-cyan-400">
+                    🛠️ ตัดจ่ายวัสดุอะไหล่บำรุงรักษา (Spare Parts)
+                  </label>
+
+                  {/* Mode switcher tabs */}
+                  <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-750 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setPmPartSourceMode('inventory')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                        pmPartSourceMode === 'inventory'
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Package className="w-3 h-3" /> เลือกจากคลัง
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPmPartSourceMode('custom');
+                        if (pmPartSearch.trim() && !pmCustomName) {
+                          setPmCustomName(pmPartSearch.trim());
                         }
                       }}
-                      className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
-                      placeholder="พิมพ์ชื่ออะไหล่ หรือ SKU เพื่อค้นหา..."
-                    />
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                        pmPartSourceMode === 'custom'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <PenLine className="w-3 h-3" /> พิมพ์ระบุเอง (นอกคลัง)
+                    </button>
                   </div>
-                  <div className="w-[80px]">
-                    <input
-                      type="number"
-                      min="1"
-                      value={pmSelectedPartQty}
-                      onChange={(e) => setPmSelectedPartQty(Math.max(1, Number(e.target.value)))}
-                      className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2 py-1.5 text-xs text-center text-slate-200 focus:outline-none"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddPMPart}
-                    disabled={!pmSelectedPartId}
-                    className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0"
-                  >
-                    + เพิ่ม
-                  </button>
                 </div>
 
-                {/* Selected spare parts indicator */}
-                {pmSelectedPartId && (
-                  <div className="text-[10.5px] text-emerald-400 font-medium">
-                    🎯 พบอะไหล่: {spareParts.find(p => p.id === pmSelectedPartId)?.name} (คงเหลือในคลัง {spareParts.find(p => p.id === pmSelectedPartId)?.quantity} {spareParts.find(p => p.id === pmSelectedPartId)?.unit})
+                {/* 1. Inventory selection */}
+                {pmPartSourceMode === 'inventory' && (
+                  <div className="space-y-2">
+                    <div className="flex gap-2 items-center">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          value={pmPartSearch}
+                          onChange={(e) => {
+                            setPmPartSearch(e.target.value);
+                            const matched = spareParts.find(p => p.name.toLowerCase().includes(e.target.value.toLowerCase()) || p.id.toLowerCase().includes(e.target.value.toLowerCase()));
+                            if (matched && e.target.value.trim() !== "") {
+                              setPmSelectedPartId(matched.id);
+                            } else {
+                              setPmSelectedPartId("");
+                            }
+                          }}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
+                          placeholder="พิมพ์ชื่ออะไหล่ หรือ SKU เพื่อค้นหา..."
+                        />
+                      </div>
+                      <div className="w-[80px]">
+                        <input
+                          type="number"
+                          min="1"
+                          value={pmSelectedPartQty}
+                          onChange={(e) => setPmSelectedPartQty(Math.max(1, Number(e.target.value)))}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2 py-1.5 text-xs text-center text-slate-200 focus:outline-none"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddPMPart}
+                        disabled={!pmSelectedPartId}
+                        className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 cursor-pointer"
+                      >
+                        + เพิ่ม
+                      </button>
+                    </div>
+
+                    {pmSelectedPartId && (
+                      <div className="text-[10.5px] text-emerald-400 font-medium">
+                        🎯 พบอะไหล่: {spareParts.find(p => p.id === pmSelectedPartId)?.name} (คงเหลือในคลัง {spareParts.find(p => p.id === pmSelectedPartId)?.quantity} {spareParts.find(p => p.id === pmSelectedPartId)?.unit})
+                      </div>
+                    )}
+
+                    {pmPartSearch.trim() && !pmSelectedPartId && (
+                      <div className="flex items-center justify-between gap-2 p-2 bg-amber-500/10 border border-amber-500/25 rounded-lg text-[10px] text-amber-300">
+                        <span className="truncate">
+                          💡 ไม่พบในคลัง? ต้องการระบุ <b>"{pmPartSearch.trim()}"</b> เป็นอะไหล่นอกคลัง
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPmPartSourceMode('custom');
+                            setPmCustomName(pmPartSearch.trim());
+                          }}
+                          className="shrink-0 px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[9.5px] transition cursor-pointer flex items-center gap-1"
+                        >
+                          <PenLine className="w-2.5 h-2.5" /> พิมพ์เพิ่มเป็นอะไหล่นอกคลัง
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 2. Custom non-inventory selection */}
+                {pmPartSourceMode === 'custom' && (
+                  <div className="bg-slate-900/70 p-3 rounded-lg border border-amber-500/30 space-y-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                      <div className="sm:col-span-7 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">ชื่อรายการอะไหล่ *</label>
+                        <input
+                          type="text"
+                          placeholder="เช่น โอริงทนความร้อน, สกรูพิเศษ..."
+                          value={pmCustomName}
+                          onChange={(e) => setPmCustomName(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                      <div className="sm:col-span-5 space-y-1">
+                        <label className="text-[10px] text-slate-400">รหัส / สเปก (ถ้ามี)</label>
+                        <input
+                          type="text"
+                          placeholder="เช่น Spec-A"
+                          value={pmCustomCode}
+                          onChange={(e) => setPmCustomCode(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-12 gap-2">
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">จำนวน *</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={pmCustomQty}
+                          onChange={(e) => setPmCustomQty(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 text-center font-mono"
+                        />
+                      </div>
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">หน่วยนับ</label>
+                        <input
+                          type="text"
+                          placeholder="ชิ้น"
+                          value={pmCustomUnit}
+                          onChange={(e) => setPmCustomUnit(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 text-center"
+                        />
+                      </div>
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">ราคา/หน่วย (บาท)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={pmCustomPrice || ''}
+                          onChange={(e) => setPmCustomPrice(Math.max(0, parseFloat(e.target.value) || 0))}
+                          placeholder="0"
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 text-right font-mono"
+                        />
+                      </div>
+                      <div className="col-span-2 sm:col-span-3 space-y-1 flex flex-col justify-end">
+                        <button
+                          type="button"
+                          onClick={handleAddPMCustomPart}
+                          className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10.5px] py-1.5 rounded transition flex items-center justify-center gap-1 shadow-sm cursor-pointer"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" /> + เพิ่มนอกคลัง
+                        </button>
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-1.5 text-[9.5px] text-slate-300 cursor-pointer pt-1 border-t border-slate-800 select-none">
+                      <input
+                        type="checkbox"
+                        checked={savePmCustomToMaster}
+                        onChange={(e) => setSavePmCustomToMaster(e.target.checked)}
+                        className="rounded border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
+                      />
+                      <span>บันทึกอะไหล่นี้เข้าฐานข้อมูลคลังพัสดุหลักด้วย</span>
+                    </label>
                   </div>
                 )}
 
@@ -3085,16 +3388,37 @@ export const DispatchPage: React.FC = () => {
                     <div className="bg-slate-950 px-3 py-1.5 border-b border-slate-800 text-[10px] text-slate-400 font-bold grid grid-cols-12">
                       <span className="col-span-6">อะไหล่</span>
                       <span className="col-span-2 text-center">จำนวน</span>
-                      <span className="col-span-4 text-right">ค่าใช้จ่าย</span>
+                      <span className="col-span-3 text-right">ค่าใช้จ่าย</span>
+                      <span className="col-span-1 text-center">ลบ</span>
                     </div>
                     <div className="divide-y divide-slate-850">
                       {pmUsedParts.map(part => {
                         const original = spareParts.find(p => p.id === part.partId);
+                        const displayName = part.partName || original?.name || part.partId;
+                        const displayUnit = part.unit || original?.unit || 'ชิ้น';
+                        const isCustom = part.isCustom || !original;
+
                         return (
                           <div key={part.partId} className="px-3 py-2 text-[10.5px] text-slate-300 grid grid-cols-12 items-center">
-                            <span className="col-span-6 truncate font-medium">{original?.name || part.partId}</span>
-                            <span className="col-span-2 text-center font-mono font-bold text-yellow-400">{part.quantity} {original?.unit}</span>
-                            <span className="col-span-4 text-right font-mono text-cyan-400">฿{part.totalCost.toLocaleString()}</span>
+                            <div className="col-span-6 truncate font-medium flex items-center gap-1.5 flex-wrap">
+                              <span>{displayName}</span>
+                              {isCustom && (
+                                <span className="px-1.5 py-0.2 rounded text-[8px] bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                  นอกคลัง
+                                </span>
+                              )}
+                            </div>
+                            <span className="col-span-2 text-center font-mono font-bold text-yellow-400">{part.quantity} {displayUnit}</span>
+                            <span className="col-span-3 text-right font-mono text-cyan-400">฿{part.totalCost.toLocaleString()}</span>
+                            <div className="col-span-1 text-center">
+                              <button
+                                type="button"
+                                onClick={() => setPmUsedParts(prev => prev.filter(p => p.partId !== part.partId))}
+                                className="text-slate-500 hover:text-rose-400 p-0.5 rounded cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
@@ -3427,52 +3751,190 @@ export const DispatchPage: React.FC = () => {
                 />
               </div>
 
-              {/* Autocomplete spare part search (matches Request 1) */}
+              {/* Autocomplete spare part search & Custom spare parts */}
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
-                <label className="font-extrabold text-slate-350 block text-[11px] uppercase tracking-wider text-cyan-400">🔍 ตัดจ่ายวัสดุอะไหล่บำรุงรักษา (Spare Parts Search & Use)</label>
-                
-                <div className="flex gap-2 items-center">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      value={repPartSearch}
-                      onChange={(e) => {
-                        setRepPartSearch(e.target.value);
-                        // find if matches any part
-                        const matched = spareParts.find(p => p.name.toLowerCase().includes(e.target.value.toLowerCase()) || p.id.toLowerCase().includes(e.target.value.toLowerCase()));
-                        if (matched && e.target.value.trim() !== "") {
-                          setRepSelectedPartId(matched.id);
-                        } else {
-                          setRepSelectedPartId("");
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                  <label className="font-extrabold text-slate-350 block text-[11px] uppercase tracking-wider text-cyan-400">
+                    🛠️ ตัดจ่ายวัสดุอะไหล่บำรุงรักษา (Spare Parts)
+                  </label>
+
+                  {/* Mode switcher tabs */}
+                  <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-750 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setRepPartSourceMode('inventory')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                        repPartSourceMode === 'inventory'
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Package className="w-3 h-3" /> เลือกจากคลัง
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRepPartSourceMode('custom');
+                        if (repPartSearch.trim() && !repCustomName) {
+                          setRepCustomName(repPartSearch.trim());
                         }
                       }}
-                      className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
-                      placeholder="พิมพ์ชื่ออะไหล่ หรือ SKU เพื่อค้นหา..."
-                    />
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded font-medium transition cursor-pointer ${
+                        repPartSourceMode === 'custom'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <PenLine className="w-3 h-3" /> พิมพ์ระบุเอง (นอกคลัง)
+                    </button>
                   </div>
-                  <div className="w-[80px]">
-                    <input
-                      type="number"
-                      min="1"
-                      value={repSelectedPartQty}
-                      onChange={(e) => setRepSelectedPartQty(Math.max(1, Number(e.target.value)))}
-                      className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2 py-1.5 text-xs text-center text-slate-200 focus:outline-none"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddRepairPart}
-                    disabled={!repSelectedPartId}
-                    className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0"
-                  >
-                    + เพิ่ม
-                  </button>
                 </div>
 
-                {/* Selected spare parts indicator */}
-                {repSelectedPartId && (
-                  <div className="text-[10.5px] text-emerald-400 font-medium">
-                    🎯 พบอะไหล่: {spareParts.find(p => p.id === repSelectedPartId)?.name} (คงเหลือในคลัง {spareParts.find(p => p.id === repSelectedPartId)?.quantity} {spareParts.find(p => p.id === repSelectedPartId)?.unit})
+                {/* 1. Inventory selection */}
+                {repPartSourceMode === 'inventory' && (
+                  <div className="space-y-2">
+                    <div className="flex gap-2 items-center">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          value={repPartSearch}
+                          onChange={(e) => {
+                            setRepPartSearch(e.target.value);
+                            const matched = spareParts.find(p => p.name.toLowerCase().includes(e.target.value.toLowerCase()) || p.id.toLowerCase().includes(e.target.value.toLowerCase()));
+                            if (matched && e.target.value.trim() !== "") {
+                              setRepSelectedPartId(matched.id);
+                            } else {
+                              setRepSelectedPartId("");
+                            }
+                          }}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
+                          placeholder="พิมพ์ชื่ออะไหล่ หรือ SKU เพื่อค้นหา..."
+                        />
+                      </div>
+                      <div className="w-[80px]">
+                        <input
+                          type="number"
+                          min="1"
+                          value={repSelectedPartQty}
+                          onChange={(e) => setRepSelectedPartQty(Math.max(1, Number(e.target.value)))}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2 py-1.5 text-xs text-center text-slate-200 focus:outline-none"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddRepairPart}
+                        disabled={!repSelectedPartId}
+                        className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 cursor-pointer"
+                      >
+                        + เพิ่ม
+                      </button>
+                    </div>
+
+                    {repSelectedPartId && (
+                      <div className="text-[10.5px] text-emerald-400 font-medium">
+                        🎯 พบอะไหล่: {spareParts.find(p => p.id === repSelectedPartId)?.name} (คงเหลือในคลัง {spareParts.find(p => p.id === repSelectedPartId)?.quantity} {spareParts.find(p => p.id === repSelectedPartId)?.unit})
+                      </div>
+                    )}
+
+                    {repPartSearch.trim() && !repSelectedPartId && (
+                      <div className="flex items-center justify-between gap-2 p-2 bg-amber-500/10 border border-amber-500/25 rounded-lg text-[10px] text-amber-300">
+                        <span className="truncate">
+                          💡 ไม่พบในคลัง? ต้องการระบุ <b>"{repPartSearch.trim()}"</b> เป็นอะไหล่นอกคลัง
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRepPartSourceMode('custom');
+                            setRepCustomName(repPartSearch.trim());
+                          }}
+                          className="shrink-0 px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[9.5px] transition cursor-pointer flex items-center gap-1"
+                        >
+                          <PenLine className="w-2.5 h-2.5" /> พิมพ์เพิ่มเป็นอะไหล่นอกคลัง
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 2. Custom non-inventory selection */}
+                {repPartSourceMode === 'custom' && (
+                  <div className="bg-slate-900/70 p-3 rounded-lg border border-amber-500/30 space-y-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                      <div className="sm:col-span-7 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">ชื่อรายการอะไหล่ *</label>
+                        <input
+                          type="text"
+                          placeholder="เช่น แมกเนติกคอนแทกเตอร์พิเศษ, ซีลคัสตอม..."
+                          value={repCustomName}
+                          onChange={(e) => setRepCustomName(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                      <div className="sm:col-span-5 space-y-1">
+                        <label className="text-[10px] text-slate-400">รหัส / สเปก (ถ้ามี)</label>
+                        <input
+                          type="text"
+                          placeholder="เช่น Spec-Custom"
+                          value={repCustomCode}
+                          onChange={(e) => setRepCustomCode(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-12 gap-2">
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">จำนวน *</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={repCustomQty}
+                          onChange={(e) => setRepCustomQty(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 text-center font-mono"
+                        />
+                      </div>
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">หน่วยนับ</label>
+                        <input
+                          type="text"
+                          placeholder="ชิ้น"
+                          value={repCustomUnit}
+                          onChange={(e) => setRepCustomUnit(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 text-center"
+                        />
+                      </div>
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-slate-300 font-semibold">ราคา/หน่วย (บาท)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={repCustomPrice || ''}
+                          onChange={(e) => setRepCustomPrice(Math.max(0, parseFloat(e.target.value) || 0))}
+                          placeholder="0"
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-100 focus:outline-none focus:border-amber-400 text-right font-mono"
+                        />
+                      </div>
+                      <div className="col-span-2 sm:col-span-3 space-y-1 flex flex-col justify-end">
+                        <button
+                          type="button"
+                          onClick={handleAddRepairCustomPart}
+                          className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10.5px] py-1.5 rounded transition flex items-center justify-center gap-1 shadow-sm cursor-pointer"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" /> + เพิ่มนอกคลัง
+                        </button>
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-1.5 text-[9.5px] text-slate-300 cursor-pointer pt-1 border-t border-slate-800 select-none">
+                      <input
+                        type="checkbox"
+                        checked={saveRepCustomToMaster}
+                        onChange={(e) => setSaveRepCustomToMaster(e.target.checked)}
+                        className="rounded border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
+                      />
+                      <span>บันทึกอะไหล่นี้เข้าฐานข้อมูลคลังพัสดุหลักด้วย</span>
+                    </label>
                   </div>
                 )}
 
@@ -3482,16 +3944,37 @@ export const DispatchPage: React.FC = () => {
                     <div className="bg-slate-900 px-3 py-1.5 border-b border-slate-800 text-[10px] text-slate-400 font-bold grid grid-cols-12">
                       <span className="col-span-6">อะไหล่</span>
                       <span className="col-span-2 text-center">จำนวน</span>
-                      <span className="col-span-4 text-right">ค่าใช้จ่าย</span>
+                      <span className="col-span-3 text-right">ค่าใช้จ่าย</span>
+                      <span className="col-span-1 text-center">ลบ</span>
                     </div>
                     <div className="divide-y divide-slate-850 bg-slate-900">
                       {repUsedParts.map(part => {
                         const original = spareParts.find(p => p.id === part.partId);
+                        const displayName = part.partName || original?.name || part.partId;
+                        const displayUnit = part.unit || original?.unit || 'ชิ้น';
+                        const isCustom = part.isCustom || !original;
+
                         return (
                           <div key={part.partId} className="px-3 py-2 text-[10.5px] text-slate-300 grid grid-cols-12 items-center">
-                            <span className="col-span-6 truncate font-medium">{original?.name || part.partId}</span>
-                            <span className="col-span-2 text-center font-mono font-bold text-yellow-400">{part.quantity} {original?.unit}</span>
-                            <span className="col-span-4 text-right font-mono text-cyan-400">฿{part.totalCost.toLocaleString()}</span>
+                            <div className="col-span-6 truncate font-medium flex items-center gap-1.5 flex-wrap">
+                              <span>{displayName}</span>
+                              {isCustom && (
+                                <span className="px-1.5 py-0.2 rounded text-[8px] bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                  นอกคลัง
+                                </span>
+                              )}
+                            </div>
+                            <span className="col-span-2 text-center font-mono font-bold text-yellow-400">{part.quantity} {displayUnit}</span>
+                            <span className="col-span-3 text-right font-mono text-cyan-400">฿{part.totalCost.toLocaleString()}</span>
+                            <div className="col-span-1 text-center">
+                              <button
+                                type="button"
+                                onClick={() => setRepUsedParts(prev => prev.filter(p => p.partId !== part.partId))}
+                                className="text-slate-500 hover:text-rose-400 p-0.5 rounded cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </div>
                         );
                       })}

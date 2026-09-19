@@ -754,6 +754,7 @@ export const PRELOADED_SPARE_PARTS = [
     location: "ตู้ A ชั้น 1",
     pricePerUnit: 350,
     lastRestockedDate: "2026-06-01",
+    workRequestNo: "167311",
     specifications: "ขนาด 10 มม. ความยาว 600 มม. ทนกำลังไฟสายตรง"
   },
   {
@@ -780,6 +781,7 @@ export const PRELOADED_SPARE_PARTS = [
     location: "ตู้ B ชั้น 1",
     pricePerUnit: 1200,
     lastRestockedDate: "2026-05-20",
+    lastWorkRequestNo: "167446",
     specifications: "ทำจากเหล็กกล้าไฮสปีดชุบแข็ง ทนทานความยาว 210 มม."
   },
   {

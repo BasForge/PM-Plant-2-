@@ -41,6 +41,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
   const [newLocation, setNewLocation] = useState('');
   const [newSerialNumber, setNewSerialNumber] = useState('');
   const [newRemark, setNewRemark] = useState('');
+  const [newPlannedHours, setNewPlannedHours] = useState<number>(600);
   const [newStatus, setNewStatus] = useState<'ปกติ' | 'เสีย/ซ่อม' | 'ยกเลิกใช้'>('ปกติ');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -56,6 +57,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
   const [editLocation, setEditLocation] = useState('');
   const [editSerialNumber, setEditSerialNumber] = useState('');
   const [editRemark, setEditRemark] = useState('');
+  const [editPlannedHours, setEditPlannedHours] = useState<number>(600);
   const [editStatus, setEditStatus] = useState<'ปกติ' | 'เสีย/ซ่อม' | 'ยกเลิกใช้'>('ปกติ');
   const [editErrorMsg, setEditErrorMsg] = useState('');
 
@@ -198,6 +200,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
       location: newLocation.trim() || newLineGroup.trim() || 'ทั่วไป',
       serialNumber: newSerialNumber.trim() || 'ไม่มี',
       remark: newRemark.trim(),
+      plannedProductionHours: Number(newPlannedHours) || 600,
       status: newStatus
     };
 
@@ -216,6 +219,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
     setNewLocation('');
     setNewSerialNumber('');
     setNewRemark('');
+    setNewPlannedHours(600);
     setNewStatus('ปกติ');
     setErrorMsg('');
   };
@@ -231,6 +235,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
     setEditLocation(m.location || m.lineGroup || '');
     setEditSerialNumber(m.serialNumber || '');
     setEditRemark(m.remark || '');
+    setEditPlannedHours(m.plannedProductionHours ?? 600);
     setEditStatus(m.status || 'ปกติ');
     setEditErrorMsg('');
     setShowEditModal(true);
@@ -257,6 +262,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
           location: editLocation.trim() || editLineGroup.trim() || 'ทั่วไป',
           serialNumber: editSerialNumber.trim(),
           remark: editRemark.trim(),
+          plannedProductionHours: Number(editPlannedHours) || 600,
           status: editStatus
         };
       }
@@ -1006,6 +1012,20 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
                 </div>
 
                 <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-cyan-400">Planned Production Time (ชม./เดือน)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10000"
+                    placeholder="เช่น 600 (มาตรฐาน CPRAM TPM)"
+                    value={newPlannedHours}
+                    onChange={(e) => setNewPlannedHours(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3.5 py-2 text-cyan-300 font-mono text-sm focus:outline-none focus:border-cyan-500"
+                  />
+                  <span className="text-[10px] text-slate-400">เวลาที่วางแผนให้พร้อมผลิต ใช้คำนวณ % Breakdown, MTTR, MTBF</span>
+                </div>
+
+                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-slate-300">หมายเหตุ</label>
                   <input
                     type="text"
@@ -1159,6 +1179,19 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
                     <option value="เสีย/ซ่อม">เสีย / กำลังซ่อม</option>
                     <option value="ยกเลิกใช้">ยกเลิกใช้งาน</option>
                   </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-cyan-400">Planned Production Time (ชม./เดือน)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10000"
+                    value={editPlannedHours}
+                    onChange={(e) => setEditPlannedHours(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3.5 py-2 text-cyan-300 font-mono text-sm focus:outline-none focus:border-cyan-500"
+                  />
+                  <span className="text-[10px] text-slate-400">เวลาที่วางแผนให้พร้อมผลิต ใช้คำนวณ % Breakdown, MTTR, MTBF</span>
                 </div>
 
                 <div className="space-y-1.5">

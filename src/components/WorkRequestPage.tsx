@@ -48,7 +48,11 @@ import {
   Edit,
   Trash2,
   MapPin,
-  FileUp
+  FileUp,
+  LayoutList,
+  LayoutGrid,
+  ArrowUpDown,
+  Copy
 } from 'lucide-react';
 import { PdfWorkRequestImportModal } from './workRequest/PdfWorkRequestImportModal';
 import { ParsedWorkRequestItem } from '../utils/pdfWorkRequestParser';
@@ -94,6 +98,11 @@ export const WorkRequestPage: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [activeRequest, setActiveRequest] = useState<WorkRequest | null>(null);
 
+  // View mode: 'table' (ตารางแถว CPRAM) or 'cards' (แสดงรายละเอียด)
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  // Sorting options
+  const [sortBy, setSortBy] = useState<'seq_asc' | 'seq_desc' | 'ticket_desc' | 'ticket_asc' | 'date_desc' | 'date_asc' | 'machine' | 'priority'>('seq_asc');
+
   // PDF Work Request Import Modal state
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
@@ -106,8 +115,10 @@ export const WorkRequestPage: React.FC = () => {
 
   const handleImportPdfRequests = (items: ParsedWorkRequestItem[], notifyLine: boolean) => {
     let count = 0;
-    items.forEach(item => {
+    items.forEach((item, index) => {
       const created = addWorkRequest({
+        sequenceNo: item.sequenceNo !== undefined ? item.sequenceNo : (index + 1),
+        ticketNo: item.ticketNo,
         requestDate: item.requestDate || getTodayDateString(),
         requestTime: item.requestTime || '09:00',
         machineId: item.machineId,
@@ -123,16 +134,23 @@ export const WorkRequestPage: React.FC = () => {
         requesterPhone: item.requesterPhone,
       });
 
+      // If document contained specific status like ปิดงาน, update it
+      if (item.status && item.status !== 'รอตอบรับ') {
+        updateWorkRequest(created.id, { status: item.status });
+      }
+
       if (notifyLine) {
         notifyWorkRequestSubmitted(created);
       }
       count++;
     });
 
-    showToast(`✅ นำเข้าใบแจ้งซ่อมจากไฟล์ PDF เรียบร้อยแล้ว จำนวน ${count} ใบ`);
+    showToast(`✅ นำเข้าใบแจ้งซ่อมจากเอกสารสำเร็จแล้ว จำนวน ${count} รายการ`);
   };
 
   // --- Form States for New Request (Production) ---
+  const [newSequenceNo, setNewSequenceNo] = useState<number | undefined>(undefined);
+  const [newTicketNo, setNewTicketNo] = useState('');
   const [newMachineMode, setNewMachineMode] = useState<'select' | 'custom'>('select');
   const [newMachineId, setNewMachineId] = useState('');
   const [newCustomMachineId, setNewCustomMachineId] = useState('');
@@ -149,6 +167,8 @@ export const WorkRequestPage: React.FC = () => {
   const [notifyLineOnSubmit, setNotifyLineOnSubmit] = useState(true);
 
   // --- Form States for Edit Request ---
+  const [editSequenceNo, setEditSequenceNo] = useState<number | undefined>(undefined);
+  const [editTicketNo, setEditTicketNo] = useState('');
   const [editMachineMode, setEditMachineMode] = useState<'select' | 'custom'>('select');
   const [editMachineId, setEditMachineId] = useState('');
   const [editMachineName, setEditMachineName] = useState('');
@@ -211,12 +231,13 @@ export const WorkRequestPage: React.FC = () => {
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase().trim();
         const matchId = req.id.toLowerCase().includes(query);
+        const matchTicket = req.ticketNo ? req.ticketNo.toLowerCase().includes(query) : false;
         const matchMachine = req.machineId.toLowerCase().includes(query) || (req.machineName && req.machineName.toLowerCase().includes(query));
         const matchTitle = req.problemTitle.toLowerCase().includes(query);
         const matchDetails = req.problemDetails.toLowerCase().includes(query);
         const matchRequester = req.requesterName.toLowerCase().includes(query);
         const matchDept = req.productionDepartment.toLowerCase().includes(query);
-        if (!matchId && !matchMachine && !matchTitle && !matchDetails && !matchRequester && !matchDept) {
+        if (!matchId && !matchTicket && !matchMachine && !matchTitle && !matchDetails && !matchRequester && !matchDept) {
           return false;
         }
       }
@@ -239,6 +260,63 @@ export const WorkRequestPage: React.FC = () => {
       return true;
     });
   }, [workRequests, searchTerm, statusFilter, priorityFilter, departmentFilter]);
+
+  // Sorted requests based on user sort selection
+  const sortedRequests = useMemo(() => {
+    const list = [...filteredRequests];
+    list.sort((a, b) => {
+      if (sortBy === 'seq_asc') {
+        const valA = a.sequenceNo !== undefined ? a.sequenceNo : 999999;
+        const valB = b.sequenceNo !== undefined ? b.sequenceNo : 999999;
+        if (valA !== valB) return valA - valB;
+        const dtA = `${a.requestDate} ${a.requestTime}`;
+        const dtB = `${b.requestDate} ${b.requestTime}`;
+        return dtB.localeCompare(dtA);
+      }
+      if (sortBy === 'seq_desc') {
+        const valA = a.sequenceNo !== undefined ? a.sequenceNo : -1;
+        const valB = b.sequenceNo !== undefined ? b.sequenceNo : -1;
+        if (valA !== valB) return valB - valA;
+        const dtA = `${a.requestDate} ${a.requestTime}`;
+        const dtB = `${b.requestDate} ${b.requestTime}`;
+        return dtB.localeCompare(dtA);
+      }
+      if (sortBy === 'ticket_desc') {
+        const valA = a.ticketNo || a.id;
+        const valB = b.ticketNo || b.id;
+        return valB.localeCompare(valA, undefined, { numeric: true });
+      }
+      if (sortBy === 'ticket_asc') {
+        const valA = a.ticketNo || a.id;
+        const valB = b.ticketNo || b.id;
+        return valA.localeCompare(valB, undefined, { numeric: true });
+      }
+      if (sortBy === 'date_desc') {
+        const dtA = `${a.requestDate} ${a.requestTime}`;
+        const dtB = `${b.requestDate} ${b.requestTime}`;
+        return dtB.localeCompare(dtA);
+      }
+      if (sortBy === 'date_asc') {
+        const dtA = `${a.requestDate} ${a.requestTime}`;
+        const dtB = `${b.requestDate} ${b.requestTime}`;
+        return dtA.localeCompare(dtB);
+      }
+      if (sortBy === 'machine') {
+        return a.machineId.localeCompare(b.machineId);
+      }
+      if (sortBy === 'priority') {
+        const pScore: Record<string, number> = {
+          'ฉุกเฉินไลน์หยุด': 4,
+          'เร่งด่วน': 3,
+          'ปกติ': 2,
+          'ตามแผนนัดหมาย': 1
+        };
+        return (pScore[b.priority] || 0) - (pScore[a.priority] || 0);
+      }
+      return 0;
+    });
+    return list;
+  }, [filteredRequests, sortBy]);
 
   // Counts for top cards
   const stats = useMemo(() => {
@@ -330,6 +408,8 @@ export const WorkRequestPage: React.FC = () => {
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     const created = addWorkRequest({
+      sequenceNo: newSequenceNo !== undefined ? newSequenceNo : (workRequests.length + 1),
+      ticketNo: newTicketNo.trim() || undefined,
       requestDate: dateStr,
       requestTime: timeStr,
       machineId: finalMachineId,
@@ -350,10 +430,12 @@ export const WorkRequestPage: React.FC = () => {
       notifyWorkRequestSubmitted(created);
     }
 
-    showToast(`✅ ส่งใบแจ้งซ่อม ${created.id} เรียบร้อยแล้ว! ระบบกำลังส่งต่อให้ฝ่ายวิศวกรรม`);
+    showToast(`✅ ส่งใบแจ้งซ่อม ${created.ticketNo ? `#${created.ticketNo} (${created.id})` : created.id} เรียบร้อยแล้ว! ระบบกำลังส่งต่อให้ฝ่ายวิศวกรรม`);
     setIsNewModalOpen(false);
 
     // Reset fields
+    setNewSequenceNo(undefined);
+    setNewTicketNo('');
     setNewMachineMode('select');
     setNewMachineId('');
     setNewCustomMachineId('');
@@ -460,6 +542,8 @@ export const WorkRequestPage: React.FC = () => {
   // Open Edit Modal
   const handleOpenEditModal = (req: WorkRequest) => {
     setEditingRequest(req);
+    setEditSequenceNo(req.sequenceNo);
+    setEditTicketNo(req.ticketNo || '');
     const isCustom = req.isCustomLocation || !machines.some(m => m.id === req.machineId);
     setEditMachineMode(isCustom ? 'custom' : 'select');
     setEditMachineId(req.machineId);
@@ -549,6 +633,8 @@ export const WorkRequestPage: React.FC = () => {
     }
 
     const updatedData: Partial<WorkRequest> = {
+      sequenceNo: editSequenceNo,
+      ticketNo: editTicketNo.trim() || undefined,
       machineId: finalMachineId,
       machineName: finalMachineName || finalMachineId,
       lineGroup: finalLineGroup,
@@ -1029,9 +1115,69 @@ export const WorkRequestPage: React.FC = () => {
         </div>
       </div>
 
+      {/* View Mode & Sorting Control Bar */}
+      <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
+          <span className="text-xs font-bold text-slate-700">
+            รายการแจ้งซ่อมทั้งหมด <span className="font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">{sortedRequests.length}</span> รายการ
+          </span>
+
+          {/* View Mode Toggle: Table vs Cards */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'table'
+                  ? 'bg-white text-blue-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="แสดงผลแบบเป็นแถว (ตารางรายงาน CPRAM)"
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+              <span>แบบเป็นแถว (ตาราง)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setViewMode('cards')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === 'cards'
+                  ? 'bg-white text-blue-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="แสดงผลแบบแสดงรายละเอียด (การ์ดเต็มรูปแบบ)"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>แบบแสดงรายละเอียด</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Sorting options */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <span className="text-xs text-slate-500 font-medium shrink-0">เรียงตาม:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          >
+            <option value="seq_asc">ลำดับที่ (1 ➔ 99)</option>
+            <option value="seq_desc">ลำดับที่ (99 ➔ 1)</option>
+            <option value="ticket_desc">เลขที่แจ้งซ่อม (มาก ➔ น้อย)</option>
+            <option value="ticket_asc">เลขที่แจ้งซ่อม (น้อย ➔ มาก)</option>
+            <option value="date_desc">วันที่แจ้ง (ล่าสุด ➔ เก่าสุด)</option>
+            <option value="date_asc">วันที่แจ้ง (เก่าสุด ➔ ล่าสุด)</option>
+            <option value="machine">รหัสเครื่องจักร (A ➔ Z)</option>
+            <option value="priority">ระดับความเร่งด่วน (ฉุกเฉินก่อน)</option>
+          </select>
+        </div>
+      </div>
+
       {/* Requests List */}
       <div className="space-y-4">
-        {filteredRequests.length === 0 ? (
+        {sortedRequests.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 shadow-xs">
             <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <h3 className="text-base font-semibold text-slate-800">ไม่พบรายการแจ้งซ่อมที่ตรงกับเงื่อนไข</h3>
@@ -1043,8 +1189,196 @@ export const WorkRequestPage: React.FC = () => {
               ล้างตัวกรองทั้งหมด
             </button>
           </div>
+        ) : viewMode === 'table' ? (
+          /* VIEW MODE 1: Table View (CPRAM Style Row-based Table) */
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse min-w-[1020px]">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-3 text-center w-12">ลำดับ</th>
+                    <th className="py-3 px-3.5 w-36">เลขที่แจ้งซ่อม</th>
+                    <th className="py-3 px-3.5 w-28">รหัสเครื่อง</th>
+                    <th className="py-3 px-3.5 w-48">เครื่องจักร</th>
+                    <th className="py-3 px-4 min-w-[260px]">รายละเอียด / อาการเสีย</th>
+                    <th className="py-3 px-3.5 w-32">ผู้ของาน</th>
+                    <th className="py-3 px-3.5 w-36">หน่วยงาน</th>
+                    <th className="py-3 px-3.5 w-32">วันที่ขอ</th>
+                    <th className="py-3 px-3.5 w-36 text-center">สถานะงาน</th>
+                    <th className="py-3 px-3.5 w-36 text-center">การจัดการ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sortedRequests.map((req, idx) => {
+                    const isPending = req.status === 'รอตอบรับ';
+                    const isCompletedWaitingAccept = req.status === 'ซ่อมเสร็จ/รอฝ่ายผลิตตรวจรับ';
+
+                    return (
+                      <tr 
+                        key={req.id} 
+                        className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                        onClick={() => {
+                          setActiveRequest(req);
+                          setIsDetailModalOpen(true);
+                        }}
+                      >
+                        {/* ลำดับ */}
+                        <td className="py-3.5 px-3 text-center font-mono font-bold">
+                          <span className="w-6 h-6 rounded bg-slate-100 text-slate-700 inline-flex items-center justify-center text-xs border border-slate-200">
+                            {req.sequenceNo !== undefined ? req.sequenceNo : idx + 1}
+                          </span>
+                        </td>
+
+                        {/* เลขที่แจ้งซ่อม */}
+                        <td className="py-3.5 px-3.5" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-black text-slate-900 bg-slate-100 px-2.5 py-1 rounded text-xs border border-slate-200">
+                              {req.ticketNo || req.id}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(req.ticketNo || req.id);
+                                showToast(`คัดลอกเลขที่ ${req.ticketNo || req.id} แล้ว`);
+                              }}
+                              className="text-slate-400 hover:text-blue-600 p-0.5 transition"
+                              title="คัดลอกเลขที่แจ้งซ่อม"
+                            >
+                              <Copy size={13} />
+                            </button>
+                          </div>
+                          {req.ticketNo && req.ticketNo !== req.id && (
+                            <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                              (ID: {req.id})
+                            </span>
+                          )}
+                        </td>
+
+                        {/* รหัสเครื่อง */}
+                        <td className="py-3.5 px-3.5">
+                          <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-mono font-bold text-xs">
+                            {req.machineId}
+                          </span>
+                        </td>
+
+                        {/* เครื่องจักร */}
+                        <td className="py-3.5 px-3.5 font-medium text-slate-800">
+                          <div className="line-clamp-2 leading-relaxed" title={req.machineName}>
+                            {req.machineName || req.machineId}
+                          </div>
+                          {req.locationPoint && (
+                            <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                              <MapPin size={10} className="text-slate-400 shrink-0" />
+                              <span className="truncate">{req.locationPoint}</span>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* รายละเอียด */}
+                        <td className="py-3.5 px-4 text-slate-700">
+                          <div className="font-semibold text-slate-900 line-clamp-1">{req.problemTitle}</div>
+                          {req.problemDetails && req.problemDetails !== req.problemTitle && (
+                            <div className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                              {req.problemDetails}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* ผู้ของาน */}
+                        <td className="py-3.5 px-3.5 text-slate-700">
+                          <div className="font-medium text-slate-800">{req.requesterName}</div>
+                          {req.requesterPhone && (
+                            <div className="text-[10px] text-slate-400 font-mono">{req.requesterPhone}</div>
+                          )}
+                        </td>
+
+                        {/* หน่วยงาน */}
+                        <td className="py-3.5 px-3.5 text-slate-600">
+                          <span className="inline-block max-w-[140px] truncate text-xs" title={req.productionDepartment}>
+                            {req.productionDepartment}
+                          </span>
+                        </td>
+
+                        {/* วันที่ขอ */}
+                        <td className="py-3.5 px-3.5 text-slate-600 font-mono text-[11px] whitespace-nowrap">
+                          <div>{req.requestDate}</div>
+                          <div className="text-[10px] text-slate-400">{req.requestTime} น.</div>
+                        </td>
+
+                        {/* สถานะงาน */}
+                        <td className="py-3.5 px-3.5 text-center whitespace-nowrap">
+                          <div className="flex flex-col items-center gap-1">
+                            {renderStatusBadge(req.status)}
+                            <span className="scale-90 origin-center">{renderPriorityBadge(req.priority)}</span>
+                          </div>
+                        </td>
+
+                        {/* การจัดการ */}
+                        <td className="py-3.5 px-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveRequest(req);
+                                setIsDetailModalOpen(true);
+                              }}
+                              className="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition"
+                              title="ดูรายละเอียดฉบับเต็ม / พิมพ์ใบงาน"
+                            >
+                              <FileText size={15} />
+                            </button>
+
+                            {!isProduction && isPending && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenResponseModal(req)}
+                                className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-[10px] font-bold shadow-2xs transition"
+                                title="วิศวกรรมตอบรับงาน"
+                              >
+                                ตอบรับ
+                              </button>
+                            )}
+
+                            {isCompletedWaitingAccept && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenHandoverModal(req)}
+                                className="px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded text-[10px] font-bold shadow-2xs transition animate-pulse"
+                                title="ฝ่ายผลิตตรวจรับงาน"
+                              >
+                                ตรวจรับ
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditModal(req)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition"
+                              title="แก้ไขใบแจ้งซ่อม"
+                            >
+                              <Edit size={14} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDeleteModal(req)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                              title="ลบใบแจ้งซ่อม"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : (
-          filteredRequests.map((req) => {
+          /* VIEW MODE 2: Cards View (Detailed Full Cards) */
+          sortedRequests.map((req, idx) => {
             const resp = req.engineeringResponse;
             const isPending = req.status === 'รอตอบรับ';
             const isCompletedWaitingAccept = req.status === 'ซ่อมเสร็จ/รอฝ่ายผลิตตรวจรับ';
@@ -1059,10 +1393,26 @@ export const WorkRequestPage: React.FC = () => {
               >
                 {/* Header row */}
                 <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/50">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="font-mono text-xs font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
-                      {req.id}
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Sequence Badge */}
+                    <span className="w-6 h-6 rounded-md bg-slate-800 text-white font-mono text-[11px] font-bold inline-flex items-center justify-center shadow-2xs shrink-0" title="ลำดับ">
+                      {req.sequenceNo !== undefined ? req.sequenceNo : idx + 1}
                     </span>
+                    {req.ticketNo ? (
+                      <span className="font-mono text-xs font-black text-blue-900 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs flex items-center gap-1" title="เลขที่แจ้งซ่อม">
+                        <FileText className="w-3 h-3 text-blue-600" />
+                        เลขที่แจ้งซ่อม #{req.ticketNo}
+                      </span>
+                    ) : (
+                      <span className="font-mono text-xs font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                        {req.id}
+                      </span>
+                    )}
+                    {req.ticketNo && (
+                      <span className="font-mono text-[10px] text-slate-400">
+                        (ID: {req.id})
+                      </span>
+                    )}
                     {renderPriorityBadge(req.priority)}
                     {renderStatusBadge(req.status)}
                     <span className="text-xs text-slate-400 flex items-center gap-1">
@@ -1455,6 +1805,35 @@ export const WorkRequestPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleSubmitNewRequest} className="p-6 space-y-4 text-sm">
+              {/* Optional Ticket No / Work Request ID & Sequence No from Document */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <div className="sm:col-span-1">
+                  <label className="block font-semibold text-slate-800 text-xs mb-1">
+                    ลำดับที่ (Seq)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="เช่น 1"
+                    value={newSequenceNo !== undefined ? newSequenceNo : ''}
+                    onChange={(e) => setNewSequenceNo(e.target.value ? parseInt(e.target.value) : undefined)}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block font-semibold text-slate-800 text-xs mb-1">
+                    เลขที่ใบแจ้งซ่อม (Ticket No.) <span className="text-slate-400 font-normal">(ถ้ามี เช่น 167311, 167446)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="เช่น 167311 หรือ REQ-..."
+                    value={newTicketNo}
+                    onChange={(e) => setNewTicketNo(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
               {/* Machine / Point Selection */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -2217,8 +2596,15 @@ export const WorkRequestPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs font-bold font-mono text-slate-900 bg-slate-100 px-3 py-1 rounded border border-slate-300 inline-block">
-                    เลขที่: {activeRequest.id}
+                  {activeRequest.ticketNo && (
+                    <div className="text-xs font-bold font-mono text-blue-900 bg-blue-50 px-3 py-1 rounded border border-blue-300 inline-block mb-1">
+                      เลขที่แจ้งซ่อม: #{activeRequest.ticketNo}
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-xs font-bold font-mono text-slate-900 bg-slate-100 px-3 py-1 rounded border border-slate-300 inline-block">
+                      ID ระบบ: {activeRequest.id}
+                    </div>
                   </div>
                   <div className="text-xs text-slate-500 mt-1">
                     วันที่: {activeRequest.requestDate} {activeRequest.requestTime}
@@ -2358,6 +2744,35 @@ export const WorkRequestPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleSubmitEdit} className="p-6 space-y-5 text-sm max-h-[80vh] overflow-y-auto">
+              {/* Ticket No & Sequence No / Work Request ID */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div className="sm:col-span-1">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    ลำดับที่ (Seq)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="เช่น 1"
+                    value={editSequenceNo !== undefined ? editSequenceNo : ''}
+                    onChange={(e) => setEditSequenceNo(e.target.value ? parseInt(e.target.value) : undefined)}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    เลขที่ใบแจ้งซ่อม (Ticket No.) <span className="text-slate-400 font-normal">(เช่น 167311, 167446)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="เช่น 167311 หรือ REQ-..."
+                    value={editTicketNo}
+                    onChange={(e) => setEditTicketNo(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono placeholder:font-sans focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
               {/* Section: Machine / Repair Point */}
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
