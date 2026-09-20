@@ -48,14 +48,14 @@ import {
   Edit,
   Trash2,
   MapPin,
-  FileUp,
+  FileSpreadsheet,
   LayoutList,
   LayoutGrid,
   ArrowUpDown,
   Copy
 } from 'lucide-react';
-import { PdfWorkRequestImportModal } from './workRequest/PdfWorkRequestImportModal';
-import { ParsedWorkRequestItem } from '../utils/pdfWorkRequestParser';
+import { ExcelWorkRequestImportModal } from './workRequest/ExcelWorkRequestImportModal';
+import { ParsedWorkRequestItem } from '../utils/excelWorkRequestParser';
 import { getTodayDateString } from '../utils/pmAlerts';
 
 export const WorkRequestPage: React.FC = () => {
@@ -103,8 +103,8 @@ export const WorkRequestPage: React.FC = () => {
   // Sorting options
   const [sortBy, setSortBy] = useState<'seq_asc' | 'seq_desc' | 'ticket_desc' | 'ticket_asc' | 'date_desc' | 'date_asc' | 'machine' | 'priority'>('seq_asc');
 
-  // PDF Work Request Import Modal state
-  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  // Excel Work Request Import Modal state
+  const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
 
   // Quick toast feedback message
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -113,7 +113,7 @@ export const WorkRequestPage: React.FC = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const handleImportPdfRequests = (items: ParsedWorkRequestItem[], notifyLine: boolean) => {
+  const handleImportExcelRequests = (items: ParsedWorkRequestItem[], notifyLine: boolean) => {
     let count = 0;
     items.forEach((item, index) => {
       const created = addWorkRequest({
@@ -145,7 +145,7 @@ export const WorkRequestPage: React.FC = () => {
       count++;
     });
 
-    showToast(`✅ นำเข้าใบแจ้งซ่อมจากเอกสารสำเร็จแล้ว จำนวน ${count} รายการ`);
+    showToast(`✅ นำเข้าใบแจ้งซ่อมจากไฟล์ Excel สำเร็จแล้ว จำนวน ${count} รายการ`);
   };
 
   // --- Form States for New Request (Production) ---
@@ -967,13 +967,13 @@ export const WorkRequestPage: React.FC = () => {
               + แจ้งซ่อมใหม่ (ฝ่ายผลิต)
             </button>
             <button
-              id="btn-import-pdf-work-request"
-              onClick={() => setIsPdfModalOpen(true)}
+              id="btn-import-excel-work-request"
+              onClick={() => setIsExcelModalOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:from-emerald-700 active:to-teal-700 text-white rounded-xl text-sm font-semibold shadow-xs transition-all cursor-pointer"
-              title="โยนหรืออัปโหลดไฟล์แจ้งซ่อม PDF พร้อมระบบสแกนหา ID เครื่องจักรและข้อมูลแจ้งซ่อมอัตโนมัติ"
+              title="โยนหรืออัปโหลดไฟล์แจ้งซ่อม Excel (.xlsx, .xls, .csv) เพื่อดึงหัวข้องานแจ้งซ่อมและจับคู่เครื่องจักรอัตโนมัติ"
             >
-              <FileUp className="w-4 h-4" />
-              📄 นำเข้าใบแจ้งซ่อม PDF
+              <FileSpreadsheet className="w-4 h-4" />
+              นำเข้าใบแจ้งซ่อม Excel
             </button>
             <button
               onClick={handleExportCSV}
@@ -3320,13 +3320,13 @@ export const WorkRequestPage: React.FC = () => {
         </div>
       )}
 
-      {/* PDF Work Request Import Modal */}
-      <PdfWorkRequestImportModal
-        isOpen={isPdfModalOpen}
-        onClose={() => setIsPdfModalOpen(false)}
+      {/* Excel Work Request Import Modal */}
+      <ExcelWorkRequestImportModal
+        isOpen={isExcelModalOpen}
+        onClose={() => setIsExcelModalOpen(false)}
         machines={machines}
         defaultRequester={currentUser?.name || 'ฝ่ายผลิต'}
-        onImportRequests={handleImportPdfRequests}
+        onImportRequests={handleImportExcelRequests}
       />
     </div>
   );
