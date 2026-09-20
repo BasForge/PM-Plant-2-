@@ -4,9 +4,13 @@ import { PMPlan, PMFrequency, PMStep } from '../types';
 import { 
   Search, Plus, Trash2, Edit3, CheckCircle, PackageOpen, LayoutGrid, 
   Clock, ClipboardList, Copy, Upload, Download, Check, AlertTriangle, 
-  HelpCircle, Sparkles, FileSpreadsheet, ArrowLeftRight, CalendarRange
+  HelpCircle, Sparkles, FileSpreadsheet, ArrowLeftRight, CalendarRange,
+  FileText
 } from 'lucide-react';
 import { TBMPlanSchedulePage } from './TBMPlanSchedulePage';
+import { PMExcelImportModal } from './PMExcelImportModal';
+import { PMDocumentViewModal } from './PMDocumentViewModal';
+import { FQMS_SAMPLE_STEPS, downloadPMTemplateExcel } from '../utils/pmExcelParser';
 
 export const PMPlanPage: React.FC = () => {
   const { machines, pmPlans, setPmPlans, canEdit, canDelete } = useApp();
@@ -23,6 +27,8 @@ export const PMPlanPage: React.FC = () => {
 
   // Excel/CSV Import states
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showExcelImportModal, setShowExcelImportModal] = useState(false);
+  const [viewingDocPlan, setViewingDocPlan] = useState<PMPlan | null>(null);
   const [importText, setImportText] = useState('');
   const [importSelectedMachineOnly, setImportSelectedMachineOnly] = useState(true);
   const [importError, setImportError] = useState('');
@@ -249,6 +255,35 @@ export const PMPlanPage: React.FC = () => {
     setShowImportModal(false);
     setImportText('');
     alert(`นำเข้าเรียบร้อย! นำแผน PM จำนวน ${databaseFormedImports.length} รายการเข้าสู่พิกัดเครื่องจักรสำเร็จแล้ว`);
+  };
+
+  // Quick load standard F-QMS-011/12 PM plan for selected machine
+  const handleApplyFQMSPreset = () => {
+    if (!selectedMachineId) {
+      alert("กรุณาเลือกเครื่องจักรทางหน้าต่างด้านซ้ายก่อน");
+      return;
+    }
+    const machObj = machines.find(m => m.id === selectedMachineId);
+    const targetName = machObj?.name || 'เครื่องจักร';
+    const newPlan: PMPlan = {
+      id: `plan-pm-${Date.now()}-${selectedMachineId}`,
+      machineId: selectedMachineId,
+      machineName: targetName,
+      title: `ใบรายงาน Preventive Maintenance (PM) - ${targetName}`,
+      docCode: 'F-QMS-011/12',
+      revision: '00',
+      effectiveDate: '16-07-2019',
+      frequency: 'รายเดือน',
+      steps: FQMS_SAMPLE_STEPS.map(s => ({ ...s })),
+      spareParts: 'จาระบีลูกปืนเกรดอาหาร NSF-H1, ซีลยาง, ซีล Plate, ใบมีดตัดฟิล์ม, ลวดฮีตเตอร์สำรอง',
+      ttm: FQMS_SAMPLE_STEPS.reduce((sum, s) => sum + s.stdTime, 0),
+      signTech: 'ทีมช่างซ่อมบำรุง',
+      signProd: 'ฝ่ายผลิต',
+      signLeader: 'หัวหน้าหน่วย PM',
+      intervalDays: 30
+    };
+    setPmPlans(prev => [...prev, newPlan]);
+    alert(`เพิ่มแผนงานมาตรฐาน F-QMS-011/12 (21 ขั้นตอน) เข้าสู่เครื่อง [${selectedMachineId}] ${targetName} เรียบร้อยแล้ว!`);
   };
 
   // Add/Edit Plan Form States
@@ -494,6 +529,26 @@ export const PMPlanPage: React.FC = () => {
                 {canEdit ? (
                   <>
                     <button
+                      id="btn-quick-fqms-template"
+                      onClick={handleApplyFQMSPreset}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/40 text-amber-300 rounded-xl text-[11px] font-bold transition cursor-pointer"
+                      title="เพิ่มแผนตรวจเช็คมาตรฐาน 21 ข้อ F-QMS-011/12 ลงเครื่องที่เลือกทันที"
+                    >
+                      <Sparkles size={13} className="text-amber-400" />
+                      <span>⚡ ใช้แม่แบบ F-QMS (21 ข้อ)</span>
+                    </button>
+
+                    <button
+                      id="btn-import-pm-excel"
+                      onClick={() => setShowExcelImportModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 rounded-xl text-[11px] font-bold transition cursor-pointer shadow-sm"
+                      title="โยนไฟล์ Excel (.xlsx, .xls) หรือ CSV เพื่อนำเข้าหัวข้อการ PM และเลือกเครื่องจักรเป้าหมาย"
+                    >
+                      <Upload size={13} className="text-emerald-400" />
+                      <span>📥 โยนไฟล์ Excel (F-QMS)</span>
+                    </button>
+
+                    <button
                       id="btn-copy-pm-plans"
                       onClick={() => {
                         if (!selectedMachineId) {
@@ -512,26 +567,9 @@ export const PMPlanPage: React.FC = () => {
                     </button>
 
                     <button
-                      id="btn-import-pm-excel"
-                      onClick={() => {
-                        if (!selectedMachineId) {
-                          alert("กรุณาเลือกเครื่องจักรที่จะให้นำเข้าแผนลงไปก่อน");
-                          return;
-                        }
-                        setImportText('');
-                        setShowImportModal(true);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 border border-slate-755 text-slate-200 hover:bg-slate-755 hover:border-slate-600 rounded-xl text-[11px] font-bold transition cursor-pointer"
-                      title="นำเข้าแผน PM และขั้นตอนด้วยไฟล์ Excel/CSV หรือแปะจากคลิปบอร์ดได้เลย"
-                    >
-                      <Upload size={13} className="text-emerald-400" />
-                      <span>นำเข้า Excel / วางแปะ</span>
-                    </button>
-
-                    <button
                       id="btn-add-pm-plan"
                       onClick={handleOpenNewForm}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold rounded-xl text-[11px] transition"
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold rounded-xl text-[11px] transition cursor-pointer"
                     >
                       <Plus size={13} strokeWidth={2.5} />
                       <span>เพิ่มงานแผน PM ใหม่</span>
@@ -541,7 +579,7 @@ export const PMPlanPage: React.FC = () => {
                       type="button"
                       id="btn-view-machine-tbm"
                       onClick={() => setPmPlanViewTab('tbm')}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600/30 to-cyan-600/30 hover:from-blue-600/50 hover:to-cyan-600/50 border border-cyan-500/40 text-cyan-300 rounded-xl text-[11px] font-bold transition cursor-pointer"
+                      className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 border border-slate-700 hover:border-cyan-500/50 text-cyan-300 rounded-xl text-[11px] font-bold transition cursor-pointer"
                       title="ดูตารางแผน PM ตามรอบเวลา (TBM) ของเครื่องนี้"
                     >
                       <CalendarRange size={13} className="text-cyan-400" />
@@ -601,22 +639,67 @@ export const PMPlanPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Steps Details */}
-                <div className="bg-slate-900/60 border border-slate-700/40 rounded-xl p-3.5 space-y-2">
-                  <p className="text-[10px] font-semibold text-slate-400 tracking-wider uppercase flex items-center gap-1">
-                    <ClipboardList size={12} className="text-cyan-400" />
-                    ขั้นตอนทดสอบและตรวจวัดมาตรฐาน
-                  </p>
-                  <ol className="list-decimal pl-4 space-y-1 text-slate-300 text-xs">
-                    {plan.steps.map((st, i) => (
-                      <li key={i}>
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="font-sans py-0.5">{st.title}</span>
-                          <span className="text-cyan-400 font-mono text-xs">{st.stdTime} นาที</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
+                {/* Steps Details structured after F-QMS-011/12 */}
+                <div className="bg-slate-900/90 border border-slate-700/60 rounded-xl overflow-hidden">
+                  <div className="bg-slate-950 px-3.5 py-2 border-b border-slate-800 flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-300 flex items-center gap-1.5 uppercase tracking-wide">
+                      <ClipboardList size={13} className="text-cyan-400" />
+                      หัวข้อการ PM และเกณฑ์มาตรฐานการตรวจสอบ ({plan.steps.length} รายการ)
+                    </span>
+                    <span className="text-[10px] text-cyan-400 font-mono font-bold">
+                      เวลารวม TTM: {plan.ttm} นาที
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead className="bg-slate-950/80 sticky top-0 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800">
+                        <tr>
+                          <th className="p-2 text-center w-10">ลำดับ</th>
+                          <th className="p-2 w-48">หัวข้อ PM</th>
+                          <th className="p-2 text-center w-28">วิธีการ</th>
+                          <th className="p-2">เกณฑ์มาตรฐาน / การยอมรับ</th>
+                          <th className="p-2 text-center w-24">ความถี่</th>
+                          <th className="p-2 text-right w-16">เวลา</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/80 text-slate-300">
+                        {plan.steps.map((st, i) => (
+                          <tr key={i} className="hover:bg-slate-800/50 transition-colors">
+                            <td className="p-2 text-center font-bold text-slate-400 font-mono">
+                              {st.itemNo || i + 1}
+                            </td>
+                            <td className="p-2 font-semibold text-slate-100">
+                              {st.title}
+                            </td>
+                            <td className="p-2 text-center">
+                              {st.method ? (
+                                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                                  st.method.includes('สายตา') ? 'bg-blue-500/10 text-blue-300 border-blue-500/20' :
+                                  st.method.includes('เครื่องมือวัด') ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' :
+                                  st.method.includes('ประสาทสัมผัส') ? 'bg-purple-500/10 text-purple-300 border-purple-500/20' :
+                                  'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                                }`}>
+                                  {st.method}
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 text-[10px]">-</span>
+                              )}
+                            </td>
+                            <td className="p-2 text-slate-300 text-[11px] leading-relaxed">
+                              {st.standard || 'สภาพสมบูรณ์ พร้อมใช้งาน'}
+                            </td>
+                            <td className="p-2 text-center text-slate-400 text-[10.5px]">
+                              {st.frequency || plan.frequency}
+                            </td>
+                            <td className="p-2 text-right font-mono font-bold text-cyan-400 text-[10.5px]">
+                              {st.stdTime} น.
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 {/* Spare parts optional block */}
@@ -628,31 +711,57 @@ export const PMPlanPage: React.FC = () => {
                 )}
 
                 {/* Interactive controller button */}
-                <div className="flex items-center justify-end gap-2 border-t border-slate-700/50 pt-3">
-                  {canEdit && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-700/50 pt-3">
+                  <div className="flex items-center gap-2">
                     <button
-                      id={`btn-edit-plan-${plan.id}`}
-                      onClick={() => handleOpenEditForm(plan)}
-                      className="flex items-center gap-1 border border-slate-700 hover:bg-slate-700/60 text-slate-300 text-xs px-3 py-1.5 rounded-lg transition"
+                      type="button"
+                      id={`btn-view-doc-${plan.id}`}
+                      onClick={() => setViewingDocPlan(plan)}
+                      className="flex items-center gap-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs px-3 py-1.5 rounded-lg transition font-bold cursor-pointer"
+                      title="เปิดดูใบรายงาน PM ทางการ F-QMS-011/12 พร้อมพิมพ์หรือนำออก PDF"
                     >
-                      <Edit3 size={12} />
-                      แก้ไขข้อมูล
+                      <FileText size={13} />
+                      <span>ดูแบบฟอร์มเอกสาร F-QMS-011/12</span>
                     </button>
-                  )}
-                  {canDelete && (
+
                     <button
-                      id={`btn-delete-plan-${plan.id}`}
-                      onClick={() => handleDeletePlan(plan.id)}
-                      className="flex items-center gap-1 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-white text-xs px-3 py-1.5 rounded-lg transition"
-                      title="ลบแผนงาน PM (เฉพาะ Admin)"
+                      type="button"
+                      id={`btn-export-excel-${plan.id}`}
+                      onClick={() => downloadPMTemplateExcel(plan.machineId, plan.machineName || machines.find(m => m.id === plan.machineId)?.name)}
+                      className="flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs px-3 py-1.5 rounded-lg transition font-bold cursor-pointer"
+                      title="ดาวน์โหลดแผนงานนี้เป็นไฟล์ Excel F-QMS-011/12"
                     >
-                      <Trash2 size={12} />
-                      ลบแผนงาน
+                      <Download size={13} />
+                      <span>นำออก Excel</span>
                     </button>
-                  )}
-                  {!canEdit && !canDelete && (
-                    <span className="text-[10px] text-slate-500 italic">ดูอย่างเดียว</span>
-                  )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {canEdit && (
+                      <button
+                        id={`btn-edit-plan-${plan.id}`}
+                        onClick={() => handleOpenEditForm(plan)}
+                        className="flex items-center gap-1 border border-slate-700 hover:bg-slate-700/60 text-slate-300 text-xs px-3 py-1.5 rounded-lg transition cursor-pointer"
+                      >
+                        <Edit3 size={12} />
+                        แก้ไขข้อมูล
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        id={`btn-delete-plan-${plan.id}`}
+                        onClick={() => handleDeletePlan(plan.id)}
+                        className="flex items-center gap-1 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-white text-xs px-3 py-1.5 rounded-lg transition cursor-pointer"
+                        title="ลบแผนงาน PM (เฉพาะ Admin)"
+                      >
+                        <Trash2 size={12} />
+                        ลบแผนงาน
+                      </button>
+                    )}
+                    {!canEdit && !canDelete && (
+                      <span className="text-[10px] text-slate-500 italic">ดูอย่างเดียว</span>
+                    )}
+                  </div>
                 </div>
               </div>
             ))
@@ -1187,6 +1296,31 @@ export const PMPlanPage: React.FC = () => {
 
           </div>
         </div>
+      )}
+
+      {/* Excel Drag & Drop Import Modal with Machine Target Selector */}
+      {showExcelImportModal && (
+        <PMExcelImportModal
+          machines={machines}
+          selectedMachineId={selectedMachineId}
+          onClose={() => setShowExcelImportModal(false)}
+          onImport={(importedPlans) => {
+            setPmPlans(prev => [...prev, ...importedPlans]);
+            alert(`นำเข้าแผนงาน PM สำเร็จจำนวน ${importedPlans.length} แผน เข้าสู่เครื่องจักรที่ระบุแล้ว!`);
+          }}
+        />
+      )}
+
+      {/* Official F-QMS-011/12 Document View Modal */}
+      {viewingDocPlan && (
+        <PMDocumentViewModal
+          plan={viewingDocPlan}
+          onClose={() => setViewingDocPlan(null)}
+          onUpdatePlan={(updated) => {
+            setPmPlans(prev => prev.map(p => p.id === updated.id ? updated : p));
+            setViewingDocPlan(updated);
+          }}
+        />
       )}
     </div>
   );

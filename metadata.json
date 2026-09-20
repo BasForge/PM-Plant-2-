@@ -1,5 +1,5 @@
 {
-  "name": "Remix: FoodFab Maintenance Manager",
+  "name": "Bas Maintenance",
   "description": "Thai-language tool for tracking maintenance tasks, emergency repairs, and technician workload in food manufacturing facilities with Firebase Cloud Firestore real-time sync.",
   "requestFramePermissions": [],
   "majorCapabilities": [

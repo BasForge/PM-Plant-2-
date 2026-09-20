@@ -17,8 +17,15 @@ export interface Machine {
 export type PMFrequency = 'รายวัน' | 'รายสัปดาห์' | 'ราย 2 สัปดาห์' | 'รายเดือน' | 'ราย 3 เดือน' | 'ราย 6 เดือน' | 'รายปี';
 
 export interface PMStep {
-  title: string;
-  stdTime: number; // in minutes
+  itemNo?: number | string; // ลำดับ เช่น 1, 2, 5.1
+  title: string; // หัวข้อ PM
+  method?: string; // วิธีการ เช่น ดูด้วยสายตา, เครื่องมือวัด, เครื่องมือ, มือ สายตา, ประสาทสัมผัสทั้ง 5
+  standard?: string; // มาตรฐาน / เกณฑ์ยอมรับ เช่น โครงสร้างสมบูรณ์ ไม่มีส่วนชำรุด, แรงดัน 342-418V
+  frequency?: string; // ความถี่ เช่น 1 เดือน/ครั้ง, 6 เดือน/ครั้ง
+  stdTime: number; // in minutes (เวลามาตรฐาน)
+  result?: 'ปกติ' | 'ไม่ปกติ' | ''; // ผลการ PM
+  abnormalityDetail?: string; // รายละเอียดสิ่งที่ผิดปกติ
+  remark?: string; // หมายเหตุ
 }
 
 export interface PMPlan {
@@ -29,6 +36,14 @@ export interface PMPlan {
   steps: PMStep[];
   spareParts?: string;
   ttm: number; // in minutes (sum of stdTime of all steps)
+  docCode?: string; // รหัสเอกสาร เช่น F-QMS-011/12
+  revision?: string; // แก้ไขครั้งที่ เช่น 00
+  effectiveDate?: string; // วันที่เริ่มใช้ เช่น 16-07-2019
+  machineName?: string; // ชื่อเครื่องจักรในเอกสาร
+  signTech?: string; // ผู้ทำการ PM (ทีมช่าง)
+  signProd?: string; // ผู้รับทราบทำการ PM (ฝ่ายผลิต)
+  signLeader?: string; // ผู้ตรวจสอบทำการ PM (หัวหน้าหน่วย PM)
+  repairPartsNotes?: string; // รายการอะไหล่ที่เตรียมแก้ไข
   intervalDays?: number; // รอบวัน TBM เช่น 1, 7, 14, 30, 90, 180, 365 วัน
   category?: 'Mechanical' | 'Electrical' | 'Pneumatic' | 'Lubrication' | 'Sanitation' | 'General';
   targetMonths?: number[]; // เดือนตามแผน [1-12]

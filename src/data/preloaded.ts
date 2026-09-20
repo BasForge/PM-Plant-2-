@@ -1,5 +1,6 @@
-import { Machine, CD5Project, ImprovementProject, RepairLog } from '../types';
+import { Machine, CD5Project, ImprovementProject, RepairLog, PMPlan } from '../types';
 import { CPRAM_PDF_MACHINES } from './cpramMachines';
+import { FQMS_SAMPLE_STEPS } from '../utils/pmExcelParser';
 
 export const PRELOADED_MACHINES: Machine[] = CPRAM_PDF_MACHINES;
 
@@ -127,6 +128,26 @@ export const PRELOADED_PM_PLANS = [
     ],
     spareParts: "ใบมีดเตเปอร์คัตเตอร์, ลวดความร้อนสำรอง",
     ttm: 30,
+    targetMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  },
+  {
+    id: "plan-pm-ats01-fqms",
+    machineId: "ATS01",
+    title: "ใบรายงาน Preventive Maintenance (PM) - เครื่อง AUTOMATIC TOPSEAL Line 2",
+    docCode: "F-QMS-011/12",
+    revision: "00",
+    effectiveDate: "16-07-2019",
+    machineName: "เครื่อง AUTOMATIC TOPSEAL",
+    frequency: "รายเดือน",
+    intervalDays: 30,
+    category: "Mechanical",
+    steps: FQMS_SAMPLE_STEPS,
+    spareParts: "จาระบีลูกปืนเกรดอาหาร NSF-H1, ซีลยางกระบอกสูบ, ลวดฮีตเตอร์สำรอง, ซีล Plate, ใบมีดตัดฟิล์ม",
+    ttm: FQMS_SAMPLE_STEPS.reduce((sum, s) => sum + s.stdTime, 0),
+    signTech: "ทีมช่างซ่อมบำรุง",
+    signProd: "ฝ่ายผลิต Line 2",
+    signLeader: "หัวหน้าหน่วย PM",
+    repairPartsNotes: "เตรียมชุดซ่อม Overhaul โมล และเช็คสต็อกฮีตเตอร์สำรอง",
     targetMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
   }
 ];
