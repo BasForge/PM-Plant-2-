@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   WorkRequest, 
@@ -37,6 +37,7 @@ import {
   FileText, 
   Check, 
   X, 
+  ArrowLeft,
   SlidersHorizontal,
   Package,
   CalendarCheck,
@@ -52,9 +53,14 @@ import {
   LayoutList,
   LayoutGrid,
   ArrowUpDown,
-  Copy
+  Copy,
+  CheckSquare
 } from 'lucide-react';
 import { ExcelWorkRequestImportModal } from './workRequest/ExcelWorkRequestImportModal';
+import { BulkDeleteConfirmModal } from './workRequest/BulkDeleteConfirmModal';
+import { PrintheadDetailsModal } from './workRequest/PrintheadDetailsModal';
+import { PrintheadRequestSelectorModal } from './workRequest/PrintheadRequestSelectorModal';
+import { PrintheadHistoryTab } from './workRequest/PrintheadHistoryTab';
 import { ParsedWorkRequestItem } from '../utils/excelWorkRequestParser';
 import { getTodayDateString } from '../utils/pmAlerts';
 
@@ -68,8 +74,10 @@ export const WorkRequestPage: React.FC = () => {
     isTechnician, 
     isProduction,
     addWorkRequest, 
+    addWorkRequestsBatch,
     updateWorkRequest, 
     deleteWorkRequest, 
+    deleteWorkRequestsBatch,
     respondToWorkRequest, 
     completeWorkRequest, 
     acceptWorkRequestHandover,
@@ -106,6 +114,32 @@ export const WorkRequestPage: React.FC = () => {
   // Excel Work Request Import Modal state
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
 
+  // Sub-tabs: 'requests' (รายการแจ้งซ่อมทั้งหมด) or 'printhead' (ประวัติการเปลี่ยนหัวพิมพ์)
+  const [activeMainTab, setActiveMainTab] = useState<'requests' | 'printhead'>('requests');
+
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+
+  // Printhead details modal state
+  const [isPrintheadModalOpen, setIsPrintheadModalOpen] = useState(false);
+  const [targetPrintheadReq, setTargetPrintheadReq] = useState<WorkRequest | null>(null);
+
+  // Printhead selector modal state
+  const [isPrintheadSelectorModalOpen, setIsPrintheadSelectorModalOpen] = useState(false);
+
+  // Edit form printhead fields
+  const [editIsPrinthead, setEditIsPrinthead] = useState(false);
+  const [editPhModel, setEditPhModel] = useState('');
+  const [editPhNewSerial, setEditPhNewSerial] = useState('');
+  const [editPhOldSerial, setEditPhOldSerial] = useState('');
+  const [editPhResistance, setEditPhResistance] = useState('');
+  const [editPhVoltage, setEditPhVoltage] = useState('');
+  const [editPhReplacedDate, setEditPhReplacedDate] = useState('');
+  const [editPhTechnician, setEditPhTechnician] = useState('');
+  const [editPhReason, setEditPhReason] = useState('');
+  const [editPhNotes, setEditPhNotes] = useState('');
+
   // Quick toast feedback message
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const showToast = (msg: string) => {
@@ -113,12 +147,150 @@ export const WorkRequestPage: React.FC = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  const printheadCount = useMemo(() => {
+    return workRequests.filter((r) => r.isPrintheadReplacement).length;
+  }, [workRequests]);
+
+  const selectedRequestsList = useMemo(() => {
+    return workRequests.filter((r) => selectedIds.has(r.id));
+  }, [workRequests, selectedIds]);
+
+  // Bulk selection handlers
+  const handleToggleSelect = (id: string, e?: React.MouseEvent | React.ChangeEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    if (sortedRequests.length === 0) return;
+    const allSelected = sortedRequests.every((r) => selectedIds.has(r.id));
+    const next = new Set(selectedIds);
+    if (allSelected) {
+      sortedRequests.forEach((r) => next.delete(r.id));
+    } else {
+      sortedRequests.forEach((r) => next.add(r.id));
+    }
+    setSelectedIds(next);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkMarkPrinthead = (isPrinthead: boolean) => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    selectedIds.forEach((id) => {
+      const target = workRequests.find((r) => r.id === id);
+      if (target) {
+        updateWorkRequest(id, {
+          isPrintheadReplacement: isPrinthead,
+          printheadDetails: isPrinthead ? (target.printheadDetails || {
+            replacedDate: target.requestDate || getTodayDateString(),
+            technician: target.engineeringResponse?.assignedTechnicians?.[0] || currentUser?.name || '',
+            reason: target.problemTitle
+          }) : target.printheadDetails
+        });
+      }
+    });
+    showToast(isPrinthead 
+      ? `🖨️ ติ๊กเลือกงานแจ้งซ่อม ${count} รายการเข้าประวัติการเปลี่ยนหัวพิมพ์แล้ว`
+      : `↩️ ปลดออกจากประวัติการเปลี่ยนหัวพิมพ์ ${count} รายการเรียบร้อย`
+    );
+  };
+
+  const handleConfirmBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    deleteWorkRequestsBatch(Array.from(selectedIds));
+    setSelectedIds(new Set());
+    setIsBulkDeleteModalOpen(false);
+    showToast(`🗑️ ลบรายการแจ้งซ่อมจำนวน ${count} รายการเรียบร้อยแล้ว`);
+  };
+
+  // Printhead quick toggle and details handlers
+  const handleTogglePrinthead = (req: WorkRequest, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const nextVal = !req.isPrintheadReplacement;
+    const updatedDetails = nextVal ? (req.printheadDetails || {
+      replacedDate: req.requestDate || getTodayDateString(),
+      technician: req.engineeringResponse?.assignedTechnicians?.[0] || currentUser?.name || '',
+      reason: req.problemTitle
+    }) : req.printheadDetails;
+
+    updateWorkRequest(req.id, {
+      isPrintheadReplacement: nextVal,
+      printheadDetails: updatedDetails
+    });
+
+    if (activeRequest?.id === req.id) {
+      setActiveRequest((prev) => prev ? { ...prev, isPrintheadReplacement: nextVal, printheadDetails: updatedDetails } : null);
+    }
+
+    showToast(nextVal 
+      ? `🖨️ ติ๊ก "${req.ticketNo || req.id}" เข้าประวัติการเปลี่ยนหัวพิมพ์แล้ว`
+      : `↩️ ปลด "${req.ticketNo || req.id}" ออกจากประวัติการเปลี่ยนหัวพิมพ์แล้ว`
+    );
+  };
+
+  const handleOpenPrintheadModal = (req: WorkRequest) => {
+    setTargetPrintheadReq(req);
+    setIsPrintheadModalOpen(true);
+  };
+
+  const handleSavePrintheadDetails = (requestId: string, details: NonNullable<WorkRequest['printheadDetails']>) => {
+    updateWorkRequest(requestId, {
+      isPrintheadReplacement: true,
+      printheadDetails: details
+    });
+    if (activeRequest?.id === requestId) {
+      setActiveRequest((prev) => prev ? { ...prev, isPrintheadReplacement: true, printheadDetails: details } : null);
+    }
+    showToast(`✅ บันทึกข้อมูลหัวพิมพ์ของงาน ${requestId} สำเร็จ`);
+  };
+
+  const handleRemoveFromPrinthead = (requestId: string) => {
+    updateWorkRequest(requestId, {
+      isPrintheadReplacement: false
+    });
+    if (activeRequest?.id === requestId) {
+      setActiveRequest((prev) => prev ? { ...prev, isPrintheadReplacement: false } : null);
+    }
+    showToast(`↩️ ปลดออกจากประวัติการเปลี่ยนหัวพิมพ์แล้ว`);
+  };
+
+  const handleSelectPrintheadRequestsBatch = (ids: string[]) => {
+    ids.forEach((id) => {
+      const target = workRequests.find((r) => r.id === id);
+      if (target) {
+        updateWorkRequest(id, {
+          isPrintheadReplacement: true,
+          printheadDetails: target.printheadDetails || {
+            replacedDate: target.requestDate || getTodayDateString(),
+            technician: target.engineeringResponse?.assignedTechnicians?.[0] || currentUser?.name || '',
+            reason: target.problemTitle
+          }
+        });
+      }
+    });
+    showToast(`🖨️ เพิ่มงานแจ้งซ่อม ${ids.length} รายการเข้าประวัติการเปลี่ยนหัวพิมพ์เรียบร้อย`);
+  };
+
   const handleImportExcelRequests = (items: ParsedWorkRequestItem[], notifyLine: boolean) => {
-    let count = 0;
-    items.forEach((item, index) => {
-      const created = addWorkRequest({
+    const toAdd = items.map((item, index) => {
+      // เอาลำดับที่ ไปใส่เลขแจ้งซ่อม: if ticketNo is missing or auto-generated, fallback to sequenceNo
+      const resolvedTicketNo = (item.ticketNo && !item.ticketNo.startsWith('REQ-'))
+        ? item.ticketNo
+        : (item.sequenceNo !== undefined ? String(item.sequenceNo) : item.ticketNo);
+
+      return {
         sequenceNo: item.sequenceNo !== undefined ? item.sequenceNo : (index + 1),
-        ticketNo: item.ticketNo,
+        ticketNo: resolvedTicketNo,
         requestDate: item.requestDate || getTodayDateString(),
         requestTime: item.requestTime || '09:00',
         machineId: item.machineId,
@@ -132,20 +304,23 @@ export const WorkRequestPage: React.FC = () => {
         productionDepartment: item.productionDepartment,
         requesterName: item.requesterName || (currentUser?.name || 'ฝ่ายผลิต'),
         requesterPhone: item.requesterPhone,
-      });
-
-      // If document contained specific status like ปิดงาน, update it
-      if (item.status && item.status !== 'รอตอบรับ') {
-        updateWorkRequest(created.id, { status: item.status });
-      }
-
-      if (notifyLine) {
-        notifyWorkRequestSubmitted(created);
-      }
-      count++;
+      };
     });
 
-    showToast(`✅ นำเข้าใบแจ้งซ่อมจากไฟล์ Excel สำเร็จแล้ว จำนวน ${count} รายการ`);
+    const createdList = addWorkRequestsBatch(toAdd);
+
+    // If document contained specific status like ปิดงาน, update it
+    items.forEach((item, idx) => {
+      const created = createdList[idx];
+      if (created && item.status && item.status !== 'รอตอบรับ') {
+        updateWorkRequest(created.id, { status: item.status });
+      }
+      if (created && notifyLine) {
+        notifyWorkRequestSubmitted(created);
+      }
+    });
+
+    showToast(`✅ นำเข้าใบแจ้งซ่อมจากไฟล์ Excel สำเร็จแล้ว จำนวน ${createdList.length} รายการ`);
   };
 
   // --- Form States for New Request (Production) ---
@@ -539,11 +714,36 @@ export const WorkRequestPage: React.FC = () => {
     setIsHandoverModalOpen(false);
   };
 
+  // Auto-sync sequenceNo to ticketNo if ticketNo is empty or was auto-generated REQ-...
+  useEffect(() => {
+    workRequests.forEach(req => {
+      if (req.sequenceNo !== undefined && (!req.ticketNo || req.ticketNo.startsWith('REQ-'))) {
+        updateWorkRequest(req.id, { ticketNo: String(req.sequenceNo) });
+      }
+    });
+  }, [workRequests]);
+
+  // Handle Escape key to close modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isDetailModalOpen) setIsDetailModalOpen(false);
+        if (isEditModalOpen) setIsEditModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDetailModalOpen, isEditModalOpen]);
+
   // Open Edit Modal
   const handleOpenEditModal = (req: WorkRequest) => {
     setEditingRequest(req);
     setEditSequenceNo(req.sequenceNo);
-    setEditTicketNo(req.ticketNo || '');
+    // เอาลำดับที่ ไปใส่เลขแจ้งซ่อม: if ticketNo is empty or was auto-generated REQ-..., use sequenceNo
+    const initialTicketNo = (req.ticketNo && !req.ticketNo.startsWith('REQ-'))
+      ? req.ticketNo
+      : (req.sequenceNo !== undefined ? String(req.sequenceNo) : (req.ticketNo || ''));
+    setEditTicketNo(initialTicketNo);
     const isCustom = req.isCustomLocation || !machines.some(m => m.id === req.machineId);
     setEditMachineMode(isCustom ? 'custom' : 'select');
     setEditMachineId(req.machineId);
@@ -582,6 +782,18 @@ export const WorkRequestPage: React.FC = () => {
       setEditSparePartNotes('');
       setEditMessageToProd('');
     }
+
+    // Printhead replacement details
+    setEditIsPrinthead(!!req.isPrintheadReplacement);
+    setEditPhModel(req.printheadDetails?.model || '');
+    setEditPhNewSerial(req.printheadDetails?.newSerial || '');
+    setEditPhOldSerial(req.printheadDetails?.oldSerial || '');
+    setEditPhResistance(req.printheadDetails?.resistance || '');
+    setEditPhVoltage(req.printheadDetails?.voltage || '');
+    setEditPhReplacedDate(req.printheadDetails?.replacedDate || req.requestDate || getTodayDateString());
+    setEditPhTechnician(req.printheadDetails?.technician || req.engineeringResponse?.assignedTechnicians?.[0] || currentUser?.name || '');
+    setEditPhReason(req.printheadDetails?.reason || req.problemTitle || '');
+    setEditPhNotes(req.printheadDetails?.notes || '');
 
     setIsEditModalOpen(true);
   };
@@ -648,7 +860,19 @@ export const WorkRequestPage: React.FC = () => {
       requesterName: editRequesterName.trim(),
       requesterPhone: editRequesterPhone.trim(),
       photoUrl: editPhotoUrl,
-      engineeringResponse: updatedResponse
+      engineeringResponse: updatedResponse,
+      isPrintheadReplacement: editIsPrinthead,
+      printheadDetails: editIsPrinthead ? {
+        model: editPhModel.trim(),
+        newSerial: editPhNewSerial.trim(),
+        oldSerial: editPhOldSerial.trim(),
+        resistance: editPhResistance.trim(),
+        voltage: editPhVoltage.trim(),
+        replacedDate: editPhReplacedDate.trim() || editingRequest.requestDate || getTodayDateString(),
+        technician: editPhTechnician.trim() || updatedResponse?.assignedTechnicians?.[0] || currentUser?.name || '',
+        reason: editPhReason.trim() || editProblemTitle.trim(),
+        notes: editPhNotes.trim()
+      } : undefined
     };
 
     updateWorkRequest(editingRequest.id, updatedData);
@@ -995,70 +1219,129 @@ export const WorkRequestPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Status Metrics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-100">
-          <div 
-            onClick={() => setStatusFilter('ทั้งหมด')}
-            className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'ทั้งหมด' ? 'bg-blue-50/70 border-blue-300 ring-2 ring-blue-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
+        {/* Navigation Sub-tabs: รายการแจ้งซ่อมทั้งหมด vs ประวัติการเปลี่ยนหัวพิมพ์ */}
+        <div className="flex flex-wrap items-center gap-2 mt-5 pt-4 border-t border-slate-100">
+          <button
+            type="button"
+            id="tab-all-work-requests"
+            onClick={() => setActiveMainTab('requests')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+              activeMainTab === 'requests'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
           >
-            <div className="text-xs font-medium text-slate-500">ใบแจ้งซ่อมทั้งหมด</div>
-            <div className="text-2xl font-bold text-slate-900 mt-1">{stats.total}</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">ทุกสถานะในระบบ</div>
-          </div>
+            <FileText className="w-4 h-4" />
+            <span>📋 รายการแจ้งซ่อมทั้งหมด</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
+              activeMainTab === 'requests' ? 'bg-blue-700 text-white' : 'bg-white text-slate-700 border border-slate-200'
+            }`}>
+              {workRequests.length}
+            </span>
+          </button>
 
-          <div 
-            onClick={() => setStatusFilter('รอตอบรับ')}
-            className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'รอตอบรับ' ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
+          <button
+            type="button"
+            id="tab-printhead-replacement-history"
+            onClick={() => setActiveMainTab('printhead')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+              activeMainTab === 'printhead'
+                ? 'bg-gradient-to-r from-purple-700 to-indigo-700 text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-purple-50 text-slate-700 hover:text-purple-700'
+            }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-amber-700">รอตอบรับงาน</span>
-              {stats.emergency > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white animate-pulse">
-                  {stats.emergency} ฉุกเฉิน
-                </span>
-              )}
-            </div>
-            <div className="text-2xl font-bold text-amber-900 mt-1">{stats.pending}</div>
-            <div className="text-[11px] text-amber-600 mt-0.5">รอวิศวกรรมระบุวันเสร็จ</div>
-          </div>
-
-          <div 
-            onClick={() => setStatusFilter('ตอบรับแล้ว/มีแผนงาน')}
-            className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'ตอบรับแล้ว/มีแผนงาน' ? 'bg-emerald-50 border-emerald-300 ring-2 ring-emerald-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
-          >
-            <div className="text-xs font-medium text-emerald-700">มีแผนงานแล้ว</div>
-            <div className="text-2xl font-bold text-emerald-900 mt-1">{stats.acknowledged}</div>
-            <div className="text-[11px] text-emerald-600 mt-0.5">ระบุเวลาเสร็จชัดเจน</div>
-          </div>
-
-          <div 
-            onClick={() => setStatusFilter('กำลังดำเนินการซ่อม')}
-            className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'กำลังดำเนินการซ่อม' ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
-          >
-            <div className="text-xs font-medium text-indigo-700">กำลังซ่อมแซม</div>
-            <div className="text-2xl font-bold text-indigo-900 mt-1">{stats.inProgress}</div>
-            <div className="text-[11px] text-indigo-600 mt-0.5">ทีมช่างกำลังปฏิบัติงาน</div>
-          </div>
-
-          <div 
-            onClick={() => setStatusFilter('ซ่อมเสร็จ/รอฝ่ายผลิตตรวจรับ')}
-            className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'ซ่อมเสร็จ/รอฝ่ายผลิตตรวจรับ' ? 'bg-teal-50 border-teal-300 ring-2 ring-teal-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
-          >
-            <div className="text-xs font-medium text-teal-700">รอตรวจรับงาน</div>
-            <div className="text-2xl font-bold text-teal-900 mt-1">{stats.completedWaitHandover}</div>
-            <div className="text-[11px] text-teal-600 mt-0.5">ผลิตทดสอบเดินเครื่อง</div>
-          </div>
-
-          <div 
-            onClick={() => setStatusFilter('ปิดงานสมบูรณ์')}
-            className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'ปิดงานสมบูรณ์' ? 'bg-slate-200 border-slate-400 ring-2 ring-slate-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
-          >
-            <div className="text-xs font-medium text-slate-700">ปิดงานสมบูรณ์</div>
-            <div className="text-2xl font-bold text-slate-900 mt-1">{stats.closed}</div>
-            <div className="text-[11px] text-slate-500 mt-0.5">ตรวจรับและให้คะแนนแล้ว</div>
-          </div>
+            <Printer className="w-4 h-4 text-purple-400" />
+            <span>🖨️ ประวัติการเปลี่ยนหัวพิมพ์</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
+              activeMainTab === 'printhead' ? 'bg-purple-900 text-white' : 'bg-purple-100 text-purple-800 border border-purple-200'
+            }`}>
+              {printheadCount}
+            </span>
+          </button>
         </div>
+
+        {/* Status Metrics Cards */}
+        {activeMainTab === 'requests' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-5 pt-5 border-t border-slate-100">
+            <div 
+              onClick={() => setStatusFilter('ทั้งหมด')}
+              className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'ทั้งหมด' ? 'bg-blue-50/70 border-blue-300 ring-2 ring-blue-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
+            >
+              <div className="text-xs font-medium text-slate-500">ใบแจ้งซ่อมทั้งหมด</div>
+              <div className="text-2xl font-bold text-slate-900 mt-1">{stats.total}</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">ทุกสถานะในระบบ</div>
+            </div>
+
+            <div 
+              onClick={() => setStatusFilter('รอตอบรับ')}
+              className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'รอตอบรับ' ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-amber-700">รอตอบรับงาน</span>
+                {stats.emergency > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white animate-pulse">
+                    {stats.emergency} ฉุกเฉิน
+                  </span>
+                )}
+              </div>
+              <div className="text-2xl font-bold text-amber-900 mt-1">{stats.pending}</div>
+              <div className="text-[11px] text-amber-600 mt-0.5">รอวิศวกรรมระบุวันเสร็จ</div>
+            </div>
+
+            <div 
+              onClick={() => setStatusFilter('ตอบรับแล้ว/มีแผนงาน')}
+              className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'ตอบรับแล้ว/มีแผนงาน' ? 'bg-emerald-50 border-emerald-300 ring-2 ring-emerald-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
+            >
+              <div className="text-xs font-medium text-emerald-700">มีแผนงานแล้ว</div>
+              <div className="text-2xl font-bold text-emerald-900 mt-1">{stats.acknowledged}</div>
+              <div className="text-[11px] text-emerald-600 mt-0.5">ระบุเวลาเสร็จชัดเจน</div>
+            </div>
+
+            <div 
+              onClick={() => setStatusFilter('กำลังดำเนินการซ่อม')}
+              className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'กำลังดำเนินการซ่อม' ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
+            >
+              <div className="text-xs font-medium text-indigo-700">กำลังซ่อมแซม</div>
+              <div className="text-2xl font-bold text-indigo-900 mt-1">{stats.inProgress}</div>
+              <div className="text-[11px] text-indigo-600 mt-0.5">ทีมช่างกำลังปฏิบัติงาน</div>
+            </div>
+
+            <div 
+              onClick={() => setStatusFilter('ซ่อมเสร็จ/รอฝ่ายผลิตตรวจรับ')}
+              className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'ซ่อมเสร็จ/รอฝ่ายผลิตตรวจรับ' ? 'bg-teal-50 border-teal-300 ring-2 ring-teal-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
+            >
+              <div className="text-xs font-medium text-teal-700">รอตรวจรับงาน</div>
+              <div className="text-2xl font-bold text-teal-900 mt-1">{stats.completedWaitHandover}</div>
+              <div className="text-[11px] text-teal-600 mt-0.5">ผลิตทดสอบเดินเครื่อง</div>
+            </div>
+
+            <div 
+              onClick={() => setStatusFilter('ปิดงานสมบูรณ์')}
+              className={`cursor-pointer p-3.5 rounded-xl border transition-all ${statusFilter === 'ปิดงานสมบูรณ์' ? 'bg-slate-200 border-slate-400 ring-2 ring-slate-500/20' : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'}`}
+            >
+              <div className="text-xs font-medium text-slate-700">ปิดงานสมบูรณ์</div>
+              <div className="text-2xl font-bold text-slate-900 mt-1">{stats.closed}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">ตรวจรับและให้คะแนนแล้ว</div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {activeMainTab === 'printhead' ? (
+        <PrintheadHistoryTab
+          workRequests={workRequests}
+          onOpenDetailModal={(req) => {
+            setActiveRequest(req);
+            setIsDetailModalOpen(true);
+          }}
+          onOpenPrintheadModal={handleOpenPrintheadModal}
+          onRemoveFromPrinthead={handleRemoveFromPrinthead}
+          onOpenSelectorModal={() => setIsPrintheadSelectorModalOpen(true)}
+          showToast={showToast}
+          renderStatusBadge={renderStatusBadge}
+        />
+      ) : (
+        <>
 
       {/* Filters Bar */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
@@ -1152,6 +1435,28 @@ export const WorkRequestPage: React.FC = () => {
               <span>แบบแสดงรายละเอียด</span>
             </button>
           </div>
+
+          {/* Quick Select All Button */}
+          {sortedRequests.length > 0 && (
+            <button
+              type="button"
+              id="btn-quick-select-all"
+              onClick={handleSelectAllFiltered}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                sortedRequests.every((r) => selectedIds.has(r.id))
+                  ? 'bg-blue-50 text-blue-700 border-blue-300'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200'
+              }`}
+              title="เลือกทั้งหมดสำหรับจัดการพร้อมกัน"
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+              <span>
+                {sortedRequests.every((r) => selectedIds.has(r.id))
+                  ? 'ยกเลิกเลือกทั้งหมด'
+                  : `เลือกทั้งหมด (${sortedRequests.length})`}
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Sorting options */}
@@ -1175,6 +1480,82 @@ export const WorkRequestPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Bulk Action Toolbar (ระบบลบงานแจ้งซ่อมแบบเลือกทั้งหมด & จัดการหัวพิมพ์) */}
+      {selectedIds.size > 0 && (
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-3.5 sm:p-4 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3 border border-indigo-700/50 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300 shrink-0">
+              <CheckSquare className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                <span>เลือกอยู่ <strong className="text-amber-300 font-mono text-sm sm:text-base">{selectedIds.size}</strong> รายการ</span>
+                <span className="text-slate-400 text-xs font-normal">(จากทั้งหมด {sortedRequests.length} งาน)</span>
+              </div>
+              <div className="text-[11px] text-slate-300">
+                จัดการรายการที่เลือก: ลบพร้อมกันทั้งหมด หรือติ๊กบันทึกเข้าประวัติการเปลี่ยนหัวพิมพ์
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              id="btn-bulk-toggle-select-all"
+              onClick={handleSelectAllFiltered}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition border border-slate-700 cursor-pointer"
+            >
+              {sortedRequests.length > 0 && sortedRequests.every((r) => selectedIds.has(r.id))
+                ? 'ยกเลิกเลือกทั้งหมด'
+                : `เลือกทั้งหมด (${sortedRequests.length})`}
+            </button>
+
+            <button
+              type="button"
+              id="btn-bulk-clear"
+              onClick={handleClearSelection}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition border border-slate-700 cursor-pointer"
+            >
+              ล้างการเลือก
+            </button>
+
+            <div className="h-5 w-px bg-slate-700 mx-1 hidden sm:block" />
+
+            <button
+              type="button"
+              id="btn-bulk-add-printhead"
+              onClick={() => handleBulkMarkPrinthead(true)}
+              className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="ติ๊กเลือกรายการเหล่านี้เป็นงานเปลี่ยนหัวพิมพ์"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>ติ๊กเป็นงานเปลี่ยนหัวพิมพ์</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-bulk-remove-printhead"
+              onClick={() => handleBulkMarkPrinthead(false)}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 text-xs font-semibold rounded-xl transition border border-purple-800/50 cursor-pointer"
+              title="ปลดออกจากประวัติการเปลี่ยนหัวพิมพ์"
+            >
+              ปลดหัวพิมพ์
+            </button>
+
+            <button
+              type="button"
+              id="btn-bulk-delete-work-requests"
+              onClick={() => setIsBulkDeleteModalOpen(true)}
+              className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer"
+              title="ลบรายการแจ้งซ่อมที่เลือกทั้งหมด"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>ลบรายการที่เลือก ({selectedIds.size})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Requests List */}
       <div className="space-y-4">
         {sortedRequests.length === 0 ? (
@@ -1193,14 +1574,25 @@ export const WorkRequestPage: React.FC = () => {
           /* VIEW MODE 1: Table View (CPRAM Style Row-based Table) */
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse min-w-[1020px]">
+              <table className="w-full text-left text-xs border-collapse min-w-[1060px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-3 text-center w-10">
+                      <input
+                        type="checkbox"
+                        id="table-select-all-checkbox"
+                        checked={sortedRequests.length > 0 && sortedRequests.every((r) => selectedIds.has(r.id))}
+                        onChange={handleSelectAllFiltered}
+                        className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                        title={sortedRequests.every((r) => selectedIds.has(r.id)) ? 'ยกเลิกการเลือกทั้งหมด' : 'เลือกทั้งหมดในหน้านี้'}
+                      />
+                    </th>
                     <th className="py-3 px-3 text-center w-12">ลำดับ</th>
                     <th className="py-3 px-3.5 w-36">เลขที่แจ้งซ่อม</th>
                     <th className="py-3 px-3.5 w-28">รหัสเครื่อง</th>
-                    <th className="py-3 px-3.5 w-48">เครื่องจักร</th>
-                    <th className="py-3 px-4 min-w-[260px]">รายละเอียด / อาการเสีย</th>
+                    <th className="py-3 px-3.5 w-44">เครื่องจักร</th>
+                    <th className="py-3 px-2 text-center w-28">หัวพิมพ์</th>
+                    <th className="py-3 px-4 min-w-[240px]">รายละเอียด / อาการเสีย</th>
                     <th className="py-3 px-3.5 w-32">ผู้ของาน</th>
                     <th className="py-3 px-3.5 w-36">หน่วยงาน</th>
                     <th className="py-3 px-3.5 w-32">วันที่ขอ</th>
@@ -1215,13 +1607,26 @@ export const WorkRequestPage: React.FC = () => {
 
                     return (
                       <tr 
-                        key={req.id} 
-                        className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                        key={`${req.id}-${req.sequenceNo ?? ''}-${idx}`} 
+                        className={`hover:bg-blue-50/50 transition-colors cursor-pointer group ${
+                          selectedIds.has(req.id) ? 'bg-blue-50/40' : ''
+                        }`}
                         onClick={() => {
                           setActiveRequest(req);
                           setIsDetailModalOpen(true);
                         }}
                       >
+                        {/* Checkbox เลือกแถว */}
+                        <td className="py-3.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            id={`table-row-select-${req.id}`}
+                            checked={selectedIds.has(req.id)}
+                            onChange={(e) => handleToggleSelect(req.id, e)}
+                            className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </td>
+
                         {/* ลำดับ */}
                         <td className="py-3.5 px-3 text-center font-mono font-bold">
                           <span className="w-6 h-6 rounded bg-slate-100 text-slate-700 inline-flex items-center justify-center text-xs border border-slate-200">
@@ -1271,6 +1676,44 @@ export const WorkRequestPage: React.FC = () => {
                               <MapPin size={10} className="text-slate-400 shrink-0" />
                               <span className="truncate">{req.locationPoint}</span>
                             </div>
+                          )}
+                        </td>
+
+                        {/* หัวพิมพ์: ติ๊กเลือกจากงานแจ้งซ่อม */}
+                        <td className="py-3.5 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                          {req.isPrintheadReplacement ? (
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                id={`btn-printhead-edit-${req.id}`}
+                                onClick={() => handleOpenPrintheadModal(req)}
+                                className="px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300 rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-2xs transition cursor-pointer"
+                                title="คลิกเพื่อดูหรือแก้ไขข้อมูลหัวพิมพ์"
+                              >
+                                <Printer className="w-3 h-3 text-purple-700" />
+                                <span>หัวพิมพ์</span>
+                                <Check className="w-2.5 h-2.5 text-purple-700" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleTogglePrinthead(req, e)}
+                                className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition cursor-pointer"
+                                title="ปลดออกจากประวัติการเปลี่ยนหัวพิมพ์"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              id={`btn-printhead-toggle-${req.id}`}
+                              onClick={(e) => handleTogglePrinthead(req, e)}
+                              className="px-2 py-1 bg-slate-50 hover:bg-purple-50 text-slate-500 hover:text-purple-700 border border-dashed border-slate-300 hover:border-purple-300 rounded-lg text-[11px] font-medium transition cursor-pointer flex items-center justify-center gap-1 mx-auto"
+                              title="ติ๊กเลือกงานนี้เข้าประวัติการเปลี่ยนหัวพิมพ์"
+                            >
+                              <Printer className="w-3 h-3 text-slate-400" />
+                              <span>+ หัวพิมพ์</span>
+                            </button>
                           )}
                         </td>
 
@@ -1386,14 +1829,28 @@ export const WorkRequestPage: React.FC = () => {
 
             return (
               <div 
-                key={req.id} 
+                key={`${req.id}-${req.sequenceNo ?? ''}-${idx}`} 
                 className={`bg-white rounded-2xl border transition-all duration-200 overflow-hidden shadow-xs hover:shadow-md ${
+                  selectedIds.has(req.id) ? 'ring-2 ring-blue-500/30 border-blue-300 bg-blue-50/10' : ''
+                } ${
                   req.priority === 'ฉุกเฉินไลน์หยุด' && isPending ? 'border-rose-400 ring-2 ring-rose-500/10' : 'border-slate-200'
                 }`}
               >
                 {/* Header row */}
                 <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/50">
                   <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Checkbox เลือกการ์ด */}
+                    <div onClick={(e) => e.stopPropagation()} className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id={`card-row-select-${req.id}`}
+                        checked={selectedIds.has(req.id)}
+                        onChange={(e) => handleToggleSelect(req.id, e)}
+                        className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer shrink-0"
+                        title="เลือกรายการนี้"
+                      />
+                    </div>
+
                     {/* Sequence Badge */}
                     <span className="w-6 h-6 rounded-md bg-slate-800 text-white font-mono text-[11px] font-bold inline-flex items-center justify-center shadow-2xs shrink-0" title="ลำดับ">
                       {req.sequenceNo !== undefined ? req.sequenceNo : idx + 1}
@@ -1415,6 +1872,43 @@ export const WorkRequestPage: React.FC = () => {
                     )}
                     {renderPriorityBadge(req.priority)}
                     {renderStatusBadge(req.status)}
+
+                    {/* Printhead Replacement Badge / Quick Toggle */}
+                    {req.isPrintheadReplacement ? (
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          id={`card-btn-printhead-edit-${req.id}`}
+                          onClick={() => handleOpenPrintheadModal(req)}
+                          className="px-2.5 py-1 bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                          title="คลิกเพื่อดูหรือแก้ไขข้อมูลหัวพิมพ์"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-purple-700" />
+                          <span>เปลี่ยนหัวพิมพ์</span>
+                          <Check className="w-3 h-3 text-purple-700" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleTogglePrinthead(req, e)}
+                          className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition cursor-pointer"
+                          title="ปลดออกจากประวัติการเปลี่ยนหัวพิมพ์"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        id={`card-btn-printhead-toggle-${req.id}`}
+                        onClick={(e) => handleTogglePrinthead(req, e)}
+                        className="px-2.5 py-1 bg-white hover:bg-purple-50 text-slate-500 hover:text-purple-700 border border-dashed border-slate-300 hover:border-purple-300 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-1"
+                        title="ติ๊กเลือกงานนี้เข้าประวัติการเปลี่ยนหัวพิมพ์"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-slate-400" />
+                        <span>+ หัวพิมพ์</span>
+                      </button>
+                    )}
+
                     <span className="text-xs text-slate-400 flex items-center gap-1">
                       <Clock className="w-3 h-3" />
                       แจ้งเมื่อ {req.requestDate} เวลา {req.requestTime} น.
@@ -1784,6 +2278,24 @@ export const WorkRequestPage: React.FC = () => {
           })
         )}
       </div>
+        </>
+      )}
+
+      {/* Sub-Tab 2: Printhead Replacement History (ประวัติการเปลี่ยนหัวพิมพ์) */}
+      {activeMainTab === 'printhead' && (
+        <PrintheadHistoryTab
+          workRequests={workRequests}
+          onOpenDetailModal={(req) => {
+            setActiveRequest(req);
+            setIsDetailModalOpen(true);
+          }}
+          onOpenPrintheadModal={handleOpenPrintheadModal}
+          onRemoveFromPrinthead={handleRemoveFromPrinthead}
+          onOpenSelectorModal={() => setIsPrintheadSelectorModalOpen(true)}
+          showToast={showToast}
+          renderStatusBadge={renderStatusBadge}
+        />
+      )}
 
       {/* ========================================================================= */}
       {/* MODAL 1: New Work Request (Production) */}
@@ -2537,13 +3049,37 @@ export const WorkRequestPage: React.FC = () => {
       {/* ========================================================================= */}
       {/* MODAL 5: Printable Detailed View */}
       {/* ========================================================================= */}
-      {isDetailModalOpen && activeRequest && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white">
-          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 overflow-hidden my-6 print:shadow-none print:border-none print:m-0">
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between print:hidden">
-              <div className="flex items-center gap-2">
-                <Printer className="w-5 h-5 text-blue-400" />
-                <h3 className="font-bold text-base">ใบสั่งซ่อมและตอบรับแผนงาน (Work Order Sheet)</h3>
+      {isDetailModalOpen && activeRequest && (() => {
+        const displayTicketNo = (activeRequest.ticketNo && !activeRequest.ticketNo.startsWith('REQ-'))
+          ? activeRequest.ticketNo
+          : (activeRequest.sequenceNo !== undefined ? String(activeRequest.sequenceNo) : activeRequest.ticketNo);
+
+        return (
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsDetailModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto print:p-0 print:bg-white"
+        >
+          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 overflow-hidden my-6 print:shadow-none print:border-none print:m-0 flex flex-col">
+            <div className="px-4 sm:px-6 py-3.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 print:hidden border-b border-slate-750">
+              <div className="flex items-center gap-3">
+                {/* ปุ่มกลับหน้าเดิม (ย้อนกลับ) */}
+                <button
+                  type="button"
+                  id="btn-back-from-work-order-sheet"
+                  onClick={() => setIsDetailModalOpen(false)}
+                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-950 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition shadow-sm cursor-pointer"
+                  title="ย้อนกลับไปหน้ารายการใบแจ้งซ่อมเดิม (กลับหน้าเดิม)"
+                >
+                  <ArrowLeft className="w-4 h-4 text-cyan-400" />
+                  <span>กลับหน้าเดิม</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <Printer className="w-4 h-4 text-blue-400 hidden sm:inline" />
+                  <h3 className="font-bold text-sm sm:text-base text-slate-100">ใบสั่งซ่อมและตอบรับแผนงาน (Work Order Sheet)</h3>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -2551,34 +3087,38 @@ export const WorkRequestPage: React.FC = () => {
                     setIsDetailModalOpen(false);
                     handleOpenEditModal(activeRequest);
                   }}
-                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors"
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
                   title="แก้ไขข้อมูลใบแจ้งซ่อมนี้"
                 >
                   <Edit className="w-3.5 h-3.5" />
-                  แก้ไขข้อมูล
+                  <span>แก้ไขข้อมูล</span>
                 </button>
                 <button
                   onClick={() => {
                     handleOpenDeleteModal(activeRequest);
                   }}
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors"
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
                   title="ลบใบแจ้งซ่อมนี้"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  ลบใบงาน
+                  <span>ลบใบงาน</span>
                 </button>
                 <button
                   onClick={() => window.print()}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  พิมพ์ใบงาน
+                  <span>พิมพ์ใบงาน</span>
                 </button>
                 <button 
+                  type="button"
+                  id="btn-close-work-order-sheet"
                   onClick={() => setIsDetailModalOpen(false)}
-                  className="text-white/80 hover:text-white p-1"
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 transition flex items-center gap-1 text-xs font-semibold cursor-pointer"
+                  title="ปิดหน้าต่างนี้ (กลับหน้าเดิม)"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
+                  <span>ปิด</span>
                 </button>
               </div>
             </div>
@@ -2596,9 +3136,9 @@ export const WorkRequestPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="text-right">
-                  {activeRequest.ticketNo && (
+                  {displayTicketNo && (
                     <div className="text-xs font-bold font-mono text-blue-900 bg-blue-50 px-3 py-1 rounded border border-blue-300 inline-block mb-1">
-                      เลขที่แจ้งซ่อม: #{activeRequest.ticketNo}
+                      เลขที่แจ้งซ่อม: #{displayTicketNo}
                     </div>
                   )}
                   <div>
@@ -2715,15 +3255,56 @@ export const WorkRequestPage: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Bottom Footer Bar for Quick Navigation / Back to list */}
+            <div className="px-6 py-3.5 bg-slate-100 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 print:hidden">
+              <button
+                type="button"
+                id="btn-footer-back-work-order-sheet"
+                onClick={() => setIsDetailModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-sm border border-slate-700"
+              >
+                <ArrowLeft className="w-4 h-4 text-cyan-400" />
+                <span>← กลับหน้าเดิม (หน้ารายการใบแจ้งซ่อม)</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDetailModalOpen(false);
+                    handleOpenEditModal(activeRequest);
+                  }}
+                  className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>แก้ไขข้อมูล</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>พิมพ์ใบสั่งซ่อม</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* MODAL 6: Edit Work Request (แก้ไขข้อมูลใบแจ้งซ่อม) */}
       {/* ========================================================================= */}
       {isEditModalOpen && editingRequest && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsEditModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+        >
           <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 overflow-hidden my-8">
             <div className="px-6 py-4 bg-amber-600 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -2735,12 +3316,24 @@ export const WorkRequestPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsEditModalOpen(false)}
-                className="text-white/80 hover:text-white p-1 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-3 py-1.5 bg-black/20 hover:bg-black/30 active:bg-black/40 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>กลับหน้าเดิม</span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="text-white/80 hover:text-white p-1.5 rounded-lg transition-colors cursor-pointer bg-black/10 hover:bg-black/20"
+                  title="ปิด"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <form onSubmit={handleSubmitEdit} className="p-6 space-y-5 text-sm max-h-[80vh] overflow-y-auto">
@@ -2755,14 +3348,33 @@ export const WorkRequestPage: React.FC = () => {
                     min="1"
                     placeholder="เช่น 1"
                     value={editSequenceNo !== undefined ? editSequenceNo : ''}
-                    onChange={(e) => setEditSequenceNo(e.target.value ? parseInt(e.target.value) : undefined)}
+                    onChange={(e) => {
+                      const val = e.target.value ? parseInt(e.target.value) : undefined;
+                      setEditSequenceNo(val);
+                      // เอาลำดับที่ ไปใส่เลขแจ้งซ่อม: if ticketNo is empty or starts with REQ-, auto-fill from sequence
+                      if (val !== undefined && (!editTicketNo || editTicketNo.startsWith('REQ-'))) {
+                        setEditTicketNo(String(val));
+                      }
+                    }}
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
                 <div className="sm:col-span-3">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    เลขที่ใบแจ้งซ่อม (Ticket No.) <span className="text-slate-400 font-normal">(เช่น 167311, 167446)</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      เลขที่ใบแจ้งซ่อม (Ticket No.) <span className="text-slate-400 font-normal">(เช่น 167311, 167446)</span>
+                    </label>
+                    {editSequenceNo !== undefined && (
+                      <button
+                        type="button"
+                        onClick={() => setEditTicketNo(String(editSequenceNo))}
+                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition flex items-center gap-1 cursor-pointer"
+                        title="กดเพื่อนำค่าลำดับที่ไปใส่เป็นเลขที่ใบแจ้งซ่อมทันที"
+                      >
+                        📋 นำลำดับที่ ({editSequenceNo}) ไปใส่เลขแจ้งซ่อม
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     placeholder="เช่น 167311 หรือ REQ-..."
@@ -3327,6 +3939,40 @@ export const WorkRequestPage: React.FC = () => {
         machines={machines}
         defaultRequester={currentUser?.name || 'ฝ่ายผลิต'}
         onImportRequests={handleImportExcelRequests}
+      />
+
+      {/* Bulk Delete Confirm Modal */}
+      <BulkDeleteConfirmModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={handleConfirmBulkDelete}
+        selectedCount={selectedIds.size}
+        selectedRequests={selectedRequestsList}
+      />
+
+      {/* Printhead Details & Specs Modal */}
+      <PrintheadDetailsModal
+        isOpen={isPrintheadModalOpen}
+        onClose={() => {
+          setIsPrintheadModalOpen(false);
+          setTargetPrintheadReq(null);
+        }}
+        request={targetPrintheadReq}
+        onSave={handleSavePrintheadDetails}
+      />
+
+      {/* Printhead Request Selector Modal */}
+      <PrintheadRequestSelectorModal
+        isOpen={isPrintheadSelectorModalOpen}
+        onClose={() => setIsPrintheadSelectorModalOpen(false)}
+        workRequests={workRequests}
+        onSelectRequests={handleSelectPrintheadRequestsBatch}
+        onSelectRequest={(req) => {
+          handleOpenPrintheadModal(req);
+        }}
+        onToggleRequest={(req) => {
+          handleTogglePrinthead(req);
+        }}
       />
     </div>
   );

@@ -438,7 +438,11 @@ export function parseWorkRequestExcelBuffer(
     const rawSeq = colMap.seq !== undefined ? row[colMap.seq] : undefined;
     const seqNo = rawSeq !== undefined && !isNaN(parseInt(rawSeq, 10)) ? parseInt(rawSeq, 10) : (items.length + 1);
 
-    const ticketNo = getVal('ticket') || `REQ-${Date.now().toString().slice(-6)}-${items.length + 1}`;
+    // เอาลำดับที่ ไปใส่เลขแจ้งซ่อม:
+    // If ticket column is empty or not provided, use sequence number (rawSeq) as ticketNo!
+    const rawTicket = getVal('ticket');
+    const seqString = rawSeq !== undefined && String(rawSeq).trim() ? String(rawSeq).trim() : '';
+    const ticketNo = rawTicket || seqString || `REQ-${Date.now().toString().slice(-6)}-${items.length + 1}`;
     let rawMachineId = getVal('machineId');
     let rawMachineName = getVal('machineName');
     const problemText = getVal('problem');

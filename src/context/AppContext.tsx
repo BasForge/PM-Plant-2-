@@ -56,8 +56,10 @@ interface AppContextType {
   updateMachinePlannedTime: (machineId: string, plannedHours: number) => void;
   updateAllMachinesPlannedTime: (plannedHours: number) => void;
   addWorkRequest: (req: Omit<WorkRequest, 'id' | 'createdAt' | 'status'>) => WorkRequest;
+  addWorkRequestsBatch: (reqs: Array<Omit<WorkRequest, 'id' | 'createdAt' | 'status'>>) => WorkRequest[];
   updateWorkRequest: (id: string, updates: Partial<WorkRequest>) => void;
   deleteWorkRequest: (id: string) => void;
+  deleteWorkRequestsBatch: (ids: string[]) => void;
   respondToWorkRequest: (id: string, response: EngineeringResponse, newStatus?: WorkRequestStatus) => void;
   completeWorkRequest: (id: string, summary: { actualDurationMins: number; repairSummaryNotes: string }) => void;
   acceptWorkRequestHandover: (id: string, handover: { acceptedBy: string; handoverNotes: string; satisfactionRating: number }) => void;
@@ -187,6 +189,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return merged;
   };
 
+  // Helper to ensure sequenceNo is mapped into ticketNo and all IDs are strictly unique
+  const sanitizeWorkRequests = (reqList?: WorkRequest[]): WorkRequest[] => {
+    if (!reqList || !Array.isArray(reqList)) return [];
+    const seenIds = new Set<string>();
+
+    return reqList.map((r, idx) => {
+      // เอาลำดับที่ ไปใส่เลขแจ้งซ่อม: if ticketNo is missing or auto-generated, fallback to sequenceNo
+      let ticketNo = r.ticketNo;
+      if (r.sequenceNo !== undefined && (!ticketNo || ticketNo.startsWith('REQ-'))) {
+        ticketNo = String(r.sequenceNo);
+      }
+
+      // Ensure each item has a guaranteed unique id
+      let id = r.id;
+      if (!id || seenIds.has(id)) {
+        const yearMonth = r.requestDate ? r.requestDate.slice(0, 7).replace('-', '') : new Date().toISOString().slice(0, 7).replace('-', '');
+        const nextSuffix = String(idx + 1).padStart(3, '0');
+        const randTag = Math.random().toString(36).substring(2, 6);
+        id = `${r.id || `REQ-${yearMonth}`}-${nextSuffix}-${randTag}`;
+      }
+      seenIds.add(id);
+
+      return {
+        ...r,
+        id,
+        ticketNo
+      };
+    });
+  };
+
   // Load from Firebase Cloud Firestore or fall back to Server / LocalStorage / preloads
   useEffect(() => {
     const initDb = async () => {
@@ -212,7 +244,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
             setLeaves(cloudData.leaves || []);
             setCd5Projects(cloudData.cd5Projects && cloudData.cd5Projects.length > 0 ? cloudData.cd5Projects : PRELOADED_CD5_PROJECTS);
-            setWorkRequests(cloudData.workRequests && cloudData.workRequests.length > 0 ? cloudData.workRequests : PRELOADED_WORK_REQUESTS);
+            setWorkRequests(sanitizeWorkRequests(cloudData.workRequests && cloudData.workRequests.length > 0 ? cloudData.workRequests : PRELOADED_WORK_REQUESTS));
             const userList = ensureAllDefaultUsers(cloudData.users);
             setUsers(userList);
             
@@ -264,7 +296,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const parts = serverData.spareParts || PRELOADED_SPARE_PARTS;
             const lvs = serverData.leaves || [];
             const cd5 = serverData.cd5Projects || PRELOADED_CD5_PROJECTS;
-            const reqs = serverData.workRequests || PRELOADED_WORK_REQUESTS;
+            const reqs = sanitizeWorkRequests(serverData.workRequests || PRELOADED_WORK_REQUESTS);
             const userList = ensureAllDefaultUsers(serverData.users);
             const stt = serverData.settings || settings;
 
@@ -581,7 +613,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setCd5Projects(cloudData.cd5Projects);
           }
           if (cloudData.workRequests && cloudData.workRequests.length > 0) {
-            setWorkRequests(cloudData.workRequests);
+            setWorkRequests(sanitizeWorkRequests(cloudData.workRequests));
           }
           if (cloudData.users && cloudData.users.length > 0) {
             setUsers(ensureAllDefaultUsers(cloudData.users));
@@ -629,7 +661,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setLeaves(cloudData.leaves || []);
         setCd5Projects(cloudData.cd5Projects || PRELOADED_CD5_PROJECTS);
         if (cloudData.workRequests && cloudData.workRequests.length > 0) {
-          setWorkRequests(cloudData.workRequests);
+          setWorkRequests(sanitizeWorkRequests(cloudData.workRequests));
         }
         if (cloudData.users && cloudData.users.length > 0) {
           setUsers(cloudData.users);
@@ -844,16 +876,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addWorkRequest = (req: Omit<WorkRequest, 'id' | 'createdAt' | 'status'>): WorkRequest => {
     const now = new Date();
     const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const nextNum = workRequests.length + 1;
-    const id = `REQ-${yearMonth}-${String(nextNum).padStart(3, '0')}`;
+    let maxNum = workRequests.length;
+    for (const r of workRequests) {
+      if (r.id && r.id.startsWith(`REQ-${yearMonth}-`)) {
+        const parts = r.id.split('-');
+        const parsed = parseInt(parts[2], 10);
+        if (!isNaN(parsed) && parsed > maxNum) {
+          maxNum = parsed;
+        }
+      }
+    }
+    const nextNum = maxNum + 1;
+    const id = `REQ-${yearMonth}-${String(nextNum).padStart(3, '0')}-${Math.random().toString(36).substring(2, 6)}`;
+    // เอาลำดับที่ ไปใส่เลขแจ้งซ่อม: if ticketNo is missing or was auto-generated REQ-..., fallback to sequenceNo
+    const resolvedTicketNo = (req.ticketNo && !req.ticketNo.startsWith('REQ-'))
+      ? req.ticketNo
+      : (req.sequenceNo !== undefined ? String(req.sequenceNo) : req.ticketNo);
     const newReq: WorkRequest = {
       ...req,
+      ticketNo: resolvedTicketNo,
       id,
       status: 'รอตอบรับ',
       createdAt: now.toISOString(),
     };
-    setWorkRequests(prev => [newReq, ...prev]);
+    setWorkRequests(prev => sanitizeWorkRequests([newReq, ...prev]));
     return newReq;
+  };
+
+  const addWorkRequestsBatch = (reqs: Array<Omit<WorkRequest, 'id' | 'createdAt' | 'status'>>): WorkRequest[] => {
+    if (reqs.length === 0) return [];
+    const now = new Date();
+    const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    let maxNum = workRequests.length;
+    for (const r of workRequests) {
+      if (r.id && r.id.startsWith(`REQ-${yearMonth}-`)) {
+        const parts = r.id.split('-');
+        const parsed = parseInt(parts[2], 10);
+        if (!isNaN(parsed) && parsed > maxNum) {
+          maxNum = parsed;
+        }
+      }
+    }
+
+    const createdList: WorkRequest[] = reqs.map((req, idx) => {
+      const nextNum = maxNum + idx + 1;
+      const id = `REQ-${yearMonth}-${String(nextNum).padStart(3, '0')}-${Math.random().toString(36).substring(2, 6)}`;
+      const resolvedTicketNo = (req.ticketNo && !req.ticketNo.startsWith('REQ-'))
+        ? req.ticketNo
+        : (req.sequenceNo !== undefined ? String(req.sequenceNo) : req.ticketNo);
+
+      return {
+        ...req,
+        ticketNo: resolvedTicketNo,
+        id,
+        status: 'รอตอบรับ',
+        createdAt: new Date(now.getTime() + idx * 10).toISOString(),
+      };
+    });
+
+    setWorkRequests(prev => sanitizeWorkRequests([...createdList, ...prev]));
+    return createdList;
   };
 
   const updateWorkRequest = (id: string, updates: Partial<WorkRequest>) => {
@@ -862,6 +944,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteWorkRequest = (id: string) => {
     setWorkRequests(prev => prev.filter(r => r.id !== id));
+  };
+
+  const deleteWorkRequestsBatch = (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    setWorkRequests(prev => prev.filter(r => !idSet.has(r.id)));
   };
 
   const respondToWorkRequest = (id: string, response: EngineeringResponse, newStatus: WorkRequestStatus = 'ตอบรับแล้ว/มีแผนงาน') => {
@@ -1041,7 +1129,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (dataObj.leaves) setLeaves(dataObj.leaves);
       if (dataObj.spareParts) setSpareParts(dataObj.spareParts);
       if (dataObj.cd5Projects) setCd5Projects(dataObj.cd5Projects);
-      if (dataObj.workRequests && Array.isArray(dataObj.workRequests)) setWorkRequests(dataObj.workRequests);
+      if (dataObj.workRequests && Array.isArray(dataObj.workRequests)) setWorkRequests(sanitizeWorkRequests(dataObj.workRequests));
       if (dataObj.settings) setSettings(dataObj.settings);
       if (dataObj.users && Array.isArray(dataObj.users)) setUsers(dataObj.users);
       
@@ -1069,7 +1157,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       users, setUsers,
       workRequests, setWorkRequests,
       updateMachinePlannedTime, updateAllMachinesPlannedTime,
-      addWorkRequest, updateWorkRequest, deleteWorkRequest,
+      addWorkRequest, addWorkRequestsBatch, updateWorkRequest, deleteWorkRequest, deleteWorkRequestsBatch,
       respondToWorkRequest, completeWorkRequest, acceptWorkRequestHandover,
       currentUser, setCurrentUser,
       login, loginAsViewer, loginAsProduction, logout,

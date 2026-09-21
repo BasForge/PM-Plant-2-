@@ -440,6 +440,20 @@ export interface WorkRequest {
   // การเชื่อมโยงกับโมดูลอื่น
   linkedRepairLogId?: string; // ID ใบงานซ่อมหากแปลงเข้าตารางซ่อม
   
+  // ข้อมูลประวัติการเปลี่ยนหัวพิมพ์ (Printhead Replacement History)
+  isPrintheadReplacement?: boolean; // ติ๊กเลือกเป็นงานเปลี่ยนหัวพิมพ์
+  printheadDetails?: {
+    model?: string; // รุ่นหัวพิมพ์ (เช่น Markem-Imaje SmartDate X40, Videojet, Domino)
+    newSerial?: string; // หมายเลขซีเรียลหัวพิมพ์ใหม่
+    oldSerial?: string; // หมายเลขซีเรียลหัวพิมพ์เดิม
+    resistance?: string; // ค่าความต้านทาน (Ohm) หรือค่า Dot
+    voltage?: string; // แรงดันไฟฟ้าหัวพิมพ์
+    replacedDate?: string; // วันที่ทำการเปลี่ยนหัวพิมพ์
+    technician?: string; // ช่างผู้เปลี่ยน
+    reason?: string; // สาเหตุที่เปลี่ยน (ดอทขาด, เส้นแตก, ช็อต, สึกหรอ)
+    notes?: string; // หมายเหตุเพิ่มเติม
+  };
+
   createdAt: string;
   updatedAt?: string;
 }

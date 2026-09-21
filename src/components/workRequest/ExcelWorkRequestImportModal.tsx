@@ -194,7 +194,18 @@ export const ExcelWorkRequestImportModal: React.FC<ExcelWorkRequestImportModalPr
       }
     }
 
-    onImportRequests(parsedItems, notifyLine);
+    // เอาลำดับที่ ไปใส่เลขแจ้งซ่อม: if ticketNo is missing or auto-generated, ensure sequenceNo is used
+    const processedItems = parsedItems.map(item => {
+      const resolvedTicket = (item.ticketNo && !item.ticketNo.startsWith('REQ-'))
+        ? item.ticketNo
+        : (item.sequenceNo !== undefined ? String(item.sequenceNo) : (item.ticketNo || ''));
+      return {
+        ...item,
+        ticketNo: resolvedTicket
+      };
+    });
+
+    onImportRequests(processedItems, notifyLine);
     handleReset();
     onClose();
   };
