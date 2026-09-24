@@ -155,9 +155,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  // Helper to ensure machine IDs are strictly unique and fix legacy duplicates
+  // Helper to ensure machine IDs are strictly unique, fix legacy duplicates, and clear model/vendor/serialNumber fields
   const sanitizeMachines = (machineList: Machine[]): Machine[] => {
     const seen = new Set<string>();
+    const shouldStrip = typeof window !== 'undefined' ? localStorage.getItem('cpram_cleared_machine_fields_v1') !== 'migrated' : true;
     return machineList.map((m, idx) => {
       let id = m.id;
       // Fix known duplicates from original CPRAM registry sheet where Assembly room reused codes
@@ -173,6 +174,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         id = `${id}-${m.orderNo || idx + 1}`;
       }
       seen.add(id);
+
+      if (shouldStrip) {
+        return {
+          ...m,
+          id,
+          model: '',
+          vendor: '',
+          serialNumber: ''
+        };
+      }
       return id !== m.id ? { ...m, id } : m;
     });
   };
@@ -283,7 +294,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (response.ok) {
           const serverData = await response.json();
           if (serverData && serverData.machines) {
-            const machs = (!serverData.machines || serverData.machines.length < 100 || !serverData.machines[0]?.model)
+            const machs = (!serverData.machines || serverData.machines.length === 0)
               ? sanitizeMachines(PRELOADED_MACHINES)
               : sanitizeMachines(serverData.machines);
             const techs = serverData.technicians || PRELOADED_TECHNICIANS;
@@ -432,6 +443,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (resolvedData) {
         lastSavedJsonRef.current = JSON.stringify(resolvedData);
+      }
+      try {
+        localStorage.setItem('cpram_cleared_machine_fields_v1', 'migrated');
+      } catch (e) {
+        // ignore
       }
       setIsLoaded(true);
 

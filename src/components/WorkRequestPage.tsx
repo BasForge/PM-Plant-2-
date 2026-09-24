@@ -67,6 +67,7 @@ import { getTodayDateString } from '../utils/pmAlerts';
 export const WorkRequestPage: React.FC = () => {
   const { 
     workRequests, 
+    setWorkRequests,
     machines, 
     technicians, 
     currentUser, 
@@ -265,19 +266,25 @@ export const WorkRequestPage: React.FC = () => {
   };
 
   const handleSelectPrintheadRequestsBatch = (ids: string[]) => {
-    ids.forEach((id) => {
-      const target = workRequests.find((r) => r.id === id);
-      if (target) {
-        updateWorkRequest(id, {
-          isPrintheadReplacement: true,
-          printheadDetails: target.printheadDetails || {
-            replacedDate: target.requestDate || getTodayDateString(),
-            technician: target.engineeringResponse?.assignedTechnicians?.[0] || currentUser?.name || '',
-            reason: target.problemTitle
-          }
-        });
-      }
-    });
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    setWorkRequests((prev) =>
+      prev.map((r) => {
+        if (idSet.has(r.id)) {
+          return {
+            ...r,
+            isPrintheadReplacement: true,
+            printheadDetails: r.printheadDetails || {
+              replacedDate: r.requestDate || getTodayDateString(),
+              technician: r.engineeringResponse?.assignedTechnicians?.[0] || currentUser?.name || '',
+              reason: r.problemTitle
+            },
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return r;
+      })
+    );
     showToast(`🖨️ เพิ่มงานแจ้งซ่อม ${ids.length} รายการเข้าประวัติการเปลี่ยนหัวพิมพ์เรียบร้อย`);
   };
 
