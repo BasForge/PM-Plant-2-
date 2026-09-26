@@ -63,6 +63,7 @@ import { PrintheadRequestSelectorModal } from './workRequest/PrintheadRequestSel
 import { PrintheadHistoryTab } from './workRequest/PrintheadHistoryTab';
 import { ParsedWorkRequestItem } from '../utils/excelWorkRequestParser';
 import { getTodayDateString } from '../utils/pmAlerts';
+import { TimePicker24H } from './common/TimePicker24H';
 
 export const WorkRequestPage: React.FC = () => {
   const { 
@@ -2696,12 +2697,11 @@ export const WorkRequestPage: React.FC = () => {
                         onChange={(e) => setRespTargetStartDate(e.target.value)}
                         className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs"
                       />
-                      <input
-                        type="time"
+                      <TimePicker24H
                         required
                         value={respTargetStartTime}
-                        onChange={(e) => setRespTargetStartTime(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs"
+                        onChange={(val) => setRespTargetStartTime(val)}
+                        className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs"
                       />
                     </div>
                   </div>
@@ -2709,7 +2709,7 @@ export const WorkRequestPage: React.FC = () => {
                   {/* Target Finish Date / Time (THE PROMPT'S KEY ASK) */}
                   <div className="bg-white p-3 rounded-lg border border-emerald-300 ring-2 ring-emerald-500/10">
                     <label className="block text-xs font-bold text-emerald-800 mb-1">
-                      🎯 วันที่และเวลาคาดว่าจะแล้วเสร็จ <span className="text-rose-500">*</span>
+                      🎯 วันที่และเวลาคาดว่าจะแล้วเสร็จ (24 ชม.) <span className="text-rose-500">*</span>
                     </label>
                     <div className="grid grid-cols-2 gap-2">
                       <input
@@ -2719,12 +2719,11 @@ export const WorkRequestPage: React.FC = () => {
                         onChange={(e) => setRespTargetFinishDate(e.target.value)}
                         className="w-full px-2.5 py-1.5 bg-emerald-50/50 border border-emerald-400 rounded-lg text-xs font-bold text-emerald-900"
                       />
-                      <input
-                        type="time"
+                      <TimePicker24H
                         required
                         value={respTargetFinishTime}
-                        onChange={(e) => setRespTargetFinishTime(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-emerald-50/50 border border-emerald-400 rounded-lg text-xs font-bold text-emerald-900"
+                        onChange={(val) => setRespTargetFinishTime(val)}
+                        className="px-2.5 py-1.5 bg-emerald-50/50 border border-emerald-400 rounded-lg text-xs font-bold text-emerald-900"
                       />
                     </div>
                   </div>
@@ -3718,13 +3717,12 @@ export const WorkRequestPage: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-emerald-900 mb-1">
-                      🎯 เวลาที่คาดว่าจะแล้วเสร็จ
+                      🎯 เวลาที่คาดว่าจะแล้วเสร็จ (24 ชม.)
                     </label>
-                    <input
-                      type="time"
+                    <TimePicker24H
                       value={editTargetFinishTime}
-                      onChange={(e) => setEditTargetFinishTime(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs font-semibold"
+                      onChange={(val) => setEditTargetFinishTime(val)}
+                      className="px-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs font-semibold"
                     />
                   </div>
                 </div>
@@ -3743,13 +3741,12 @@ export const WorkRequestPage: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">
-                      เวลาเริ่มเข้าซ่อม
+                      เวลาเริ่มเข้าซ่อม (24 ชม.)
                     </label>
-                    <input
-                      type="time"
+                    <TimePicker24H
                       value={editTargetStartTime}
-                      onChange={(e) => setEditTargetStartTime(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                      onChange={(val) => setEditTargetStartTime(val)}
+                      className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
                     />
                   </div>
                   <div>

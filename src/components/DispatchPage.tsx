@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { notifyPMDispatched, notifyRepairOpened, notifyRepairClosed } from '../utils/lineNotify';
 import { getTodayDateString } from '../utils/pmAlerts';
+import { TimePicker24H } from './common/TimePicker24H';
 
 export const DispatchPage: React.FC = () => {
   const { 
@@ -3623,15 +3624,17 @@ export const DispatchPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Resolved Time picker */}
+              {/* Resolved Time picker (24-Hour System) */}
               <div className="space-y-1.5">
-                <label className="font-extrabold text-[#94a3b8] block">ป้อนเวลาซ่อมเสร็จสิ้น (Resolved Time)</label>
-                <input
-                  type="time"
+                <div className="flex items-center justify-between">
+                  <label className="font-extrabold text-[#94a3b8] block">ป้อนเวลาซ่อมเสร็จสิ้น (Resolved Time)*</label>
+                  <span className="text-[10px] text-cyan-400 font-mono font-bold bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/40">24 ชม.</span>
+                </div>
+                <TimePicker24H
                   required
                   value={repDoneTimeField}
-                  onChange={(e) => setRepDoneTimeField(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-100 font-mono font-bold focus:outline-none focus:border-emerald-500"
+                  onChange={(val) => setRepDoneTimeField(val)}
+                  className="bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-100 font-mono font-bold focus:outline-none focus:border-emerald-500"
                 />
               </div>
 

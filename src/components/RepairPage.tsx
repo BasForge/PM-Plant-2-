@@ -20,6 +20,7 @@ import { compressImageFile } from '../utils/imageUtils';
 import { getTodayDateString } from '../utils/pmAlerts';
 import * as XLSX from 'xlsx';
 import { LineTextImportModal } from './repair/LineTextImportModal';
+import { DateTimePicker24H } from './common/DateTimePicker24H';
 
 export const RepairPage: React.FC = () => {
   const { repairs, setRepairs, machines, technicians, spareParts, setSpareParts, settings, canEdit, canDelete } = useApp();
@@ -1623,49 +1624,39 @@ export const RepairPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Row 2: Breakdown time -> Done time */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold text-slate-300">วันเวลาที่เกิดแจ้งเสีย (Breakdown Time)*</label>
-                  <input
-                    id="frm-rep-breakdown"
-                    type="datetime-local"
-                    required
-                    value={formBreakdown}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormBreakdown(val);
-                      if (!isStoppageManual && formUsedParts.length === 0 && !formHasPartsReplaced) {
-                        const start = new Date(val).getTime();
-                        const end = new Date(formDone).getTime();
-                        const diffMin = end > start ? Math.floor((end - start) / 60000) : 0;
-                        setFormStoppageType(diffMin < 15 ? 'MINOR_STOPPAGE' : 'ADJUSTMENT_LOSS');
-                      }
-                    }}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 font-mono text-center focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
+              {/* Row 2: Breakdown time -> Done time (Strict 24-Hour System) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <DateTimePicker24H
+                  id="frm-rep-breakdown"
+                  label="วันเวลาที่เกิดแจ้งเสีย (Breakdown Time)*"
+                  required
+                  value={formBreakdown}
+                  onChange={(val) => {
+                    setFormBreakdown(val);
+                    if (!isStoppageManual && formUsedParts.length === 0 && !formHasPartsReplaced) {
+                      const start = new Date(val).getTime();
+                      const end = new Date(formDone).getTime();
+                      const diffMin = end > start ? Math.floor((end - start) / 60000) : 0;
+                      setFormStoppageType(diffMin < 15 ? 'MINOR_STOPPAGE' : 'ADJUSTMENT_LOSS');
+                    }
+                  }}
+                />
 
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold text-slate-300">วันเวลาที่ซ่อมเสร็จเดินเครื่องได้ (Done)*</label>
-                  <input
-                    id="frm-rep-done"
-                    type="datetime-local"
-                    required
-                    value={formDone}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormDone(val);
-                      if (!isStoppageManual && formUsedParts.length === 0 && !formHasPartsReplaced) {
-                        const start = new Date(formBreakdown).getTime();
-                        const end = new Date(val).getTime();
-                        const diffMin = end > start ? Math.floor((end - start) / 60000) : 0;
-                        setFormStoppageType(diffMin < 15 ? 'MINOR_STOPPAGE' : 'ADJUSTMENT_LOSS');
-                      }
-                    }}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 font-mono text-center focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
+                <DateTimePicker24H
+                  id="frm-rep-done"
+                  label="วันเวลาที่ซ่อมเสร็จเดินเครื่องได้ (Done)*"
+                  required
+                  value={formDone}
+                  onChange={(val) => {
+                    setFormDone(val);
+                    if (!isStoppageManual && formUsedParts.length === 0 && !formHasPartsReplaced) {
+                      const start = new Date(formBreakdown).getTime();
+                      const end = new Date(val).getTime();
+                      const diffMin = end > start ? Math.floor((end - start) / 60000) : 0;
+                      setFormStoppageType(diffMin < 15 ? 'MINOR_STOPPAGE' : 'ADJUSTMENT_LOSS');
+                    }
+                  }}
+                />
               </div>
 
               {/* Row 2.5: Stoppage & Loss Classification Definition Block */}
