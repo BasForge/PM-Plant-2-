@@ -36,8 +36,8 @@ export const PMRescheduleModal: React.FC<PMRescheduleModalProps> = ({ job, onClo
 
   const [selectedReason, setSelectedReason] = useState<string>(RESCHEDULE_REASONS[0]);
   const [customReasonText, setCustomReasonText] = useState<string>('');
-  const [selectedTech, setSelectedTech] = useState<string>(job.technician || technicians[0] || 'ช่าง 1');
-  const [selectedCoTechs, setSelectedCoTechs] = useState<string[]>(job.technicians || [job.technician || 'ช่าง 1']);
+  const [selectedTech, setSelectedTech] = useState<string>(job.technician || technicians[0] || 'ช่างอุ้ย');
+  const [selectedCoTechs, setSelectedCoTechs] = useState<string[]>(job.technicians || [job.technician || (technicians[0] || 'ช่างอุ้ย')]);
   const [notes, setNotes] = useState<string>('');
   const [sendLineAlert, setSendLineAlert] = useState<boolean>(settings.lineNotifyEnabled || false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);

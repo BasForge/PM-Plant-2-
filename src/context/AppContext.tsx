@@ -24,7 +24,23 @@ import {
   isQuotaExceededError
 } from '../services/firebaseDb';
 
-interface AppContextType {
+export interface RepairFilterNavigation {
+  targetRepairIds?: string[];
+  filterTitle?: string;
+  sourcePage?: number;
+  isBaseline?: boolean;
+  baselineYear?: number;
+  baselineBDMin?: number;
+  baselineCount?: number;
+}
+
+export interface AppContextType {
+  activePage: number;
+  setActivePage: React.Dispatch<React.SetStateAction<number>>;
+  repairNavigationFilter: RepairFilterNavigation | null;
+  setRepairNavigationFilter: React.Dispatch<React.SetStateAction<RepairFilterNavigation | null>>;
+  navigateToRepairs: (filter: RepairFilterNavigation) => void;
+  clearRepairNavigationFilter: () => void;
   machines: Machine[];
   setMachines: React.Dispatch<React.SetStateAction<Machine[]>>;
   technicians: string[];
@@ -91,6 +107,18 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [activePage, setActivePage] = useState<number>(3);
+  const [repairNavigationFilter, setRepairNavigationFilter] = useState<RepairFilterNavigation | null>(null);
+
+  const navigateToRepairs = (filter: RepairFilterNavigation) => {
+    setRepairNavigationFilter(filter);
+    setActivePage(4);
+  };
+
+  const clearRepairNavigationFilter = () => {
+    setRepairNavigationFilter(null);
+  };
+
   const [machines, setMachines] = useState<Machine[]>([]);
   const [technicians, setTechnicians] = useState<string[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -156,10 +184,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   // Helper to ensure machine IDs are strictly unique, fix legacy duplicates, and clear model/vendor/serialNumber fields
+  const isLegacyMachinesList = (list?: Machine[]): boolean => {
+    if (!list || list.length === 0) return true;
+    if (list.length !== 182) return true;
+    if (list.some(m => m.id === 'MCH-001' || m.id === 'CNC-001' || m.id === 'CHL-001' || m.id === 'PMP-005')) return true;
+    return false;
+  };
+
   const sanitizeMachines = (machineList: Machine[]): Machine[] => {
+    const targetList = isLegacyMachinesList(machineList) ? PRELOADED_MACHINES : machineList;
     const seen = new Set<string>();
     const shouldStrip = typeof window !== 'undefined' ? localStorage.getItem('cpram_cleared_machine_fields_v1') !== 'migrated' : true;
-    return machineList.map((m, idx) => {
+    return targetList.map((m, idx) => {
       let id = m.id;
       // Fix known duplicates from original CPRAM registry sheet where Assembly room reused codes
       if (m.orderNo === 121 && id === 'TOC01') id = 'TOC-AS01';
@@ -188,10 +224,134 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Helper to ensure all default role accounts (including production) are always present
-  const ensureAllDefaultUsers = (currentList?: UserAccount[]): UserAccount[] => {
-    if (!currentList || currentList.length === 0) return DEFAULT_USER_ACCOUNTS;
-    const merged = [...currentList];
+  // Helper to detect artificial / placeholder technician names
+  const isFakeTechnician = (name: any): boolean => {
+    if (!name || typeof name !== 'string') return false;
+    const t = name.trim();
+    if (['ช่างสมชาย', 'ช่างวิชัย', 'ช่างประสิทธิ์', 'Outsource (ซัพพลายเออร์)', 'ช่างกิตติศักดิ์'].includes(t)) return true;
+    if (/^ช่าง\s*\d+$/.test(t)) return true;
+    return false;
+  };
+
+  // Helper to ensure all default user accounts (including 17 factory technicians) exist and no fake users linger
+  const ensureAllDefaultUsers = (existingUsers?: UserAccount[] | null): UserAccount[] => {
+    if (!Array.isArray(existingUsers) || existingUsers.length === 0) {
+      return DEFAULT_USER_ACCOUNTS;
+    }
+    const filtered = existingUsers.filter(u => {
+      if (!u || !u.name) return false;
+      if (isFakeTechnician(u.name)) return false;
+      if (u.username && /^tech\d+$/.test(u.username)) return false;
+      return true;
+    });
+
+    const map = new Map<string, UserAccount>();
+    DEFAULT_USER_ACCOUNTS.forEach(u => map.set(u.id, u));
+    filtered.forEach(u => {
+      if (!map.has(u.id)) {
+        map.set(u.id, u);
+      } else {
+        map.set(u.id, { ...map.get(u.id)!, ...u });
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  // Helper to ensure only genuine plant technician names exist
+  const sanitizeTechnicians = (techs?: string[] | null): string[] => {
+    if (!Array.isArray(techs) || techs.length === 0) {
+      return PRELOADED_TECHNICIANS;
+    }
+    const filtered = techs.filter(t => typeof t === 'string' && t.trim() && !isFakeTechnician(t));
+    if (filtered.length === 0) {
+      return PRELOADED_TECHNICIANS;
+    }
+    const set = new Set([...PRELOADED_TECHNICIANS, ...filtered]);
+    return Array.from(set).filter(t => !isFakeTechnician(t));
+  };
+
+  // Helper to ensure repair history only uses plant technicians
+  const sanitizeRepairs = (reps: any[] | undefined | null): RepairLog[] => {
+    if (!Array.isArray(reps) || reps.length === 0) {
+      return PRELOADED_REPAIRS;
+    }
+    const hasCpram = reps.some(r => r.id && r.id.startsWith('rep-cpram-'));
+    const sourceReps = (!hasCpram && reps.every(r => r.id === 'rep-01' || r.id === 'rep-02' || r.id === 'rep-03' || r.id === 'rep-04'))
+      ? PRELOADED_REPAIRS
+      : reps;
+
+    return sourceReps.map((r, idx) => {
+      let tech = r.technician;
+      if (!tech || isFakeTechnician(tech)) {
+        tech = PRELOADED_TECHNICIANS[idx % PRELOADED_TECHNICIANS.length];
+      }
+      let techList = Array.isArray(r.technicians) ? r.technicians : [tech];
+      techList = techList.map(t => isFakeTechnician(t) ? tech : t).filter(t => !isFakeTechnician(t));
+      if (techList.length === 0) techList = [tech];
+      return {
+        ...r,
+        technician: tech,
+        technicians: techList
+      };
+    });
+  };
+
+  // Helper to ensure schedules only use plant technicians
+  const sanitizeSchedules = (scheds: any[] | undefined | null): ScheduleItem[] => {
+    if (!Array.isArray(scheds) || scheds.length === 0) {
+      return PRELOADED_SCHEDULES;
+    }
+    return scheds.map((s, idx) => {
+      let tech = s.technician;
+      if (!tech || isFakeTechnician(tech)) {
+        tech = PRELOADED_TECHNICIANS[idx % PRELOADED_TECHNICIANS.length];
+      }
+      let techList = Array.isArray(s.technicians) ? s.technicians : [tech];
+      techList = techList.map(t => isFakeTechnician(t) ? tech : t).filter(t => !isFakeTechnician(t));
+      if (techList.length === 0) techList = [tech];
+      return {
+        ...s,
+        technician: tech,
+        technicians: techList
+      };
+    });
+  };
+
+  // Helper to ensure leaves only use plant technicians
+  const sanitizeLeaves = (lvs: any[] | undefined | null): any[] => {
+    if (!Array.isArray(lvs) || lvs.length === 0) {
+      return [
+        { id: 'lv-001', technician: 'ช่างอุ้ย', date: '2026-06-08', type: 'ลากิจ', note: 'ติดต่อราชการครอบครัว' },
+        { id: 'lv-002', technician: 'ช่างโอเว่น', date: '2026-06-11', type: 'ลาป่วย', note: 'ปวดศีรษะ เป็นไข้หวัด' },
+        { id: 'lv-003', technician: 'ช่างปอ', date: '2026-06-12', type: 'ลาพักร้อน', note: 'พักผ่อนประจำปีต่างจังหวัด (ภูเก็ต)' },
+        { id: 'lv-004', technician: 'ช่างเซฟ', date: '2026-06-14', type: 'วันหยุดประจำสัปดาห์', note: 'สลับวันหยุดประจำโรงงาน' },
+      ];
+    }
+    return lvs.map((lv, idx) => {
+      let tech = lv.technician;
+      if (!tech || isFakeTechnician(tech)) {
+        tech = PRELOADED_TECHNICIANS[idx % PRELOADED_TECHNICIANS.length];
+      }
+      return { ...lv, technician: tech };
+    });
+  };
+
+  // Helper to ensure only genuine plant technician and system accounts exist
+  const sanitizeUsers = (currentList?: UserAccount[]): UserAccount[] => {
+    if (!currentList || !Array.isArray(currentList) || currentList.length === 0) {
+      return DEFAULT_USER_ACCOUNTS;
+    }
+    const filtered = currentList.filter(u => {
+      if (!u) return false;
+      if (u.id === 'usr-tech-01' || u.id === 'usr-tech-02') return false;
+      if (isFakeTechnician(u.name)) return false;
+      if (u.name.includes('สมชาย') || u.name.includes('วิชัย') || u.name.includes('ประสิทธิ์')) return false;
+      if (/^ช่าง\s*\d+/.test(u.name)) return false;
+      if (/^tech[1-9]\d*$/.test(u.username)) return false;
+      return true;
+    });
+
+    const merged = [...filtered];
     for (const def of DEFAULT_USER_ACCOUNTS) {
       if (!merged.some(u => u.username.toLowerCase() === def.username.toLowerCase())) {
         merged.push(def);
@@ -249,7 +409,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setEmployees(cloudData.employees || []);
             setPmPlans(cloudData.pmPlans || PRELOADED_PM_PLANS);
             setSchedules(cloudData.schedules || PRELOADED_SCHEDULES);
-            setRepairs(cloudData.repairs || PRELOADED_REPAIRS);
+            setRepairs(sanitizeRepairs(cloudData.repairs));
             setImprovements(cloudData.improvements || PRELOADED_IMPROVEMENTS);
             setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
             setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
@@ -301,7 +461,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const emps = serverData.employees || [];
             const plans = serverData.pmPlans || PRELOADED_PM_PLANS;
             const scheds = serverData.schedules || PRELOADED_SCHEDULES;
-            const reps = serverData.repairs || PRELOADED_REPAIRS;
+            const reps = sanitizeRepairs(serverData.repairs);
             const imps = serverData.improvements || PRELOADED_IMPROVEMENTS;
             const setups = serverData.setupLogs || PRELOADED_SETUPS;
             const parts = serverData.spareParts || PRELOADED_SPARE_PARTS;
@@ -384,7 +544,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }));
           const plans = storedPlans ? JSON.parse(storedPlans) : PRELOADED_PM_PLANS;
           const scheds = storedSchedules ? JSON.parse(storedSchedules) : PRELOADED_SCHEDULES;
-          const reps = storedRepairs ? JSON.parse(storedRepairs) : PRELOADED_REPAIRS;
+          const reps = sanitizeRepairs(storedRepairs ? JSON.parse(storedRepairs) : undefined);
           const imps = storedImprovements ? JSON.parse(storedImprovements) : PRELOADED_IMPROVEMENTS;
           const setups = storedSetups ? JSON.parse(storedSetups) : PRELOADED_SETUPS;
           const parts = storedSpareParts ? JSON.parse(storedSpareParts) : PRELOADED_SPARE_PARTS;
@@ -392,10 +552,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const reqs = storedWorkRequests ? JSON.parse(storedWorkRequests) : PRELOADED_WORK_REQUESTS;
           const userList: UserAccount[] = ensureAllDefaultUsers(storedUsers ? JSON.parse(storedUsers) : DEFAULT_USER_ACCOUNTS);
           const lvs = storedLeaves ? JSON.parse(storedLeaves) : [
-            { id: 'lv-001', technician: 'ช่าง 1', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
-            { id: 'lv-002', technician: 'ช่าง 2', date: '2026-06-11', type: 'ลาป่วย' as const, note: 'ปวดศีรษะ เป็นไข้หวัด' },
-            { id: 'lv-003', technician: 'ช่าง 3', date: '2026-06-12', type: 'ลาพักร้อน' as const, note: 'พักผ่อนประจำปีต่างจังหวัด (ภูเก็ต)' },
-            { id: 'lv-004', technician: 'ช่าง 4', date: '2026-06-14', type: 'วันหยุดประจำสัปดาห์' as const, note: 'สลับวันหยุดประจำโรงงาน' },
+            { id: 'lv-001', technician: 'ช่างอุ้ย', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
+            { id: 'lv-002', technician: 'ช่างโอเว่น', date: '2026-06-11', type: 'ลาป่วย' as const, note: 'ปวดศีรษะ เป็นไข้หวัด' },
+            { id: 'lv-003', technician: 'ช่างปอ', date: '2026-06-12', type: 'ลาพักร้อน' as const, note: 'พักผ่อนประจำปีต่างจังหวัด (ภูเก็ต)' },
+            { id: 'lv-004', technician: 'ช่างเซฟ', date: '2026-06-14', type: 'วันหยุดประจำสัปดาห์' as const, note: 'สลับวันหยุดประจำโรงงาน' },
           ];
           const stt = storedSettings ? JSON.parse(storedSettings) : settings;
 
@@ -620,7 +780,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setEmployees(cloudData.employees || []);
           setPmPlans(cloudData.pmPlans || PRELOADED_PM_PLANS);
           setSchedules(cloudData.schedules || PRELOADED_SCHEDULES);
-          setRepairs(cloudData.repairs || PRELOADED_REPAIRS);
+          setRepairs(sanitizeRepairs(cloudData.repairs));
           setImprovements(cloudData.improvements || PRELOADED_IMPROVEMENTS);
           setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
           setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
@@ -670,7 +830,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setEmployees(cloudData.employees || []);
         setPmPlans(cloudData.pmPlans || PRELOADED_PM_PLANS);
         setSchedules(cloudData.schedules || PRELOADED_SCHEDULES);
-        setRepairs(cloudData.repairs || PRELOADED_REPAIRS);
+        setRepairs(sanitizeRepairs(cloudData.repairs));
         setImprovements(cloudData.improvements || PRELOADED_IMPROVEMENTS);
         setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
         setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
@@ -1062,10 +1222,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setWorkRequests(PRELOADED_WORK_REQUESTS);
     setUsers(DEFAULT_USER_ACCOUNTS);
     const preloadingLeaves = [
-      { id: 'lv-001', technician: 'ช่าง 1', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
-      { id: 'lv-002', technician: 'ช่าง 2', date: '2026-06-11', type: 'ลาป่วย' as const, note: 'ปวดศีรษะ เป็นไข้หวัด' },
-      { id: 'lv-003', technician: 'ช่าง 3', date: '2026-06-12', type: 'ลาพักร้อน' as const, note: 'พักผ่อนประจำปีต่างจังหวัด (ภูเก็ต)' },
-      { id: 'lv-004', technician: 'ช่าง 4', date: '2026-06-14', type: 'วันหยุดประจำสัปดาห์' as const, note: 'สลับวันหยุดประจำโรงงาน' },
+      { id: 'lv-001', technician: 'ช่างอุ้ย', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
+      { id: 'lv-002', technician: 'ช่างโอเว่น', date: '2026-06-11', type: 'ลาป่วย' as const, note: 'ปวดศีรษะ เป็นไข้หวัด' },
+      { id: 'lv-003', technician: 'ช่างปอ', date: '2026-06-12', type: 'ลาพักร้อน' as const, note: 'พักผ่อนประจำปีต่างจังหวัด (ภูเก็ต)' },
+      { id: 'lv-004', technician: 'ช่างเซฟ', date: '2026-06-14', type: 'วันหยุดประจำสัปดาห์' as const, note: 'สลับวันหยุดประจำโรงงาน' },
     ];
     setLeaves(preloadingLeaves);
     setSettings({
@@ -1158,6 +1318,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   return (
     <AppContext.Provider value={{
+      activePage, setActivePage,
+      repairNavigationFilter, setRepairNavigationFilter,
+      navigateToRepairs, clearRepairNavigationFilter,
       machines, setMachines,
       technicians, setTechnicians,
       employees, setEmployees,

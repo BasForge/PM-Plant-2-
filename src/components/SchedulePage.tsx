@@ -101,7 +101,7 @@ export const SchedulePage: React.FC = () => {
 
   useEffect(() => {
     if (quickMngTask) {
-      const mainTech = quickMngTask.technician || 'ช่าง 1';
+      const mainTech = quickMngTask.technician || (technicians[0] || 'ช่างอุ้ย');
       setQmTech(mainTech);
       
       const allTechs = quickMngTask.technicians || [mainTech];
@@ -158,7 +158,7 @@ export const SchedulePage: React.FC = () => {
   const [leaveFormNote, setLeaveFormNote] = useState('');
 
   // FORM STATES: 🛌 Leave Stats Tab direct input
-  const [quickLeaveTech, setQuickLeaveTech] = useState(technicians[0] || 'ช่าง 1');
+  const [quickLeaveTech, setQuickLeaveTech] = useState(technicians[0] || 'ช่างอุ้ย');
   const [quickLeaveDate, setQuickLeaveDate] = useState(() => formatHyphenDate(getNowInThailand()));
   const [quickLeaveType, setQuickLeaveType] = useState<'ลากิจ' | 'ลาป่วย' | 'ลาพักร้อน' | 'วันหยุดประจำสัปดาห์' | 'ลาอื่น ๆ'>('ลากิจ');
   const [quickLeaveNote, setQuickLeaveNote] = useState('');
@@ -449,7 +449,7 @@ export const SchedulePage: React.FC = () => {
       return;
     }
 
-    if (window.confirm('คุณต้องการใช้ AI หรือระบบวิเคราะห์คิวเพื่อจัดสรรงาน PM สัปดาห์นี้ไปยังช่าง 20 คน อย่างคุ้มค่าที่สุด โดยเฉลี่ยไม่ให้เกินชั่วโมงทำงานหรือไม่?')) {
+    if (window.confirm('คุณต้องการใช้ระบบวิเคราะห์คิวเพื่อจัดสรรงาน PM สัปดาห์นี้ไปยังพนักงานช่างประจำโรงงาน อย่างคุ้มค่าที่สุด โดยเฉลี่ยไม่ให้เกินชั่วโมงทำงานหรือไม่?')) {
       // Find all due PM plans. We can schedule one PM instance per machine for each PM plan in the current week.
       const newSchedulesToAppend: ScheduleItem[] = [];
       let techIndex = 0;
@@ -853,7 +853,7 @@ export const SchedulePage: React.FC = () => {
                               const newPM: PMScheduleItem = {
                                 id: `sched-${Date.now()}-${idx}`,
                                 type: 'PM',
-                                technician: 'ช่าง 1',
+                                technician: technicians[0] || 'ช่างอุ้ย',
                                 date: todayStr,
                                 machineId: alertItem.machineId,
                                 pmPlanId: pmPlans.find(plan => plan.machineId === alertItem.machineId)?.id || 'plan-pm-01',
@@ -1450,7 +1450,7 @@ export const SchedulePage: React.FC = () => {
                     cells.push(
                       <div
                         key={`real-day-${dNum}`}
-                        onClick={() => setSelectedCell({ dateStr: dayDateStr, technician: 'ช่าง 1' })}
+                        onClick={() => setSelectedCell({ dateStr: dayDateStr, technician: technicians[0] || 'ช่างอุ้ย' })}
                         className={`bg-[#0a0f1d] border rounded-xl p-2.5 min-h-[145px] flex flex-col justify-between hover:border-cyan-500/50 transition duration-150 relative cursor-pointer group ${
                           isTodayRef
                             ? 'border-cyan-500 bg-cyan-500/10 shadow-lg ring-1 ring-cyan-500/30'

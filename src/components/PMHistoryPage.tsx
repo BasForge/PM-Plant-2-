@@ -41,7 +41,7 @@ export const PMHistoryPage: React.FC = () => {
   const [formMachine, setFormMachine] = useState(machines[0]?.id || '');
   const [formPlan, setFormPlan] = useState('');
   const [formDate, setFormDate] = useState(todayStr);
-  const [formTechnician, setFormTechnician] = useState(technicians[0] || 'ช่าง 1');
+  const [formTechnician, setFormTechnician] = useState(technicians[0] || 'ช่างอุ้ย');
   const [formTechnicians, setFormTechnicians] = useState<string[]>([]);
   const [formDuration, setFormDuration] = useState<number>(30); // Std duration
   const [formActualDuration, setFormActualDuration] = useState<number>(35); // Actual spent
@@ -261,7 +261,7 @@ export const PMHistoryPage: React.FC = () => {
       return;
     }
 
-    const primaryTech = formTechnicians.length > 0 ? formTechnicians[0] : (formTechnician || 'ช่าง 1');
+    const primaryTech = formTechnicians.length > 0 ? formTechnicians[0] : (formTechnician || (technicians[0] || 'ช่างอุ้ย'));
 
     // Adjust inventory stock
     let tempSpareParts = [...spareParts];
@@ -645,7 +645,7 @@ export const PMHistoryPage: React.FC = () => {
                 setFormDuration(relativePlan.ttm || 30);
                 setFormActualDuration(relativePlan.ttm || 30);
               }
-              setFormTechnicians([technicians[0] || 'ช่าง 1']);
+              setFormTechnicians([technicians[0] || 'ช่างอุ้ย']);
               setFormStatus('เสร็จสิ้น');
               setShowFormModal(true);
             }}

@@ -7,12 +7,10 @@ import { SchedulePage } from './components/SchedulePage';
 import { RepairPage } from './components/RepairPage';
 import { ImprovementPage } from './components/ImprovementPage';
 import { CostDownAndKaizenHub } from './components/CostDownAndKaizenHub';
-import { DashboardPage } from './components/DashboardPage';
 import { DispatchPage } from './components/DispatchPage';
 import { SetupPage } from './components/SetupPage';
 import { MaintenanceHistoryHub } from './components/MaintenanceHistoryHub';
 import { SetupAndDispatchHub } from './components/SetupAndDispatchHub';
-import { AnalyticsAndPresentationHub } from './components/AnalyticsAndPresentationHub';
 import { SettingsModal } from './components/SettingsModal';
 import { InventoryPage } from './components/InventoryPage';
 import { PMHistoryPage } from './components/PMHistoryPage';
@@ -23,6 +21,7 @@ import { TBMPlanSchedulePage } from './components/TBMPlanSchedulePage';
 import { PMOverdueAlertModal } from './components/PMOverdueAlertModal';
 import { LoginPage } from './components/LoginPage';
 import { UserManagementModal } from './components/UserManagementModal';
+import { MtbfMttrDashboardPage } from './components/mtbf/MtbfMttrDashboardPage';
 import { getOverdueAndRescheduledSummary, getTodayDateString } from './utils/pmAlerts';
 
 import { 
@@ -32,10 +31,70 @@ import {
   LogOut, Shield, UserCheck, Eye, BellRing, Factory, CalendarRange
 } from 'lucide-react';
 
+// Isolated memoized clock component to prevent the root App and active page from re-rendering every second
+const LiveClockHeader: React.FC = React.memo(() => {
+  const [liveTime, setLiveTime] = useState<string>(() => {
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const thTime = new Date(utc + (3600000 * 7));
+    return `${String(thTime.getHours()).padStart(2, '0')}:${String(thTime.getMinutes()).padStart(2, '0')}:${String(thTime.getSeconds()).padStart(2, '0')}`;
+  });
+  const [liveDate, setLiveDate] = useState<string>(() => {
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const thTime = new Date(utc + (3600000 * 7));
+    const days = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสฯ", "ศุกร์", "เสาร์"];
+    const months = [
+      "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+      "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+    ];
+    return `${days[thTime.getDay()]}ที่ ${thTime.getDate()} ${months[thTime.getMonth()]} ${thTime.getFullYear() + 543}`;
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+      const thTime = new Date(utc + (3600000 * 7));
+      const hr = String(thTime.getHours()).padStart(2, '0');
+      const min = String(thTime.getMinutes()).padStart(2, '0');
+      const sec = String(thTime.getSeconds()).padStart(2, '0');
+      const days = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสฯ", "ศุกร์", "เสาร์"];
+      const months = [
+        "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+        "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+      ];
+      setLiveTime(`${hr}:${min}:${sec}`);
+      setLiveDate(`${days[thTime.getDay()]}ที่ ${thTime.getDate()} ${months[thTime.getMonth()]} ${thTime.getFullYear() + 543}`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <>
+      {/* Thailand Time clock helper */}
+      <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-800 px-3 py-1.2 rounded-lg text-right">
+        <Clock className="text-cyan-400" size={13} />
+        <div>
+          <p className="text-[8px] text-slate-500 uppercase leading-none">TH TIME</p>
+          <p className="text-xs font-mono font-black text-cyan-400 leading-none mt-1">{liveTime}</p>
+        </div>
+      </div>
+
+      {/* Date badge */}
+      <div className="text-right hidden md:block">
+        <p className="text-[8px] text-slate-500 leading-none uppercase font-bold text-right">CALENDAR DATE</p>
+        <p className="text-[10px] text-slate-350 leading-none mt-1">{liveDate}</p>
+      </div>
+    </>
+  );
+});
+
 function AppContent() {
   const { 
     currentUser, logout, isAdmin, canEdit, canDelete,
-    schedules, workRequests, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow 
+    schedules, workRequests, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow,
+    activePage, setActivePage
   } = useApp();
   
   // If not logged in, show login page
@@ -45,11 +104,6 @@ function AppContent() {
 
   const isProductionUser = currentUser?.role === 'production';
 
-  // Sidebar navigation active page state [1 to 14]
-  // If user is from production, default to Page 14 (🔔 แจ้งซ่อมและตอบรับงาน)
-  const [activePage, setActivePage] = useState<number>(() => {
-    return isProductionUser ? 14 : 3;
-  });
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true); // Collapsible fixed 220px
   const [showOverdueModal, setShowOverdueModal] = useState<boolean>(false);
   const [showUserModal, setShowUserModal] = useState<boolean>(false);
@@ -88,35 +142,6 @@ function AppContent() {
   // Settings global Dialog modal open status
   const [showSettings, setShowSettings] = useState<boolean>(false);
 
-  // Dynamic live clock for Thailand local context
-  const [liveTime, setLiveTime] = useState<string>('21:46:56');
-  const [liveDate, setLiveDate] = useState<string>('พุธที่ 10 มิถุนายน 2569');
-
-  useEffect(() => {
-    // Dynamic countdown timer representing active clock ticking
-    const interval = setInterval(() => {
-      const now = new Date();
-      // Adjust into Thailand timezone UTC+7
-      const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-      const thTime = new Date(utc + (3600000 * 7));
-      
-      const hr = String(thTime.getHours()).padStart(2, '0');
-      const min = String(thTime.getMinutes()).padStart(2, '0');
-      const sec = String(thTime.getSeconds()).padStart(2, '0');
-      
-      const days = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสฯ", "ศุกร์", "เสาร์"];
-      const months = [
-        "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-        "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
-      ];
-      
-      setLiveTime(`${hr}:${min}:${sec}`);
-      setLiveDate(`${days[thTime.getDay()]}ที่ ${thTime.getDate()} ${months[thTime.getMonth()]} ${thTime.getFullYear() + 543}`);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
   // Map pages based on navigation index
   const renderActivePage = () => {
     // Strict RBAC: Production role can only ever access the Work Request page
@@ -154,8 +179,9 @@ function AppContent() {
       case 8: return <SetupAndDispatchHub defaultTab="setup" />;
       case 7: return <SetupAndDispatchHub defaultTab="dispatch" />;
       case 10: return <InventoryPage />;
-      case 6: return <AnalyticsAndPresentationHub defaultTab="analytics" />;
-      case 9: return <AnalyticsAndPresentationHub defaultTab="presentation" />;
+      case 6:
+      case 9:
+      case 16: return <MtbfMttrDashboardPage />;
       case 12: return <TechnicianPortfolioPage />;
       default: return <SchedulePage />;
     }
@@ -167,10 +193,10 @@ function AppContent() {
     { id: 3, label: "📅 ตารางงานช่าง", icon: CalendarDays, desc: "มาสเตอร์พิกัดกะ" },
     { id: 1, label: "🏭 เครื่องจักร & แผน PM", icon: Activity, desc: "ทะเบียน, แผนงาน PM & TBM Matrix" },
     { id: 4, label: "🔧 ประวัติซ่อม & ประวัติ PM", icon: Wrench, desc: "บันทึกซ่อม Why-Why & งาน PM" },
+    { id: 16, label: "📈 แดชบอร์ด MTBF / MTTR", icon: BarChart3, desc: "SUM & 8 ห้องแยกรายเครื่อง" },
     { id: 13, label: "💰 Cost Down 5 & Kaizen", icon: TrendingDown, desc: "ลดต้นทุนอะไหล่ & งานพัฒนา Kaizen" },
     { id: 7, label: "📋 ระบบจ่ายงาน & Setup เครื่อง", icon: Send, desc: "ศูนย์สั่งจ่ายงาน & บันทึก Setup" },
     { id: 10, label: "📦 คลังอะไหล่สำรอง", icon: Package, desc: "ควบคุมความปลอดภัยสต็อก" },
-    { id: 6, label: "📊 ระบบสถิติ & สรุปนำเสนอ", icon: BarChart3, desc: "Dashboard KPI/MTTR & บอร์ดผู้บริหาร" },
     { id: 12, label: "🏆 Portfolio ช่าง", icon: Award, desc: "ประวัติผลงาน Kaizen & ปรับปรุง" }
   ];
 
@@ -243,8 +269,7 @@ function AppContent() {
                 || (item.id === 1 && (activePage === 2 || activePage === 15)) 
                 || (item.id === 13 && activePage === 5)
                 || (item.id === 4 && activePage === 11)
-                || (item.id === 7 && activePage === 8)
-                || (item.id === 6 && activePage === 9);
+                || (item.id === 7 && activePage === 8);
               const hasOverdueBadge = (item.id === 4 || item.id === 11 || item.id === 3) && totalOverdueCount > 0;
               const hasWorkRequestBadge = item.id === 14 && pendingWorkRequestCount > 0;
               
@@ -357,7 +382,6 @@ function AppContent() {
                     || (n.id === 13 && activePage === 5)
                     || (n.id === 4 && activePage === 11)
                     || (n.id === 7 && activePage === 8)
-                    || (n.id === 6 && activePage === 9)
                   )?.label} / พื้นที่สถิติและการทำงานหลัก
                 </h2>
               )}
@@ -366,21 +390,7 @@ function AppContent() {
 
           {/* Clock ticking timer panel */}
           <div className="flex items-center gap-4">
-            
-            {/* Thailand Time clock helper */}
-            <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-800 px-3 py-1.2 rounded-lg text-right">
-              <Clock className="text-cyan-400 animate-pulse" size={13} />
-              <div>
-                <p className="text-[8px] text-slate-500 uppercase leading-none">TH TIME</p>
-                <p className="text-xs font-mono font-black text-cyan-400 leading-none mt-1">{liveTime}</p>
-              </div>
-            </div>
-
-            {/* Date badge */}
-            <div className="text-right hidden md:block">
-              <p className="text-[8px] text-slate-500 leading-none uppercase font-bold text-right">CALENDAR DATE</p>
-              <p className="text-[10px] text-slate-350 leading-none mt-1">{liveDate}</p>
-            </div>
+            <LiveClockHeader />
 
             {/* Cloud Firestore Live Status & Sync Button */}
             <button

@@ -61,8 +61,8 @@ export function getMachineCriticality(machine?: Machine): CriticalityInfo {
     mName.includes('CNC') ||
     mId.startsWith('CHL') ||
     mId.startsWith('CMP') ||
-    mId.startsWith('MCH-001') ||
-    mId.startsWith('MCH-002') ||
+    mId.startsWith('RIM01') ||
+    mId.startsWith('BCF') ||
     remark.includes('วิกฤต') ||
     remark.includes('CRITICAL') ||
     remark.includes('CLASS A')

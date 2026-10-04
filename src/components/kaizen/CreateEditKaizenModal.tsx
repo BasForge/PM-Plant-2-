@@ -36,7 +36,7 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
   const [machineId, setMachineId] = useState(initialProject?.machineId || (machines[0]?.id || ''));
   const [startDate, setStartDate] = useState(initialProject?.startDate || new Date().toISOString().split('T')[0]);
   const [plannedEndDate, setPlannedEndDate] = useState(initialProject?.plannedEndDate || new Date().toISOString().split('T')[0]);
-  const [technician, setTechnician] = useState(initialProject?.technician || technicians[0] || 'ช่าง 1');
+  const [technician, setTechnician] = useState(initialProject?.technician || technicians[0] || 'ช่างอุ้ย');
   const [status, setStatus] = useState<'วางแผน' | 'กำลังดำเนินการ' | 'เสร็จแล้ว'>(initialProject?.status || 'กำลังดำเนินการ');
 
   // Media
@@ -99,7 +99,7 @@ export const CreateEditKaizenModal: React.FC<CreateEditKaizenModalProps> = ({
       setMachineId(initialProject?.machineId || (machines[0]?.id || ''));
       setStartDate(initialProject?.startDate || new Date().toISOString().split('T')[0]);
       setPlannedEndDate(initialProject?.plannedEndDate || new Date().toISOString().split('T')[0]);
-      setTechnician(initialProject?.technician || technicians[0] || 'ช่าง 1');
+      setTechnician(initialProject?.technician || technicians[0] || 'ช่างอุ้ย');
       setStatus(initialProject?.status || 'กำลังดำเนินการ');
 
       setPhotoBefore(initialProject?.photoBefore || '');

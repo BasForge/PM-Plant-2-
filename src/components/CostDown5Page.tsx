@@ -84,7 +84,7 @@ export const CostDown5Page: React.FC = () => {
   const [formMachineId, setFormMachineId] = useState<string>('VAC01');
   const [formPartName, setFormPartName] = useState<string>('');
   const [formPartCode, setFormPartCode] = useState<string>('');
-  const [formProposer, setFormProposer] = useState<string>(technicians[0] || 'ช่าง 1');
+  const [formProposer, setFormProposer] = useState<string>(technicians[0] || 'ช่างอุ้ย');
   const [formCoTechs, setFormCoTechs] = useState<string[]>([]);
   const [formStartDate, setFormStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [formApprovedDate, setFormApprovedDate] = useState<string>('');
@@ -131,7 +131,7 @@ export const CostDown5Page: React.FC = () => {
     setFormMachineId(machines[0]?.id || 'VAC01');
     setFormPartName('');
     setFormPartCode('');
-    setFormProposer(technicians[0] || 'ช่าง 1');
+    setFormProposer(technicians[0] || 'ช่างอุ้ย');
     setFormCoTechs([]);
     const today = new Date().toISOString().split('T')[0];
     setFormStartDate(today);

@@ -1,40 +1,40 @@
-import { Machine, CD5Project, ImprovementProject, RepairLog, PMPlan } from '../types';
+import { Machine, CD5Project, ImprovementProject, RepairLog, PMPlan, ScheduleItem } from '../types';
 import { CPRAM_PDF_MACHINES } from './cpramMachines';
+import { CPRAM_PDF_REPAIRS } from './cpramRepairHistory';
 import { FQMS_SAMPLE_STEPS } from '../utils/pmExcelParser';
 
 export const PRELOADED_MACHINES: Machine[] = CPRAM_PDF_MACHINES;
 
 
 export const PRELOADED_TECHNICIANS: string[] = [
-  "ช่างสมชาย", "ช่างวิชัย", "ช่างประสิทธิ์", "Outsource (ซัพพลายเออร์)",
-  "ช่าง 1","ช่าง 2","ช่าง 3","ช่าง 4","ช่าง 5",
-  "ช่าง 6","ช่าง 7","ช่าง 8","ช่าง 9","ช่าง 10",
-  "ช่าง 11","ช่าง 12","ช่าง 13","ช่าง 14","ช่าง 15",
-  "ช่าง 16","ช่าง 17","ช่าง 18","ช่าง 19","ช่าง 20"
+  "ช่างอุ้ย", "ช่างโอเว่น", "ช่างปอ", "ช่างเซฟ", "ช่างแบ้ง",
+  "ช่างเฟิส", "ช่างเกื้อ", "ช่างเทค", "ช่างแทน", "ช่างเอ๊ดดี้",
+  "ช่างเต้ย", "ช่างโจ", "ช่างปุ๊ก", "ช่างต้อย", "ช่างคีน",
+  "ช่างเหน่ง", "ช่างบิ๊ก"
 ];
 
 // Some sample mock data to make first-time loading feel fully-featured and live instantly
 export const PRELOADED_PM_PLANS = [
   {
-    id: "plan-pm-mch01",
-    machineId: "MCH-001",
-    title: "เปลี่ยนน้ำมันเครื่อง & ไส้กรองอากาศ (Oil & Air Filter Service)",
+    id: "plan-pm-rim01",
+    machineId: "RIM01",
+    title: "ตรวจเช็คชุดเกียร์ขับและลูกปืนเพลาผสมข้าว (Rice Mixer Gearbox & Bearing)",
     frequency: "ราย 3 เดือน",
     intervalDays: 90,
     category: "Mechanical",
     steps: [
-      { title: "หยุดเครื่อง ดับเบรคเกอร์ และเดรนแรงดันลมคงค้าง", stdTime: 10 },
-      { title: "ถ่ายน้ำมันเครื่องคอมเพรสเซอร์และเปลี่ยนไส้กรองน้ำมัน", stdTime: 20 },
-      { title: "ถอดเปลี่ยนไส้กรองอากาศ Air Intake Filter และเป่าทำความสะอาด", stdTime: 15 },
-      { title: "ตรวจเช็คสายพาน ตรวจจุดรั่วซึมลม และทดสอบเดินเครื่องวัดกระแส", stdTime: 15 }
+      { title: "หยุดเครื่อง ดับเบรคเกอร์ และทำ LOTO ป้องกันการเริ่มเดินเครื่อง", stdTime: 10 },
+      { title: "ตรวจเช็คระดับน้ำมันเกียร์และจุดรั่วซึมรอบซีลเพลา", stdTime: 20 },
+      { title: "ตรวจสอบใบกวนผสมข้าว และทำความสะอาดคราบแป้ง", stdTime: 15 },
+      { title: "ตรวจเช็คกระแสไฟฟ้ามอเตอร์และทดสอบเดินเครื่องวัดอุณหภูมิ", stdTime: 15 }
     ],
-    spareParts: "น้ำมันคอมเพรสเซอร์ Roto-Inject Fluid, กรองอากาศ 1622065800, กรองน้ำมัน 1622314200",
+    spareParts: "น้ำมันเกียร์สังเคราะห์ Food Grade, ซีลยางเพลา NBR",
     ttm: 60,
     targetMonths: [3, 6, 9, 12]
   },
   {
-    id: "plan-pm-mch02",
-    machineId: "MCH-002",
+    id: "plan-pm-rim02",
+    machineId: "RIM02",
     title: "ตรวจเช็คระบบสายพานและจาระบีเพลาขับ (Spindle Lubrication & Belt Inspection)",
     frequency: "ราย 6 เดือน",
     intervalDays: 180,
@@ -50,8 +50,8 @@ export const PRELOADED_PM_PLANS = [
     targetMonths: [6, 12]
   },
   {
-    id: "plan-pm-chl01",
-    machineId: "CHL-001",
+    id: "plan-pm-bch01",
+    machineId: "BCH01",
     title: "ล้างคอนเดนเซอร์ & เช็คสารทำความเย็นประจำปี (Condenser Cleaning & Refrigerant Overhaul)",
     frequency: "รายปี",
     intervalDays: 365,
@@ -152,105 +152,7 @@ export const PRELOADED_PM_PLANS = [
   }
 ];
 
-export const PRELOADED_REPAIRS: RepairLog[] = [
-  {
-    id: "rep-01",
-    type: "Repair",
-    technician: "ช่าง 1",
-    technicians: ["ช่าง 1"],
-    date: "2026-06-08",
-    machineId: "FFS02",
-    breakdownTime: "2026-06-08T09:15",
-    repairDoneTime: "2026-06-08T10:45",
-    symptoms: "เครื่องซีลแนวนอนไม่ร้อน ซีลปากถุงไม่ได้ เปลี่ยนหัวฮีตเตอร์",
-    why1: "หัวฮีตเตอร์ไม่ร้อนและอุณหภูมิหน้าจอตกต่อเนื่อง",
-    why2: "ไม่มีกระแสไฟฟ้าไหลผ่านขดลวดฮีตเตอร์ตัวนำความร้อน",
-    why3: "ตรวจพบว่าสายไฟด้านล่างหลวมจากแรงสั่นสะเทือนเครื่องจักร",
-    why4: "สายไม่ได้ยึดเข้ากับสายเกลียวเก็บสายและแคลมป์ยึดแน่นพอ",
-    why5: "ไม่มีการตรวจสอบความแน่นของขั้วสายไฟในแผน PM ประจำเครื่อง",
-    correctiveAction: "เปลี่ยนหัวฮีตเตอร์ใหม่และเข้าสายไฟ ยึดแคลมป์ท่อหดแรงสั่นสะเทือน พร้อมเพิ่มจุดตรวจใน PM",
-    duration: 90,
-    status: "ปิดงาน",
-    stoppageType: "BREAKDOWN",
-    hasPartsReplaced: true,
-    usedParts: [
-      { partId: "HEATER-01", quantity: 1, pricePerUnit: 1200, totalCost: 1200 }
-    ],
-    otherCost: 0
-  },
-  {
-    id: "rep-02",
-    type: "Repair",
-    technician: "ช่าง 2",
-    technicians: ["ช่าง 2"],
-    date: "2026-06-09",
-    machineId: "VAC02",
-    breakdownTime: "2026-06-09T14:00",
-    repairDoneTime: "2026-06-09T16:15",
-    symptoms: "แวคคั่มห้องเย็นไม่ลดแรงดันอุณหภูมิสูงเกินขีดจำกัด โซลินอยด์วาล์วไหม้",
-    why1: "ปั๊มทำลมช้าผิดรูป",
-    why2: "โซลินอยด์วาล์วเสียขดลวดละลาย",
-    why3: "ไฟกระชากเกิดความร้อนสะสมที่คอยล์ควบคุม",
-    why4: "พัดลมระบายความร้อนตู้ควบคุมด้านบนฝุ่นจับหนาแน่นจนหยุดทำงาน",
-    why5: "ไม่ได้ทำความสะอาดตู้คอนโทรลมากกว่า 3 เดือนเนื่องจากการซ่อมบำรุงเน้นเครื่องจักรเป็นหลัก",
-    correctiveAction: "เปลี่ยนโซลินอยด์วาล์วใหม่ ทำความสะอาดฝุ่นตู้คอนโทรล และเปลี่ยนพัดลมระบายความร้อนตัวใหม่",
-    duration: 135, // > 120 minutes breakdown! Red warning!
-    status: "ปิดงาน",
-    stoppageType: "BREAKDOWN",
-    hasPartsReplaced: true,
-    usedParts: [
-      { partId: "SOLENOID-24V", quantity: 1, pricePerUnit: 1850, totalCost: 1850 },
-      { partId: "FAN-220V", quantity: 1, pricePerUnit: 650, totalCost: 650 }
-    ],
-    otherCost: 0
-  },
-  {
-    id: "rep-03",
-    type: "Repair",
-    technician: "ช่าง 1",
-    technicians: ["ช่าง 1"],
-    date: "2026-06-10",
-    machineId: "RIM01",
-    breakdownTime: "2026-06-10T08:20",
-    repairDoneTime: "2026-06-10T08:28",
-    symptoms: "เซ็นเซอร์จับถาดข้าวติดขัด สัญญาณเตือน Alarm ดังชั่วคราว",
-    why1: "ตัวรับสัญญาณแสงโฟโต้อิเล็กทริกมีเศษแป้งข้าวบดบังเลนส์",
-    why2: "ไม่ได้เช็ดทำความสะอาดหัวเซ็นเซอร์ก่อนเริ่มเดินสายการผลิต",
-    why3: "ไม่มีผ้ารวมในชุดทำความสะอาดประจำจุด",
-    why4: "",
-    why5: "",
-    correctiveAction: "ใช้ผ้าแห้งและลมเป่าทำความสะอาดเลนส์เซ็นเซอร์ ทดสอบเดินเครื่องปกติ (< 15 นาที ไม่เปลี่ยนอะไหล่)",
-    duration: 8,
-    status: "ปิดงาน",
-    stoppageType: "MINOR_STOPPAGE",
-    hasPartsReplaced: false,
-    usedParts: [],
-    otherCost: 0
-  },
-  {
-    id: "rep-04",
-    type: "Repair",
-    technician: "ช่าง 2",
-    technicians: ["ช่าง 2"],
-    date: "2026-06-11",
-    machineId: "STK06",
-    breakdownTime: "2026-06-11T13:10",
-    repairDoneTime: "2026-06-11T13:45",
-    symptoms: "ปรับตั้งแนวฉลากสติกเกอร์และแรงดึงม้วนฟิล์มหลุดศูนย์กลาง รอยตัดเบี้ยว",
-    why1: "ตำแหน่งไกด์นำทางฟิล์มเคลื่อนตัวจากการกระแทกของม้วนใหม่",
-    why2: "มือขันล็อคปรับระยะคลายตัวเล็กน้อย",
-    why3: "แรงตึงของสายพานขับเคลื่อนลูกกลิ้งยางหย่อนยาน",
-    why4: "",
-    why5: "",
-    correctiveAction: "ตั้งศูนย์ Alignment ปรับระยะไกด์นำทางและขันแน่นสลักล็อค ทดสอบรอยตัดฉลาก 50 ชิ้นเสร็จสมบูรณ์ (> 15 นาที ไม่เปลี่ยนอะไหล่)",
-    duration: 35,
-    status: "ปิดงาน",
-    stoppageType: "ADJUSTMENT_LOSS",
-    hasPartsReplaced: false,
-    usedParts: [],
-    otherCost: 0
-  }
-];
+export const PRELOADED_REPAIRS: RepairLog[] = CPRAM_PDF_REPAIRS;
 
 export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
   // 1. KAIZEN PROJECTS
@@ -268,8 +170,8 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
       { id: "wl-02", date: "2026-06-05", hours: 2, note: "ประกอบติดตั้งการ์ดอะคริลิกและทดสอบเปิดระบบลมเป่าหน้างานจริง" }
     ],
     status: "เสร็จแล้ว",
-    technician: "ช่าง 1",
-    technicians: ["ช่าง 1", "ช่าง 2"],
+    technician: "ช่างอุ้ย",
+    technicians: ["ช่างอุ้ย", "ช่างโอเว่น"],
     photoBefore: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'><rect width='600' height='400' fill='%231e293b'/><rect x='40' y='40' width='520' height='320' fill='%230f172a' stroke='%23f59e0b' stroke-width='4' stroke-dasharray='8,8' rx='16'/><path d='M150 250 L250 150 L350 220 L450 120' stroke='%23ef4444' stroke-width='6' fill='none'/><circle cx='450' cy='120' r='12' fill='%23ef4444'/><text x='300' y='90' text-anchor='middle' fill='%23f59e0b' font-size='22' font-family='sans-serif' font-weight='bold'>BEFORE [ก่อนปรับปรุง]</text><text x='300' y='290' text-anchor='middle' fill='%2394a3b8' font-size='15' font-family='sans-serif'>พบเศษวัตถุดิบสะสม / กลไกเดิมยังไม่มีชุดการ์ดป้องกัน</text><rect x='160' y='320' width='280' height='30' rx='6' fill='%23ef4444' opacity='0.3'/><text x='300' y='340' text-anchor='middle' fill='%23fca5a5' font-size='12' font-family='sans-serif' font-weight='bold'>⚠️ เสียเวลาทำความสะอาด 35 นาที/วัน</text></svg>",
     photoAfter: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'><rect width='600' height='400' fill='%23064e3b'/><rect x='40' y='40' width='520' height='320' fill='%23022c22' stroke='%2310b981' stroke-width='4' rx='16'/><path d='M150 220 L250 220 L350 220 L450 220' stroke='%2310b981' stroke-width='8' stroke-linecap='round'/><circle cx='450' cy='220' r='14' fill='%2334d399'/><text x='300' y='90' text-anchor='middle' fill='%2334d399' font-size='22' font-family='sans-serif' font-weight='bold'>AFTER [หลังปรับปรุง Kaizen]</text><text x='300' y='280' text-anchor='middle' fill='%23a7f3d0' font-size='15' font-family='sans-serif'>ติดตั้งชุด Teflon Guard & Air Jet ปลดชิ้นงานอัตโนมัติ</text><rect x='160' y='320' width='280' height='30' rx='6' fill='%23059669'/><text x='300' y='340' text-anchor='middle' fill='%23ffffff' font-size='12' font-family='sans-serif' font-weight='bold'>✓ ย่นเวลาทำความสะอาดเหลือเพียง 5 นาที</text></svg>",
     pdfFiles: [
@@ -305,8 +207,8 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
       { id: "wl-2", date: "2026-06-08", hours: 4, note: "ขึ้นรูปกลไกรองรับและทดลองติดตั้งลูกรีดเคลือบเทฟลอน" }
     ],
     status: "กำลังดำเนินการ",
-    technician: "ช่าง 3",
-    technicians: ["ช่าง 3"],
+    technician: "ช่างโอเว่น",
+    technicians: ["ช่างปอ"],
     photoBefore: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'><rect width='600' height='400' fill='%231e293b'/><rect x='40' y='40' width='520' height='320' fill='%230f172a' stroke='%23f59e0b' stroke-width='4' stroke-dasharray='8,8' rx='16'/><text x='300' y='180' text-anchor='middle' fill='%23f59e0b' font-size='22' font-family='sans-serif' font-weight='bold'>BEFORE: ข้าวติดลูกรีดสะสม</text><text x='300' y='230' text-anchor='middle' fill='%2394a3b8' font-size='14' font-family='sans-serif'>สภาพลูกรีดเดิมยังไม่มีสารเคลือบ Teflon</text></svg>"
   },
   {
@@ -323,8 +225,8 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
       { id: "wl-4", date: "2026-06-05", hours: 5, note: "ทดสอบการทำงาน Safety Interlock เสร็จสิ้นสมบูรณ์เป็นที่น่าพอใจ" }
     ],
     status: "เสร็จแล้ว",
-    technician: "ช่าง 4",
-    technicians: ["ช่าง 4"],
+    technician: "ช่างเซฟ",
+    technicians: ["ช่างแบ้ง"],
     photoBefore: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'><rect width='600' height='400' fill='%231e293b'/><rect x='40' y='40' width='520' height='320' fill='%230f172a' stroke='%23f59e0b' stroke-width='4' stroke-dasharray='8,8' rx='16'/><text x='300' y='180' text-anchor='middle' fill='%23f59e0b' font-size='22' font-family='sans-serif' font-weight='bold'>BEFORE: เปิดฝาได้โดยไม่มี Interlock</text></svg>",
     photoAfter: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'><rect width='600' height='400' fill='%23064e3b'/><rect x='40' y='40' width='520' height='320' fill='%23022c22' stroke='%2310b981' stroke-width='4' rx='16'/><text x='300' y='180' text-anchor='middle' fill='%2334d399' font-size='22' font-family='sans-serif' font-weight='bold'>AFTER: ติดตั้ง Limit Switch และไฟเตือน Safety</text></svg>"
   },
@@ -343,8 +245,8 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
       { id: "wl-opl-01", date: "2026-06-03", hours: 2, note: "จัดทำเอกสาร OPL และจัดอบรมถ่ายทอดให้กับช่างและ Operator ประจำไลน์" }
     ],
     status: "เสร็จแล้ว",
-    technician: "ช่าง 1",
-    technicians: ["ช่าง 1", "ช่าง 5"],
+    technician: "ช่างอุ้ย",
+    technicians: ["ช่างอุ้ย", "ช่างแบ้ง"],
     oplData: {
       category: "การแก้ไขปัญหา (Troubleshooting)",
       purpose: "ถ่ายทอดวิธีการตั้งระยะลูกกลิ้งดึงฟิล์มและแรงกดหัวซีล เพื่อลดของเสียซองรั่วเป็น 0 ppm",
@@ -388,8 +290,8 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
       { id: "wl-opl-02", date: "2026-06-08", hours: 2, note: "ถ่ายภาพจุดตรวจสอบและจัดทำแผ่นป้าย OPL ติดหน้าตู้เครื่องจักร" }
     ],
     status: "เสร็จแล้ว",
-    technician: "ช่าง 2",
-    technicians: ["ช่าง 2"],
+    technician: "ช่างเฟิส",
+    technicians: ["ช่างเกื้อ"],
     oplData: {
       category: "ความรู้พื้นฐาน (Basic Knowledge)",
       purpose: "ให้ช่างและผู้ปฏิบัติงานเข้าใจการดูสีและระดับน้ำมันแวคคั่มปั๊ม และค่าเกจวัดแรงดัน -0.098 MPa",
@@ -441,8 +343,8 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
       { id: "wl-fa-02", date: "2026-06-04", hours: 3, note: "คำนวณ Stress Concentration ที่ร่องลิ่ม และออกแบบเพลาแบบเพิ่มรัศมี Fillet R=3mm" }
     ],
     status: "เสร็จแล้ว",
-    technician: "ช่าง 1",
-    technicians: ["ช่าง 1", "ช่าง 3"],
+    technician: "ช่างอุ้ย",
+    technicians: ["ช่างอุ้ย", "ช่างปอ"],
     faData: {
       failurePartName: "เพลาขับชุดใบกวนข้าว (Mixing Drive Shaft Ø35mm)",
       failurePartCode: "SFT-RIM-35",
@@ -489,8 +391,8 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
       { id: "wl-why-01", date: "2026-06-09", hours: 3, note: "ประชุมทีมสอบสวนวิเคราะห์ 5 Whys หน้างานจริงและกำหนดมาตรการแก้ไขเชิงระบบ" }
     ],
     status: "เสร็จแล้ว",
-    technician: "ช่าง 2",
-    technicians: ["ช่าง 2", "ช่าง 4"],
+    technician: "ช่างเทค",
+    technicians: ["ช่างแทน", "ช่างเอ๊ดดี้"],
     whyWhyData: {
       problemStatement: "มอเตอร์ปั๊มสุญญากาศ VAC02 ตัดการทำงานฉุกเฉิน (Overload Trip) ทำให้ไลน์ผลิตหยุดชะงัก 135 นาที",
       phenomenon: "ขดลวดโซลินอยด์วาล์วและตู้คอนโทรลมีอุณหภูมิพุ่งสูงเกิน 78°C ทำให้ Thermal Overload สั่งตัดวงจร",
@@ -539,8 +441,8 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
       { id: "wl-mp-02", date: "2026-06-08", hours: 4, note: "สเก็ตช์ภาพแบบปรับปรุง MP ข้อเสนอแนะส่งต่อวิศวกรรมเครื่องจักรใหม่" }
     ],
     status: "กำลังดำเนินการ",
-    technician: "ช่าง 1",
-    technicians: ["ช่าง 1", "ช่าง 2"],
+    technician: "ช่างอุ้ย",
+    technicians: ["ช่างอุ้ย", "ช่างโอเว่น"],
     mpData: {
       mpCategory: "ความง่ายในการบำรุงรักษา (Maintainability)",
       targetPhase: "จัดซื้อเครื่องจักรใหม่ในอนาคต (Future Machine Spec)",
@@ -577,8 +479,8 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
       { id: "wl-mp-04", date: "2026-06-05", hours: 2, note: "ออกแบบท่อต่อสายน้ำมันและหน้าต่างใสอะคริลิกมองระดับน้ำมัน" }
     ],
     status: "เสร็จแล้ว",
-    technician: "ช่าง 3",
-    technicians: ["ช่าง 3"],
+    technician: "ช่างเต้ย",
+    technicians: ["ช่างโจ"],
     mpData: {
       mpCategory: "การทำความสะอาดและตรวจสอบ (Clean & Inspect)",
       targetPhase: "ปรับปรุงเครื่องจักรปัจจุบัน (Current Machine Modification)",
@@ -603,57 +505,57 @@ export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
   }
 ];
 
-export const PRELOADED_SCHEDULES = [
+export const PRELOADED_SCHEDULES: ScheduleItem[] = [
   {
-    id: "sched-tbm-mch01-q1",
+    id: "sched-tbm-rim01-q1",
     type: "PM",
-    technician: "ช่างสมชาย",
-    technicians: ["ช่างสมชาย", "ช่างวิชัย"],
+    technician: "ช่างปุ๊ก",
+    technicians: ["ช่างต้อย", "ช่างคีน"],
     date: "2026-03-15",
-    machineId: "MCH-001",
-    pmPlanId: "plan-pm-mch01",
+    machineId: "RIM01",
+    pmPlanId: "plan-pm-rim01",
     status: "เสร็จสิ้น",
     duration: 60,
     actualDuration: 55
   },
   {
-    id: "sched-tbm-mch01-q2",
+    id: "sched-tbm-rim01-q2",
     type: "PM",
-    technician: "ช่างสมชาย",
-    technicians: ["ช่างสมชาย"],
+    technician: "ช่างเหน่ง",
+    technicians: ["ช่างบิ๊ก"],
     date: "2026-06-12",
-    machineId: "MCH-001",
-    pmPlanId: "plan-pm-mch01",
+    machineId: "RIM01",
+    pmPlanId: "plan-pm-rim01",
     status: "กำลังทำ",
     duration: 60
   },
   {
-    id: "sched-tbm-mch02-h1",
+    id: "sched-tbm-rim02-h1",
     type: "PM",
-    technician: "ช่างวิชัย",
-    technicians: ["ช่างวิชัย"],
+    technician: "ช่างอุ้ย",
+    technicians: ["ช่างโอเว่น"],
     date: "2026-06-18",
-    machineId: "MCH-002",
-    pmPlanId: "plan-pm-mch02",
+    machineId: "RIM02",
+    pmPlanId: "plan-pm-rim02",
     status: "รอดำเนินการ",
     duration: 90
   },
   {
-    id: "sched-tbm-chl01-y",
+    id: "sched-tbm-bch01-y",
     type: "PM",
-    technician: "Outsource (ซัพพลายเออร์)",
-    technicians: ["Outsource (ซัพพลายเออร์)"],
+    technician: "ช่างปอ",
+    technicians: ["ช่างเซฟ"],
     date: "2026-12-15",
-    machineId: "CHL-001",
-    pmPlanId: "plan-pm-chl01",
+    machineId: "BCH01",
+    pmPlanId: "plan-pm-bch01",
     status: "รอดำเนินการ",
     duration: 120
   },
   {
     id: "sched-tbm-pmp05-m6",
     type: "PM",
-    technician: "ช่างประสิทธิ์",
-    technicians: ["ช่างประสิทธิ์"],
+    technician: "ช่างแบ้ง",
+    technicians: ["ช่างเฟิส"],
     date: "2026-06-05",
     machineId: "PMP-005",
     pmPlanId: "plan-pm-pmp05",
@@ -664,7 +566,7 @@ export const PRELOADED_SCHEDULES = [
   {
     id: "sched-01",
     type: "PM",
-    technician: "ช่าง 1",
+    technician: "ช่างอุ้ย",
     date: "2026-06-10",
     machineId: "RIM01",
     pmPlanId: "plan-pm-01",
@@ -674,7 +576,7 @@ export const PRELOADED_SCHEDULES = [
   {
     id: "sched-02",
     type: "Operation",
-    technician: "ช่าง 2",
+    technician: "ช่างเกื้อ",
     date: "2026-06-10",
     line: "ไลน์ซูชิ A",
     startTime: "08:00",
@@ -686,7 +588,7 @@ export const PRELOADED_SCHEDULES = [
   {
     id: "sched-03",
     type: "PM",
-    technician: "ช่าง 5",
+    technician: "ช่างเทค",
     date: "2026-06-09", // Overdue PM task on 9 Jun if status is 'รอดำเนินการ'
     machineId: "FFS01",
     pmPlanId: "plan-pm-03",
@@ -696,8 +598,8 @@ export const PRELOADED_SCHEDULES = [
   {
     id: "sched-04",
     type: "PM",
-    technician: "ช่าง 3",
-    technicians: ["ช่าง 3", "ช่าง 4"],
+    technician: "ช่างแทน",
+    technicians: ["ช่างเอ๊ดดี้", "ช่างเต้ย"],
     date: "2026-06-08",
     machineId: "VAC01",
     pmPlanId: "plan-pm-02",
@@ -718,7 +620,7 @@ export const PRELOADED_SETUPS = [
     machineId: "FFS01",
     date: "2026-06-10",
     type: "Setupก่อนผลิต",
-    technicians: ["ช่าง 1", "ช่าง 2"],
+    technicians: ["ช่างอุ้ย", "ช่างโอเว่น"],
     totalDuration: 55,
     note: "เตรียมความพร้อมไลน์บรรจุ เช้ากะหนึ่ง",
     steps: [
@@ -734,7 +636,7 @@ export const PRELOADED_SETUPS = [
     machineId: "ATS01",
     date: "2026-06-10",
     type: "ปรับเครื่องระหว่างวัน",
-    technicians: ["ช่าง 3"],
+    technicians: ["ช่างโจ"],
     totalDuration: 25,
     note: "ปรับตั้งเครื่องพิมพ์วันที่เลอะ ฟิล์มเอียงเล็กน้อย",
     steps: [
@@ -750,7 +652,7 @@ export const PRELOADED_SETUPS = [
     machineId: "FFS02",
     date: "2026-06-09",
     type: "Setupก่อนผลิต",
-    technicians: ["ช่าง 4"],
+    technicians: ["ช่างปุ๊ก"],
     totalDuration: 40,
     note: "Setup ทั่วไปก่อนเริ่มงานวันจันทร์",
     steps: [
@@ -881,7 +783,7 @@ export const PRELOADED_CD5_PROJECTS: CD5Project[] = [
     partName: "ใบมีดตัดปากถุงสุญญากาศ (Vacuum Chamber Sealing Cutter)",
     partCode: "BLD-VAC-440",
     proposerTechnician: "ช่างสมศักดิ์",
-    coTechnicians: ["ช่างอนุชา", "ช่างกิตติศักดิ์"],
+    coTechnicians: ["ช่างอนุชา", "ช่างต้อย"],
     startDate: "2026-02-10",
     approvedDate: "2026-04-15",
     installedDate: "2026-04-16",
@@ -953,7 +855,7 @@ export const PRELOADED_CD5_PROJECTS: CD5Project[] = [
     machineId: "TOC01",
     partName: "บูชแบริ่งสวมแกนคอนเวเยอร์ข้าว (Self-Lubricating Conveyor Bushing)",
     partCode: "BSH-PEEK-25",
-    proposerTechnician: "ช่างวิชัย",
+    proposerTechnician: "ช่างคีน",
     coTechnicians: ["ช่างสมศักดิ์"],
     startDate: "2026-03-01",
     approvedDate: "2026-05-20",
@@ -999,7 +901,7 @@ export const PRELOADED_CD5_PROJECTS: CD5Project[] = [
         originalOemDays: 60,
         lifespanExtensionPercent: 300.0,
         wearCondition: "ผิวสัมผัสเรียบเนียน ไม่มีรอยขูดขีดบนแกนเพลา SUS316L ไม่พบการสึกหรอผิดปกติ",
-        technician: "ช่างวิชัย",
+        technician: "ช่างเหน่ง",
         notes: "ผ่าน 60 วัน (อายุเดิมของบูชทองเหลือง) ไปแล้วโดยยังไม่ต้องอัดจาระบีแม้แต่ครั้งเดียว"
       }
     ]
@@ -1070,7 +972,7 @@ export const PRELOADED_CD5_PROJECTS: CD5Project[] = [
     partName: "แกนเพลาใบกวนผสมข้าวหลัก (Main Mixer Agitator Shaft SUS304)",
     partCode: "SFT-RIM-01",
     proposerTechnician: "ช่างสมศักดิ์",
-    coTechnicians: ["ช่างวิชัย", "ช่างกิตติศักดิ์"],
+    coTechnicians: ["ช่างบิ๊ก", "ช่างอุ้ย"],
     startDate: "2026-05-15",
     installedDate: "2026-05-28",
     status: "กำลังทดสอบ",
@@ -1126,7 +1028,7 @@ export const PRELOADED_CD5_PROJECTS: CD5Project[] = [
     machineId: "FFS01",
     partName: "ชุดรางประกบฮีตเตอร์ตัดฟิล์ม PTFE Plate Insulator",
     partCode: "PTFE-FFS-01",
-    proposerTechnician: "ช่างกิตติศักดิ์",
+    proposerTechnician: "ช่างโอเว่น",
     coTechnicians: ["ช่างธนพล"],
     startDate: "2026-06-01",
     installedDate: "2026-06-05",
@@ -1171,7 +1073,7 @@ export const PRELOADED_CD5_PROJECTS: CD5Project[] = [
         originalOemDays: 14,
         lifespanExtensionPercent: 542.9,
         wearCondition: "รอยไหม้ 0% แผ่นเทฟลอนขาวสะอาด ไม่มีคราบพลาสติกติด",
-        technician: "ช่างกิตติศักดิ์",
+        technician: "ช่างปอ",
         notes: "ทดลองใช้งานเกิน 70 วันแล้ว เทียบกับของเดิมที่ต้องแปะเทปใหม่ทุก 3-14 วัน ประหยัดเวลาช่างและค่าเทปได้มหาศาล"
       }
     ]

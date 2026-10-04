@@ -64,7 +64,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
   const [showScheduleModal, setShowScheduleModal] = useState<boolean>(false);
   const [targetPlanForSchedule, setTargetPlanForSchedule] = useState<PMPlan | null>(null);
   const [scheduleDate, setScheduleDate] = useState<string>(todayStr);
-  const [scheduleTech, setScheduleTech] = useState<string>(technicians[0] || 'ช่าง 1');
+  const [scheduleTech, setScheduleTech] = useState<string>(technicians[0] || 'ช่างอุ้ย');
   const [scheduleNotes, setScheduleNotes] = useState<string>('');
 
   // Add Plan Modal State
@@ -77,7 +77,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
   const [newSpareParts, setNewSpareParts] = useState<string>('');
   const [newTargetMonths, setNewTargetMonths] = useState<number[]>([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   const [autoScheduleOnCreate, setAutoScheduleOnCreate] = useState<boolean>(false);
-  const [autoScheduleTech, setAutoScheduleTech] = useState<string>(technicians[0] || 'ช่างสมชาย');
+  const [autoScheduleTech, setAutoScheduleTech] = useState<string>(technicians[0] || 'ช่างอุ้ย');
   const [newSteps, setNewSteps] = useState<{ title: string; stdTime: number }[]>([
     { title: 'ตรวจสอบสภาพภายนอกและการทำงาน', stdTime: 15 },
     { title: 'ตรวจเช็คจุดยึดและทำความสะอาด', stdTime: 15 }
@@ -346,11 +346,11 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
 
     if (existing) {
       setScheduleDate(existing.date);
-      setScheduleTech(existing.technician || technicians[0] || 'ช่างสมชาย');
+      setScheduleTech(existing.technician || technicians[0] || 'ช่างอุ้ย');
       setScheduleNotes(existing.notes || `ใบงานบำรุงรักษาตามรอบ TBM (${plan.frequency}) เครื่อง ${plan.machineId}`);
     } else {
       setScheduleDate(`${currentYear}-${monthStr}-15`);
-      setScheduleTech(technicians[0] || 'ช่างสมชาย');
+      setScheduleTech(technicians[0] || 'ช่างอุ้ย');
       setScheduleNotes(`ใบงานบำรุงรักษาตามรอบ TBM (${plan.frequency}) เครื่อง ${plan.machineId}`);
     }
     setShowScheduleModal(true);
@@ -432,8 +432,8 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
       const completedJob: PMScheduleItem = {
         id: `sched-comp-${Date.now()}`,
         type: 'PM',
-        technician: technicians[0] || 'ช่างสมชาย',
-        technicians: [technicians[0] || 'ช่างสมชาย'],
+        technician: technicians[0] || 'ช่างอุ้ย',
+        technicians: [technicians[0] || 'ช่างอุ้ย'],
         date: executionDate,
         machineId: plan.machineId,
         pmPlanId: plan.id,
@@ -503,8 +503,8 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
       const newJob: PMScheduleItem = {
         id: `sched-tbm-${Date.now()}`,
         type: 'PM',
-        technician: technicians[0] || 'ช่างสมชาย',
-        technicians: [technicians[0] || 'ช่างสมชาย'],
+        technician: technicians[0] || 'ช่างอุ้ย',
+        technicians: [technicians[0] || 'ช่างอุ้ย'],
         date: `${currentYear}-${monthStr}-15`,
         machineId: plan.machineId,
         pmPlanId: plan.id,
@@ -543,8 +543,8 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
       const newJob: PMScheduleItem = {
         id: `sched-tbm-${Date.now()}`,
         type: 'PM',
-        technician: technicians[0] || 'ช่างสมชาย',
-        technicians: [technicians[0] || 'ช่างสมชาย'],
+        technician: technicians[0] || 'ช่างอุ้ย',
+        technicians: [technicians[0] || 'ช่างอุ้ย'],
         date: newDateStr,
         machineId: plan.machineId,
         pmPlanId: plan.id,
@@ -595,7 +595,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
     setNewSpareParts('');
     setNewTargetMonths([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     setAutoScheduleOnCreate(false);
-    setAutoScheduleTech(technicians[0] || 'ช่างสมชาย');
+    setAutoScheduleTech(technicians[0] || 'ช่างอุ้ย');
     setNewSteps([
       { title: 'ตรวจสอบสภาพภายนอกและการทำงาน', stdTime: 15 },
       { title: 'ตรวจเช็คจุดยึดและทำความสะอาด', stdTime: 15 }
@@ -2018,7 +2018,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
                         const activeWeek = dayOfSched <= 7 ? 1 : dayOfSched <= 14 ? 2 : dayOfSched <= 21 ? 3 : dayOfSched <= 28 ? 4 : 5;
 
                         // Assigned technician
-                        const assignedTech = scheduledItem?.technician || scheduledItem?.technicians?.[0] || 'ช่างสมชาย';
+                        const assignedTech = scheduledItem?.technician || scheduledItem?.technicians?.[0] || (technicians[0] || 'ช่างอุ้ย');
 
                         // Current status string
                         const currentStatus = scheduledItem?.status || (mData?.status === 'completed' ? 'เสร็จสิ้น' : 'รอดำเนินการ');

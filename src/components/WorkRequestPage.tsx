@@ -955,7 +955,7 @@ export const WorkRequestPage: React.FC = () => {
   // Convert Work Request to Repair Log
   const handleConvertToRepairLog = (req: WorkRequest) => {
     const today = req.requestDate || new Date().toISOString().split('T')[0];
-    const techName = req.engineeringResponse?.assignedTechnicians?.[0] || technicians[0] || 'ช่าง 1';
+    const techName = req.engineeringResponse?.assignedTechnicians?.[0] || technicians[0] || 'ช่างอุ้ย';
     
     const newLog: RepairLog = {
       id: `rep-req-${req.id.toLowerCase()}`,

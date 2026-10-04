@@ -7,6 +7,40 @@
     <meta name="description" content="Thai-language tool for tracking maintenance tasks, emergency repairs, and technician workload in food manufacturing facilities with Firebase Cloud Firestore real-time sync." />
     <meta property="og:title" content="Bas Maintenance" />
     <meta property="og:description" content="Thai-language tool for tracking maintenance tasks, emergency repairs, and technician workload in food manufacturing facilities with Firebase Cloud Firestore real-time sync." />
+    <script>
+      (function() {
+        if (typeof window !== 'undefined' && window.performance) {
+          if (typeof window.performance.measure === 'function') {
+            var origMeasure = window.performance.measure.bind(window.performance);
+            window.performance.measure = function(name, startOrOptions, endMark) {
+              try {
+                return origMeasure(name, startOrOptions, endMark);
+              } catch (err) {
+                try {
+                  return origMeasure(name);
+                } catch (_) {
+                  return undefined;
+                }
+              }
+            };
+          }
+          if (typeof window.performance.mark === 'function') {
+            var origMark = window.performance.mark.bind(window.performance);
+            window.performance.mark = function(name, markOptions) {
+              try {
+                return origMark(name, markOptions);
+              } catch (err) {
+                try {
+                  return origMark(name);
+                } catch (_) {
+                  return undefined;
+                }
+              }
+            };
+          }
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

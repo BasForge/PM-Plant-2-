@@ -49,7 +49,7 @@ export const LineTextImportModal: React.FC<LineTextImportModalProps> = ({
 }) => {
   const [rawInput, setRawInput] = useState<string>('');
   const [batchDate, setBatchDate] = useState<string>(() => getTodayDateString());
-  const [defaultTech, setDefaultTech] = useState<string>(technicians[0] || 'ช่าง 1');
+  const [defaultTech, setDefaultTech] = useState<string>(technicians[0] || 'ช่างอุ้ย');
   const [parsedItems, setParsedItems] = useState<ParsedRepairItem[]>([]);
   const [hasParsed, setHasParsed] = useState<boolean>(false);
 

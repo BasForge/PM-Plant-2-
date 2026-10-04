@@ -14,7 +14,7 @@ interface MaintenanceHistoryHubProps {
 }
 
 export const MaintenanceHistoryHub: React.FC<MaintenanceHistoryHubProps> = ({ defaultTab = 'repair' }) => {
-  const { repairs, schedules, machines, workRequests, updateWorkRequest, technicians, currentUser } = useApp();
+  const { repairs, schedules, machines, workRequests, updateWorkRequest, technicians, currentUser, repairNavigationFilter } = useApp();
   const [activeSubTab, setActiveSubTab] = useState<'repair' | 'pm' | 'printhead'>(defaultTab);
 
   // Modals for Printhead history
@@ -29,10 +29,14 @@ export const MaintenanceHistoryHub: React.FC<MaintenanceHistoryHubProps> = ({ de
     setTimeout(() => setToastMsg(null), 3500);
   };
 
-  // Sync if defaultTab prop changes (e.g. navigation from modal directly to PM history)
+  // Sync if defaultTab prop changes or if navigated with repairNavigationFilter
   useEffect(() => {
-    setActiveSubTab(defaultTab);
-  }, [defaultTab]);
+    if (repairNavigationFilter) {
+      setActiveSubTab('repair');
+    } else {
+      setActiveSubTab(defaultTab);
+    }
+  }, [defaultTab, repairNavigationFilter]);
 
   // Statistics for quick badge display
   const completedRepairs = repairs.filter(r => r.status === 'ปิดงาน' || r.status === 'Completed' || !r.status).length;

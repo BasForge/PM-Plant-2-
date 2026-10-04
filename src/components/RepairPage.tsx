@@ -13,7 +13,7 @@ import {
   Plus, Search, SlidersHorizontal, Image as ImageIcon, 
   Trash2, AlertTriangle, CheckCircle, HelpCircle, ArrowUpDown,
   Edit, FileSpreadsheet, Upload, X, MessageSquare, Tag, Check, Sparkles,
-  CheckCircle2, Clock, Wrench, Package, PenLine, PlusCircle
+  CheckCircle2, Clock, Wrench, Package, PenLine, PlusCircle, CheckSquare
 } from 'lucide-react';
 import { notifyRepairOpened, notifyRepairClosed, sendLineNotification } from '../utils/lineNotify';
 import { compressImageFile } from '../utils/imageUtils';
@@ -23,7 +23,10 @@ import { LineTextImportModal } from './repair/LineTextImportModal';
 import { DateTimePicker24H } from './common/DateTimePicker24H';
 
 export const RepairPage: React.FC = () => {
-  const { repairs, setRepairs, machines, technicians, spareParts, setSpareParts, settings, canEdit, canDelete } = useApp();
+  const { 
+    repairs, setRepairs, machines, technicians, spareParts, setSpareParts, settings, canEdit, canDelete,
+    repairNavigationFilter, clearRepairNavigationFilter, setActivePage
+  } = useApp();
 
   // Search/Filters states
   const [machineFilter, setMachineFilter] = useState('');
@@ -70,12 +73,22 @@ export const RepairPage: React.FC = () => {
   // Custom Delete Confirm state
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // Bulk Selection and Bulk Delete states
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState<boolean>(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
   // Form Inputs
   const [formMachine, setFormMachine] = useState(machines[0]?.id || '');
   const [formBreakdown, setFormBreakdown] = useState(() => `${getTodayDateString()}T09:00`);
   const [formDone, setFormDone] = useState(() => `${getTodayDateString()}T11:30`);
   const [formSymptoms, setFormSymptoms] = useState('');
-  const [formTechnician, setFormTechnician] = useState(technicians[0] || 'ช่าง 1');
+  const [formTechnician, setFormTechnician] = useState(technicians[0] || 'ช่างอุ้ย');
   const [formTechnicians, setFormTechnicians] = useState<string[]>([]);
   const [formCorrection, setFormCorrection] = useState('');
   const [formStatus, setFormStatus] = useState<'กำลังซ่อม' | 'ปิดงาน'>('ปิดงาน');
@@ -331,7 +344,7 @@ export const RepairPage: React.FC = () => {
       return;
     }
 
-    const primaryTech = formTechnicians[0] || formTechnician || 'ช่าง 1';
+    const primaryTech = formTechnicians[0] || formTechnician || (technicians[0] || 'ช่างอุ้ย');
 
     // Adjust inventory stock
     let tempSpareParts = [...spareParts];
@@ -949,7 +962,7 @@ export const RepairPage: React.FC = () => {
         '2026-06-10 09:00',
         '2026-06-10 11:30',
         'ทำความสะอาดหน้าสัมผัสคอนแทคเตอร์และปรับปรุงระบบระบายอากาศ',
-        'ช่าง 1',
+        'ช่างอุ้ย',
         'คอนแทคเตอร์ทำงานเกินพิกัด',
         'กระแสไฟฟ้าเกินเนื่องจากมอเตอร์ติดขัด',
         'ตลับลูกปืนมอเตอร์ชำรุด',
@@ -964,7 +977,7 @@ export const RepairPage: React.FC = () => {
         '2026-06-12 14:15',
         '',
         '',
-        'ช่าง 2',
+        'ช่างโอเว่น',
         'ลมรั่วที่โซลินอยด์วาล์ว',
         'ซีลยางด้านในเสื่อมสภาพ',
         'ใช้งานเกินอายุงานสัญญา',
@@ -999,6 +1012,10 @@ export const RepairPage: React.FC = () => {
   // Filter & Sort core logs
   const filteredRepairs = repairs
     .filter(r => {
+      if (repairNavigationFilter?.targetRepairIds) {
+        if (repairNavigationFilter.targetRepairIds.length === 0) return false;
+        return repairNavigationFilter.targetRepairIds.includes(r.id);
+      }
       const matchMachine = machineFilter ? r.machineId.toLowerCase().includes(machineFilter.toLowerCase()) : true;
       const matchTech = techFilter 
         ? (r.technicians ? r.technicians.includes(techFilter) : r.technician === techFilter) 
@@ -1020,9 +1037,132 @@ export const RepairPage: React.FC = () => {
       }
     }); // Default sorted by Date Desc (ล่าสุดก่อน) or MTTR Desc
 
+  // Multi-selection handlers for bulk deletion (ฟังก์ชันลบประวัติซ่อมแบบเลือกทั้งหมด)
+  const handleSelectAllFiltered = () => {
+    if (filteredRepairs.length === 0) return;
+    const allFilteredSelected = filteredRepairs.every((r) => selectedIds.has(r.id));
+    const next = new Set(selectedIds);
+    if (allFilteredSelected) {
+      filteredRepairs.forEach((r) => next.delete(r.id));
+    } else {
+      filteredRepairs.forEach((r) => next.add(r.id));
+    }
+    setSelectedIds(next);
+  };
+
+  const handleSelectAllTotal = () => {
+    if (repairs.length === 0) return;
+    const allTotalSelected = repairs.length > 0 && selectedIds.size === repairs.length;
+    if (allTotalSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(repairs.map(r => r.id)));
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleToggleRowSelection = (id: string, e?: React.MouseEvent | React.ChangeEvent) => {
+    if (e) e.stopPropagation();
+    const next = new Set(selectedIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedIds(next);
+  };
+
+  const handleConfirmBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    const targetLogs = repairs.filter(r => selectedIds.has(r.id));
+
+    // Return spare parts if used in any of the deleted repairs
+    let tempSpareParts = [...spareParts];
+    let partsRestored = 0;
+    for (const log of targetLogs) {
+      if (log.usedParts && log.usedParts.length > 0) {
+        for (const op of log.usedParts) {
+          tempSpareParts = tempSpareParts.map(sp => {
+            if (sp.id === op.partId) {
+              partsRestored += op.quantity;
+              return { ...sp, quantity: sp.quantity + op.quantity };
+            }
+            return sp;
+          });
+        }
+      }
+    }
+    if (partsRestored > 0) {
+      setSpareParts(tempSpareParts);
+    }
+
+    // Remove selected repair records
+    setRepairs(prev => prev.filter(r => !selectedIds.has(r.id)));
+    setSelectedIds(new Set());
+    setIsBulkDeleteModalOpen(false);
+
+    showToast(`🗑️ ลบประวัติงานซ่อมจำนวน ${count} รายการเรียบร้อยแล้ว${partsRestored > 0 ? ` (คืนอะไหล่เข้าคลัง ${partsRestored} ชิ้น)` : ''}`);
+  };
+
   return (
     <div className="space-y-6" id="repair-page-root">
       
+      {/* MTBF Dashboard Navigation Filter Banner */}
+      {repairNavigationFilter && (
+        <div className="bg-gradient-to-r from-cyan-950 via-slate-900 to-blue-950 border-2 border-cyan-500/60 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xl animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shrink-0">
+              <Wrench className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                <span>แสดงประวัติงานซ่อมที่เชื่อมโยงจาก:</span>
+                <span className="text-cyan-300 font-mono bg-cyan-900/80 px-2.5 py-0.5 rounded-lg border border-cyan-500/50 shadow-sm">
+                  {repairNavigationFilter.filterTitle || 'ตาราง Breakdown สะสม'}
+                </span>
+                <span className="text-emerald-400 text-xs font-semibold bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded-md">
+                  {filteredRepairs.length} รายการ
+                </span>
+              </div>
+              {repairNavigationFilter.isBaseline ? (
+                <p className="text-[11px] text-amber-300/90 mt-1 font-medium bg-amber-950/40 border border-amber-500/30 px-2 py-0.5 rounded inline-block">
+                  📊 สถิติสะสม Baseline ย้อนหลังปี {repairNavigationFilter.baselineYear} (Breakdown รวม {repairNavigationFilter.baselineBDMin?.toLocaleString()} นาที / {repairNavigationFilter.baselineCount} ครั้ง) นำเข้าจากข้อมูลสรุปย้อนหลังของฝ่ายวิศวกรรม
+                </p>
+              ) : filteredRepairs.length === 0 ? (
+                <p className="text-[11px] text-emerald-300/90 mt-1 font-medium">
+                  ✅ ช่วงเวลานี้ไม่มีเวลาเครื่องหยุด Breakdown (เครื่องจักรทำงานสมบูรณ์)
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  กรองเฉพาะงาน Breakdown ตามช่วงเวลาและห้อง/เครื่องจักรที่เลือกไว้
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            <button
+              type="button"
+              onClick={() => setActivePage(repairNavigationFilter.sourcePage || 16)}
+              className="px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition cursor-pointer"
+            >
+              <span>← กลับแดชบอร์ด Breakdown สะสม</span>
+            </button>
+            <button
+              type="button"
+              onClick={clearRepairNavigationFilter}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 transition cursor-pointer"
+              title="ยกเลิกตัวกรองและแสดงประวัติงานซ่อมทั้งหมด"
+            >
+              ✕ แสดงทั้งหมด
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header action */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -1077,6 +1217,27 @@ export const RepairPage: React.FC = () => {
             ส่งออก Excel ประวัติซ่อม
           </button>
 
+          {canDelete && repairs.length > 0 && (
+            <button
+              type="button"
+              id="btn-quick-select-all-repairs"
+              onClick={handleSelectAllFiltered}
+              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-lg transition-all border text-xs font-bold shadow-md cursor-pointer select-none ${
+                filteredRepairs.length > 0 && filteredRepairs.every((r) => selectedIds.has(r.id))
+                  ? 'bg-rose-950/80 text-rose-300 border-rose-500/50 hover:bg-rose-900/80 ring-1 ring-rose-500/40'
+                  : 'bg-slate-800 hover:bg-slate-750 text-slate-200 border-slate-700 hover:border-slate-650'
+              }`}
+              title="คลิกเพื่อเลือกรายการประวัติงานซ่อมทั้งหมดในตารางสำหรับลบแบบกลุ่ม"
+            >
+              <CheckSquare size={16} className={filteredRepairs.length > 0 && filteredRepairs.every((r) => selectedIds.has(r.id)) ? 'text-rose-400' : 'text-cyan-400'} />
+              <span>
+                {filteredRepairs.length > 0 && filteredRepairs.every((r) => selectedIds.has(r.id))
+                  ? 'ยกเลิกเลือกทั้งหมด'
+                  : `เลือกทั้งหมดเพื่อลบ (${filteredRepairs.length})`}
+              </span>
+            </button>
+          )}
+
           {canEdit ? (
             <button
               id="btn-add-repair"
@@ -1087,8 +1248,8 @@ export const RepairPage: React.FC = () => {
                 setFormBreakdown(`${getTodayDateString()}T09:00`);
                 setFormDone(`${getTodayDateString()}T11:30`);
                 setFormSymptoms('');
-                setFormTechnician(technicians[0] || 'ช่าง 1');
-                setFormTechnicians([technicians[0] || 'ช่าง 1']);
+                setFormTechnician(technicians[0] || 'ช่างอุ้ย');
+                setFormTechnicians([technicians[0] || 'ช่างอุ้ย']);
                 setFormCorrection('');
                 setWhy1(''); setWhy2(''); setWhy3(''); setWhy4(''); setWhy5('');
                 setWhyCount(1);
@@ -1374,12 +1535,108 @@ export const RepairPage: React.FC = () => {
         </div>
       </div>
 
+      {/* BULK ACTION TOOLBAR (เมื่อเลือกรายการประวัติซ่อมอย่างน้อย 1 รายการ) */}
+      {selectedIds.size > 0 && (
+        <div 
+          id="repair-bulk-action-bar"
+          className="bg-gradient-to-r from-slate-900 via-rose-950/70 to-slate-900 text-white p-3.5 sm:p-4 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3 border border-rose-500/40 animate-in fade-in slide-in-from-top-2"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center text-rose-300 shrink-0">
+              <CheckSquare className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                <span>เลือกประวัติงานซ่อมอยู่: <strong className="text-amber-300 font-mono text-sm sm:text-base">{selectedIds.size}</strong> รายการ</span>
+                <span className="text-slate-400 text-xs font-normal">
+                  (จากในตาราง {filteredRepairs.length} งาน / ทั้งหมด {repairs.length} งาน)
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-300">
+                สามารถกดเลือกทั้งหมดในตาราง, เลือกทั้งหมดในระบบ หรือลบประวัติซ่อมที่เลือกพร้อมกันได้ทันที
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              id="btn-bulk-toggle-select-filtered"
+              onClick={handleSelectAllFiltered}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition border border-slate-700 cursor-pointer flex items-center gap-1.5"
+            >
+              <CheckSquare size={13} className="text-cyan-400" />
+              <span>
+                {filteredRepairs.length > 0 && filteredRepairs.every((r) => selectedIds.has(r.id))
+                  ? 'ยกเลิกเลือกในตาราง'
+                  : `เลือกทั้งหมดในตาราง (${filteredRepairs.length})`}
+              </span>
+            </button>
+
+            {repairs.length > filteredRepairs.length && (
+              <button
+                type="button"
+                id="btn-bulk-select-all-global"
+                onClick={handleSelectAllTotal}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-semibold rounded-xl transition border border-amber-600/30 cursor-pointer flex items-center gap-1.5"
+                title="เลือกประวัติงานซ่อมทั้งหมดในระบบโดยไม่สนตัวกรอง"
+              >
+                <span>เลือกทั้งหมดในระบบ ({repairs.length})</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              id="btn-bulk-clear-selection"
+              onClick={handleClearSelection}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition border border-slate-700 cursor-pointer"
+            >
+              ล้างการเลือก
+            </button>
+
+            <div className="h-5 w-px bg-slate-700 mx-1 hidden sm:block" />
+
+            {canDelete ? (
+              <button
+                type="button"
+                id="btn-bulk-delete-repairs"
+                onClick={() => setIsBulkDeleteModalOpen(true)}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer"
+                title="ลบรายการประวัติซ่อมที่เลือกทั้งหมด"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ลบประวัติซ่อมที่เลือก ({selectedIds.size})</span>
+              </button>
+            ) : (
+              <div 
+                className="px-3.5 py-1.5 bg-slate-800/80 text-slate-400 text-xs rounded-xl border border-slate-700 flex items-center gap-1.5"
+                title="เฉพาะสิทธิ์ Admin เท่านั้นที่สามารถลบได้"
+              >
+                <span>🔒 สิทธิ์ Admin เท่านั้นที่ลบได้</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* REPAIR HISTORICAL LOGS TABLE */}
       <div id="repair-table-container" className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-lg">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs" id="repairs-history-table">
             <thead>
               <tr className="bg-slate-800/90 border-b border-slate-700 text-slate-300 font-medium tracking-wide uppercase py-4">
+                <th className="py-4 px-3 w-12 text-center">
+                  <div className="flex items-center justify-center">
+                    <input
+                      type="checkbox"
+                      id="th-select-all-repairs"
+                      checked={filteredRepairs.length > 0 && filteredRepairs.every((r) => selectedIds.has(r.id))}
+                      onChange={handleSelectAllFiltered}
+                      className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-rose-500 focus:ring-rose-500 focus:ring-offset-slate-900 cursor-pointer accent-rose-500"
+                      title={filteredRepairs.length > 0 && filteredRepairs.every((r) => selectedIds.has(r.id)) ? 'ยกเลิกการเลือกทั้งหมด' : 'เลือกทั้งหมดในตาราง'}
+                    />
+                  </div>
+                </th>
                 <th className="py-4 px-4 w-28">วันที่เสีย</th>
                 <th className="py-4 px-3 w-28 font-mono">เครื่อง (ID)</th>
                 <th className="py-4 px-4">ชื่อเครื่องจักร</th>
@@ -1396,7 +1653,7 @@ export const RepairPage: React.FC = () => {
             <tbody className="divide-y divide-slate-700/50">
               {filteredRepairs.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-500 bg-slate-900/10">
+                  <td colSpan={12} className="py-12 text-center text-slate-500 bg-slate-900/10">
                     ไม่พบข้อมูลแจ้งซ่อมสำหรับตัวกรองที่เลือก
                   </td>
                 </tr>
@@ -1406,17 +1663,34 @@ export const RepairPage: React.FC = () => {
                   const mach = machines.find(m => m.id === r.machineId);
                   const isExceed120Percent = r.duration > std * 1.2;
                   const isRedRow = r.duration > 120; // Row highlight red if MTTR > 120 นาที
+                  const isSelected = selectedIds.has(r.id);
 
                   return (
                     <tr 
                       key={r.id}
                       id={`repair-row-${r.id}`}
                       className={`hover:bg-slate-750/90 transition-colors cursor-pointer select-none ${
-                        isRedRow ? 'bg-red-500/10 border-l-4 border-l-red-500' : ''
+                        isSelected 
+                          ? 'bg-rose-950/30 border-l-4 border-l-rose-500' 
+                          : isRedRow 
+                          ? 'bg-red-500/10 border-l-4 border-l-red-500' 
+                          : ''
                       }`}
                       onDoubleClick={() => setSelectedRepairDetail(r)}
                       title="ดับเบิ้ลคลิก (Double-click) เพื่อดูรายละเอียด Why-Why เชิงลึก"
                     >
+                      <td className="py-4 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center">
+                          <input
+                            type="checkbox"
+                            id={`checkbox-rep-${r.id}`}
+                            checked={isSelected}
+                            onChange={(e) => handleToggleRowSelection(r.id, e)}
+                            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-rose-500 focus:ring-rose-500 focus:ring-offset-slate-900 cursor-pointer accent-rose-500"
+                            title={`เลือกรายการซ่อม ${r.machineId}`}
+                          />
+                        </div>
+                      </td>
                       <td className="py-4 px-4 text-slate-400 font-mono">
                         <div className="flex flex-col gap-1">
                           <span>{r.date}</span>
@@ -3017,6 +3291,88 @@ export const RepairPage: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal (ลบประวัติซ่อมแบบเลือกทั้งหมด) */}
+      {isBulkDeleteModalOpen && selectedIds.size > 0 && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4 animate-in fade-in duration-100">
+          <div id="repair-bulk-delete-modal" className="bg-slate-900 border border-rose-500/40 p-6 rounded-2xl max-w-md w-full space-y-4 shadow-2xl animate-in zoom-in-95 duration-100">
+            <div className="flex items-center gap-3 text-rose-500 border-b border-slate-800 pb-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-100">🚨 ยืนยันการลบประวัติงานซ่อมแบบกลุ่ม</h3>
+                <p className="text-[11px] text-rose-400 font-semibold">ลบทั้งหมด {selectedIds.size} รายการที่เลือก</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                คุณต้องการลบประวัติบันทึกงานซ่อมที่เลือกไว้จำนวน <strong className="text-rose-400 font-bold">{selectedIds.size} รายการ</strong> ใช่หรือไม่?
+              </p>
+              <div className="bg-rose-950/30 border border-rose-900/40 rounded-xl p-3 text-[11px] text-rose-200/90 space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-rose-300">
+                  <AlertTriangle size={13} />
+                  <span>คำเตือน: การลบนี้ถาวรและไม่สามารถเรียกคืนได้</span>
+                </div>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-400 pl-1">
+                  <li>ข้อมูลการชำรุด, เวลา MTTR, และผลวิเคราะห์ Why-Why ทั้งหมดจะสูญหายถาวร</li>
+                  <li>รายการอะไหล่ที่เคยถูกตัดสต็อกในงานซ่อมเหล่านี้ จะถูกนำกลับคืนเข้าคลังโดยอัตโนมัติ</li>
+                </ul>
+              </div>
+
+              {/* Preview of items to be deleted */}
+              <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 mt-2">
+                {repairs
+                  .filter(r => selectedIds.has(r.id))
+                  .slice(0, 5)
+                  .map(r => (
+                    <div key={r.id} className="bg-slate-850 p-2 rounded-lg border border-slate-750 text-[11px] flex justify-between items-center">
+                      <div className="truncate mr-2">
+                        <span className="font-mono text-cyan-400 font-bold mr-1.5">{r.machineId}</span>
+                        <span className="text-slate-300 truncate">{r.symptoms}</span>
+                      </div>
+                      <span className="text-slate-400 font-mono shrink-0 text-[10px]">{r.date}</span>
+                    </div>
+                  ))}
+                {selectedIds.size > 5 && (
+                  <div className="text-center text-[10.5px] text-slate-400 italic py-1">
+                    ... และอีก {selectedIds.size - 5} รายการ
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 justify-end pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                id="btn-cancel-bulk-delete"
+                onClick={() => setIsBulkDeleteModalOpen(false)}
+                className="border border-slate-700 hover:bg-slate-850 text-slate-300 text-xs px-4 py-2 rounded-lg transition"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-bulk-delete"
+                onClick={handleConfirmBulkDelete}
+                className="bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-extrabold text-xs px-5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30"
+              >
+                <Trash2 size={13} />
+                <span>ยืนยันลบทั้งหมด {selectedIds.size} รายการ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Feedback */}
+      {toastMsg && (
+        <div className="fixed top-20 right-5 z-[110] bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span className="text-xs font-medium">{toastMsg}</span>
         </div>
       )}
     </div>

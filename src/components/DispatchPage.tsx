@@ -182,7 +182,7 @@ export const DispatchPage: React.FC = () => {
       return;
     }
 
-    const primaryTech = assignedTechs[0] || assignedTech || 'ช่าง 1';
+    const primaryTech = assignedTechs[0] || assignedTech || (technicians[0] || 'ช่างอุ้ย');
     const techDisplayNames = assignedTechs.join(', ');
 
     if (activeFormTab === 'Operation') {
@@ -437,7 +437,7 @@ export const DispatchPage: React.FC = () => {
             machineId: editPmMachine,
             pmPlanId: editPmPlan,
             status: editPmStatus,
-            technician: editPmTechs[0] || 'ช่าง 1',
+            technician: editPmTechs[0] || (technicians[0] || 'ช่างอุ้ย'),
             technicians: editPmTechs,
             duration: Number(editPmDuration)
           } as PMScheduleItem;
@@ -463,7 +463,7 @@ export const DispatchPage: React.FC = () => {
             startTime: editOpStartTime,
             endTime: editOpEndTime,
             duration: diffMins,
-            technician: editOpTechs[0] || 'ช่าง 1',
+            technician: editOpTechs[0] || (technicians[0] || 'ช่างอุ้ย'),
             technicians: editOpTechs,
             isWeeklyRecurring: editOpIsRecurring,
             recurringDays: editOpRecurDays
@@ -490,7 +490,7 @@ export const DispatchPage: React.FC = () => {
             symptoms: editRepSymptoms,
             correctiveAction: editRepCorrective,
             duration: editRepDuration || diffMins,
-            technician: editRepTechs[0] || 'ช่าง 1',
+            technician: editRepTechs[0] || (technicians[0] || 'ช่างอุ้ย'),
             technicians: editRepTechs,
             breakdownTime: `${item.date}T${editRepBreakdownTime}`,
             repairDoneTime: `${item.date}T${editRepDoneTime}`
@@ -513,7 +513,7 @@ export const DispatchPage: React.FC = () => {
             description: editImpDesc,
             status: editImpStatus,
             plannedEndDate: editImpEndDate,
-            technician: editImpTechs[0] || 'ช่าง 1',
+            technician: editImpTechs[0] || (technicians[0] || 'ช่างอุ้ย'),
             technicians: editImpTechs
           } as ImprovementProject;
         }

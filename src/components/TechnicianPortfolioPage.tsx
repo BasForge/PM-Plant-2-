@@ -30,7 +30,7 @@ export const TechnicianPortfolioPage: React.FC = () => {
   } = useApp();
 
   // Selected technician state - default to first technician
-  const [selectedTech, setSelectedTech] = useState<string>(technicians[0] || 'ช่าง 1');
+  const [selectedTech, setSelectedTech] = useState<string>(technicians[0] || 'ช่างอุ้ย');
   const [activeTab, setActiveTab] = useState<'all' | 'kaizen' | 'repairs' | 'pm_setup'>('all');
   const [kaizenCategoryFilter, setKaizenCategoryFilter] = useState<'all' | 'KAIZEN' | 'OPL' | 'FA' | 'WHY_WHY' | 'MP_INFO'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');

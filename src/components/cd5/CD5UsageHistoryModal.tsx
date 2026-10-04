@@ -26,7 +26,7 @@ export const CD5UsageHistoryModal: React.FC<CD5UsageHistoryModalProps> = ({
   const [formIsActive, setFormIsActive] = useState<boolean>(true);
   const [formReplacedDate, setFormReplacedDate] = useState<string>('');
   const [formWearCondition, setFormWearCondition] = useState<string>('สมบูรณ์ดี 95-100% ผิวเรียบ คมกริบ ไร้สนิม');
-  const [formTechnician, setFormTechnician] = useState<string>(technicians[0] || 'ช่าง 1');
+  const [formTechnician, setFormTechnician] = useState<string>(technicians[0] || 'ช่างอุ้ย');
   const [formNotes, setFormNotes] = useState<string>('');
   const [formPhoto, setFormPhoto] = useState<string>('');
 

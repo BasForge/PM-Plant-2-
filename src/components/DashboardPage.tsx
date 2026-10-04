@@ -1548,7 +1548,7 @@ export const DashboardPage: React.FC = () => {
                 className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-cyan-500 text-slate-950 font-bold rounded-lg text-xs hover:opacity-90 transition flex items-center gap-1.5 shadow-sm shadow-amber-500/20 cursor-pointer"
               >
                 <Activity size={13} />
-                <span>🏭 ดูแดชบอร์ด MTTR & MTBF ฉบับเต็ม</span>
+                <span>🏭 ดูแดชบอร์ด Breakdown สะสมฉบับเต็ม</span>
               </button>
             </div>
 

@@ -462,7 +462,7 @@ export interface UserAccount {
   id: string; // e.g. "usr-admin", "usr-tech-01"
   username: string; // unique username, e.g. "admin", "somchai"
   password: string; // plain text password for quick maintenance management
-  name: string; // display name e.g. "ผู้ดูแลระบบ (Admin)", "ช่างสมชาย (วิศวกรซ่อมบำรุง)"
+  name: string; // display name e.g. "ผู้ดูแลระบบ (Admin)", "ช่างอุ้ย (ช่างซ่อมบำรุง)"
   role: UserRole; // 'admin' | 'technician' | 'viewer'
   department?: string; // แผนก e.g. "วิศวกรรมและซ่อมบำรุง", "ฝ่ายผลิต"
   phone?: string;
