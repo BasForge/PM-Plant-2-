@@ -2,7 +2,7 @@ import React from 'react';
 import { RoomConfig } from '../../types/mtbf';
 import { RoomCalculatedMetrics, SumCalculatedMetrics } from '../../types/mtbf';
 import { MtbfBarChart } from './MtbfBarChart';
-import { ExternalLink } from 'lucide-react';
+import { AlertCircle, ExternalLink } from 'lucide-react';
 
 export interface DrillDownCellParams {
   title: string;
@@ -77,6 +77,46 @@ export const MtbfSumView: React.FC<MtbfSumViewProps> = ({
     }))
   ];
 
+  // 3. Prepare Chart 3 Data: MTBF (hour)
+  const chart3Data = [
+    ...baselineYears.map(y => ({
+      name: String(y),
+      value: sumMetrics.baseline[y]?.avgMTBF ?? 0
+    })),
+    {
+      name: String(year),
+      value: sumMetrics.ytd.mtbf
+    },
+    {
+      name: `YTD ${yearShort}`,
+      value: sumMetrics.ytd.mtbf
+    },
+    ...sumMetrics.monthly.map(m => ({
+      name: m.monthName,
+      value: m.hasData && m.mtbf !== null ? m.mtbf : null
+    }))
+  ];
+
+  // 4. Prepare Chart 4 Data: MTTR (min)
+  const chart4Data = [
+    ...baselineYears.map(y => ({
+      name: String(y),
+      value: sumMetrics.baseline[y]?.totalMTTR ?? 0
+    })),
+    {
+      name: String(year),
+      value: sumMetrics.ytd.mttr
+    },
+    {
+      name: `YTD ${yearShort}`,
+      value: sumMetrics.ytd.mttr
+    },
+    ...sumMetrics.monthly.map(m => ({
+      name: m.monthName,
+      value: m.hasData && m.mttr !== null ? m.mttr : null
+    }))
+  ];
+
   // Table header column list
   const tableColumns = [
     '2023',
@@ -104,6 +144,7 @@ export const MtbfSumView: React.FC<MtbfSumViewProps> = ({
     baselineCount?: number;
     customClass?: string;
   }) => {
+    const isInteractive = params.count > 0 || params.isBaseline;
     return (
       <td 
         key={params.cellKey} 
@@ -111,27 +152,36 @@ export const MtbfSumView: React.FC<MtbfSumViewProps> = ({
       >
         <button
           type="button"
+          disabled={!isInteractive}
           onClick={() => {
-            onDrillDown({
-              title: params.title,
-              scopeLabel: params.scopeLabel,
-              timeLabel: params.timeLabel,
-              metricLabel: params.metricLabel,
-              cellValue: params.cellValue,
-              repairIds: params.repairIds,
-              isBaseline: params.isBaseline,
-              baselineYear: params.baselineYear,
-              baselineBDMin: params.baselineBDMin,
-              baselineCount: params.baselineCount
-            });
+            if (isInteractive) {
+              onDrillDown({
+                title: params.title,
+                scopeLabel: params.scopeLabel,
+                timeLabel: params.timeLabel,
+                metricLabel: params.metricLabel,
+                cellValue: params.cellValue,
+                repairIds: params.repairIds,
+                isBaseline: params.isBaseline,
+                baselineYear: params.baselineYear,
+                baselineBDMin: params.baselineBDMin,
+                baselineCount: params.baselineCount
+              });
+            }
           }}
-          className="w-full text-right font-mono py-1 px-1.5 rounded transition inline-flex items-center justify-end gap-1 cursor-pointer hover:bg-cyan-500/25 hover:text-white group"
-          title={`คลิกเพื่อเปิดดูประวัติงานซ่อม (${params.count} ครั้ง)`}
+          className={`w-full text-right font-mono py-1 px-1.5 rounded transition inline-flex items-center justify-end gap-1 ${
+            isInteractive 
+              ? 'cursor-pointer hover:bg-cyan-500/25 hover:text-white group' 
+              : 'cursor-default opacity-80'
+          }`}
+          title={isInteractive ? `คลิกดูประวัติซ่อม (${params.count} ครั้ง)` : undefined}
         >
-          <span className="group-hover:underline underline-offset-2">
+          <span className={isInteractive ? 'group-hover:underline underline-offset-2' : ''}>
             {typeof params.displayVal === 'number' ? params.displayVal.toLocaleString() : params.displayVal}
           </span>
-          <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 text-cyan-400 shrink-0 transition" />
+          {params.count > 0 && (
+            <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 text-cyan-400 shrink-0 transition" />
+          )}
         </button>
       </td>
     );
@@ -139,7 +189,7 @@ export const MtbfSumView: React.FC<MtbfSumViewProps> = ({
 
   return (
     <div className="space-y-8 select-none" id="mtbf-sum-view-container">
-      {/* 2 CHARTS in 2-Column Grid: Breakdown (Min) & จำนวนครั้ง Breakdown */}
+      {/* 4 CHARTS in 2x2 Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* (1) Breakdown (Min) */}
         <MtbfBarChart
@@ -147,7 +197,7 @@ export const MtbfSumView: React.FC<MtbfSumViewProps> = ({
           data={chart1Data}
           unit="นาที"
           decimalPlaces={0}
-          height={280}
+          height={260}
           barColor="#00B0F0"
         />
 
@@ -157,13 +207,56 @@ export const MtbfSumView: React.FC<MtbfSumViewProps> = ({
           data={chart2Data}
           unit="ครั้ง"
           decimalPlaces={0}
-          height={280}
+          height={260}
+          barColor="#00B0F0"
+        />
+
+        {/* (3) MTBF (hour) */}
+        <MtbfBarChart
+          title="MTBF (hour)"
+          data={chart3Data}
+          unit="ชม."
+          decimalPlaces={2}
+          height={260}
+          barColor="#00B0F0"
+        />
+
+        {/* (4) MTTR (min) */}
+        <MtbfBarChart
+          title="MTTR (min)"
+          data={chart4Data}
+          unit="นาที"
+          decimalPlaces={2}
+          height={260}
           barColor="#00B0F0"
         />
       </div>
 
+      {/* TABLE SHORTCUT BAR */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#0b1325]/90 border border-slate-800 rounded-2xl px-4 py-3 shadow-md">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-400">กระโดดไปที่ตาราง:</span>
+          <button
+            type="button"
+            onClick={() => document.getElementById('table-breakdown-sum')?.scrollIntoView({ behavior: 'smooth' })}
+            className="px-3 py-1.5 rounded-xl bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-xs font-bold hover:bg-cyan-900/60 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+          >
+            <span className="w-2 h-2 rounded-full bg-cyan-400" />
+            1. ตาราง Breakdown สะสม
+          </button>
+          <button
+            type="button"
+            onClick={() => document.getElementById('table-mtbf-mttr-sum')?.scrollIntoView({ behavior: 'smooth' })}
+            className="px-3 py-1.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-bold hover:bg-emerald-900/60 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            2. ตาราง MTBF MTTR สะสม
+          </button>
+        </div>
+      </div>
+
       {/* TABLE 1: ตาราง Breakdown สะสม */}
-      <div className="bg-[#0b1325]/90 border border-slate-800 rounded-2xl p-5 shadow-xl overflow-hidden">
+      <div id="table-breakdown-sum" className="bg-[#0b1325]/90 border border-slate-800 rounded-2xl p-5 shadow-xl overflow-hidden scroll-mt-6">
         <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
@@ -598,6 +691,144 @@ export const MtbfSumView: React.FC<MtbfSumViewProps> = ({
                       repairIds: m.repairIds || [],
                       customClass: 'text-slate-300'
                     }))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* TABLE 2: ตาราง MTBF MTTR สะสม */}
+      <div id="table-mtbf-mttr-sum" className="bg-[#0b1325]/90 border border-slate-800 rounded-2xl p-5 shadow-xl overflow-hidden scroll-mt-6">
+        <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+            <h3 className="text-sm font-bold text-white tracking-wide">ตาราง MTBF MTTR สะสม</h3>
+          </div>
+          <span className="text-xs text-slate-400">MTBF: ชม. (สะสม) / MTTR: นาที (รายเดือน)</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-900/90 text-slate-300 border-b border-slate-700">
+                <th className="py-2.5 px-3 min-w-[150px] font-bold sticky left-0 bg-slate-900 z-10">หมวดหมู่ / ห้อง</th>
+                {tableColumns.map((col, idx) => (
+                  <th key={col} className={`py-2.5 px-2 text-right font-mono min-w-[70px] ${idx >= 3 && idx <= 4 ? 'text-emerald-300 font-bold bg-emerald-950/20' : ''}`}>
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {/* Part 1: MTBF Average Row */}
+              <tr className="bg-emerald-500/10 text-emerald-300 font-bold border-b border-slate-800">
+                <td className="py-2.5 px-3 sticky left-0 bg-[#09221d] z-10">MTBF (hour) เฉลี่ยรวม</td>
+                <td className="py-2.5 px-2 text-right font-mono">{sumMetrics.baseline[2023]?.avgMTBF?.toFixed(2) ?? '-'}</td>
+                <td className="py-2.5 px-2 text-right font-mono">{sumMetrics.baseline[2024]?.avgMTBF?.toFixed(2) ?? '-'}</td>
+                <td className="py-2.5 px-2 text-right font-mono">{sumMetrics.baseline[2025]?.avgMTBF?.toFixed(2) ?? '-'}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-emerald-200 bg-emerald-950/40">{sumMetrics.ytd.mtbf?.toFixed(2) ?? '-'}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-emerald-200 bg-emerald-950/40">{sumMetrics.ytd.mtbf?.toFixed(2) ?? '-'}</td>
+                {sumMetrics.monthly.map(m => (
+                  <td key={`mtbf-sum-${m.monthIndex}`} className="py-2.5 px-2 text-right font-mono">
+                    {m.hasData && m.mtbf !== null ? m.mtbf?.toFixed(2) : '-'}
+                  </td>
+                ))}
+              </tr>
+
+              {/* 8 Rooms MTBF */}
+              {rooms.map((rm, rIdx) => {
+                const metric = roomMetrics.find(r => r.roomId === rm.id);
+                const m23 = sumMetrics.baseline[2023]?.mtbf?.[rIdx] ?? 0;
+                const m24 = sumMetrics.baseline[2024]?.mtbf?.[rIdx] ?? 0;
+                const m25 = sumMetrics.baseline[2025]?.mtbf?.[rIdx] ?? 0;
+                const mYtd = metric ? metric.ytd.mtbf : 0;
+                const isRoom7 = rm.id === 'room-7'; // ห้องล้างอุปกรณ์ มีข้อสงสัยค่า 3570
+
+                return (
+                  <tr key={`mtbf-room-${rm.id}`} className="border-b border-slate-800/60 hover:bg-slate-800/40 transition">
+                    <td className="py-2 px-3 sticky left-0 bg-[#0b1325] z-10">
+                      <button
+                        type="button"
+                        onClick={() => onSelectRoom(rm.id)}
+                        className="text-slate-300 hover:text-cyan-400 font-medium flex items-center gap-1.5 transition text-left cursor-pointer"
+                      >
+                        <span>{rm.name}</span>
+                        <ExternalLink size={11} className="opacity-40 hover:opacity-100" />
+                      </button>
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-slate-400">{m23?.toFixed(1) ?? '-'}</td>
+                    <td className="py-2 px-2 text-right font-mono text-slate-400">{m24?.toFixed(1) ?? '-'}</td>
+                    <td className="py-2 px-2 text-right font-mono text-slate-400">
+                      {isRoom7 ? (
+                        <span 
+                          className="inline-flex items-center gap-1 text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-500/40 font-bold"
+                          title="ค่าในไฟล์ 3570 ชม. (อาจเป็น 6570 ชม. ตรวจสอบและแก้ไขได้ใน Baseline)"
+                        >
+                          {m25?.toFixed(1) ?? '-'}
+                          <AlertCircle size={10} className="text-amber-400" />
+                        </span>
+                      ) : (
+                        m25?.toFixed(1) ?? '-'
+                      )}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-emerald-300 bg-emerald-950/20">{mYtd?.toFixed(2) ?? '-'}</td>
+                    <td className="py-2 px-2 text-right font-mono text-emerald-300 bg-emerald-950/20">{mYtd?.toFixed(2) ?? '-'}</td>
+                    {metric?.monthly.map(m => (
+                      <td key={`mtbf-r-${rm.id}-${m.monthIndex}`} className="py-2 px-2 text-right font-mono text-slate-300">
+                        {m.hasData && m.mtbf !== null ? m.mtbf?.toFixed(2) : '-'}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+
+              {/* Part 2: MTTR Total Row */}
+              <tr className="bg-amber-500/10 text-amber-300 font-bold border-t-2 border-b border-slate-700">
+                <td className="py-2.5 px-3 sticky left-0 bg-[#241a0d] z-10">MTTR (min) รวม (ΣBD/ΣN)</td>
+                <td className="py-2.5 px-2 text-right font-mono">{sumMetrics.baseline[2023]?.totalMTTR?.toFixed(2) ?? '-'}</td>
+                <td className="py-2.5 px-2 text-right font-mono">{sumMetrics.baseline[2024]?.totalMTTR?.toFixed(2) ?? '-'}</td>
+                <td className="py-2.5 px-2 text-right font-mono">{sumMetrics.baseline[2025]?.totalMTTR?.toFixed(2) ?? '-'}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-amber-200 bg-amber-950/40">{sumMetrics.ytd.mttr?.toFixed(2) ?? '-'}</td>
+                <td className="py-2.5 px-2 text-right font-mono text-amber-200 bg-amber-950/40">{sumMetrics.ytd.mttr?.toFixed(2) ?? '-'}</td>
+                {sumMetrics.monthly.map(m => (
+                  <td key={`mttr-sum-${m.monthIndex}`} className="py-2.5 px-2 text-right font-mono">
+                    {m.hasData && m.mttr !== null ? m.mttr?.toFixed(2) : '-'}
+                  </td>
+                ))}
+              </tr>
+
+              {/* 8 Rooms MTTR */}
+              {rooms.map((rm, rIdx) => {
+                const metric = roomMetrics.find(r => r.roomId === rm.id);
+                const tr23 = sumMetrics.baseline[2023]?.mttr?.[rIdx] ?? 0;
+                const tr24 = sumMetrics.baseline[2024]?.mttr?.[rIdx] ?? 0;
+                const tr25 = sumMetrics.baseline[2025]?.mttr?.[rIdx] ?? 0;
+                const trYtd = metric ? metric.ytd.mttr : 0;
+
+                return (
+                  <tr key={`mttr-room-${rm.id}`} className="border-b border-slate-800/60 hover:bg-slate-800/40 transition">
+                    <td className="py-2 px-3 sticky left-0 bg-[#0b1325] z-10">
+                      <button
+                        type="button"
+                        onClick={() => onSelectRoom(rm.id)}
+                        className="text-slate-300 hover:text-cyan-400 font-medium flex items-center gap-1.5 transition text-left cursor-pointer"
+                      >
+                        <span>{rm.name}</span>
+                        <ExternalLink size={11} className="opacity-40 hover:opacity-100" />
+                      </button>
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-slate-400">{tr23?.toFixed(0) ?? '-'}</td>
+                    <td className="py-2 px-2 text-right font-mono text-slate-400">{tr24?.toFixed(0) ?? '-'}</td>
+                    <td className="py-2 px-2 text-right font-mono text-slate-400">{tr25?.toFixed(0) ?? '-'}</td>
+                    <td className="py-2 px-2 text-right font-mono text-amber-300 bg-amber-950/20">{trYtd?.toFixed(2) ?? '-'}</td>
+                    <td className="py-2 px-2 text-right font-mono text-amber-300 bg-amber-950/20">{trYtd?.toFixed(2) ?? '-'}</td>
+                    {metric?.monthly.map(m => (
+                      <td key={`mttr-r-${rm.id}-${m.monthIndex}`} className="py-2 px-2 text-right font-mono text-slate-300">
+                        {m.hasData && m.mttr !== null ? m.mttr?.toFixed(2) : '-'}
+                      </td>
+                    ))}
                   </tr>
                 );
               })}
