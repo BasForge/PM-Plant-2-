@@ -1,18 +1,24 @@
-import React from 'react';
-import { RoomConfig } from '../../types/mtbf';
+import React, { useState } from 'react';
+import { RoomConfig, RoomMachineConfig } from '../../types/mtbf';
 import { RoomCalculatedMetrics, MachineCalculatedMetrics } from '../../types/mtbf';
+import { Machine, RepairLog } from '../../types';
 import { MtbfBarChart } from './MtbfBarChart';
 import { DrillDownCellParams } from './MtbfSumView';
-import { ArrowLeft, Clock, Wrench, BarChart2, Tag, ExternalLink } from 'lucide-react';
+import { RoomMachineEditModal } from './RoomMachineEditModal';
+import { ArrowLeft, Clock, Wrench, BarChart2, Tag, ExternalLink, Edit3, Plus, RotateCcw } from 'lucide-react';
 
 interface MtbfRoomViewProps {
   year: number;
   room: RoomConfig;
   roomMetric: RoomCalculatedMetrics;
   machinesMetrics: MachineCalculatedMetrics[];
+  allRegisteredMachines?: Machine[];
+  repairs?: RepairLog[];
   onBackToSum: () => void;
   onOpenProductionTimeModal?: () => void;
   onDrillDown?: (params: DrillDownCellParams) => void;
+  onUpdateRoomMachines?: (roomId: string, newMachines: RoomMachineConfig[]) => void;
+  onResetRoomMachines?: (roomId: string) => void;
 }
 
 export const MtbfRoomView: React.FC<MtbfRoomViewProps> = ({
@@ -20,11 +26,51 @@ export const MtbfRoomView: React.FC<MtbfRoomViewProps> = ({
   room,
   roomMetric,
   machinesMetrics,
+  allRegisteredMachines = [],
+  repairs = [],
   onBackToSum,
   onOpenProductionTimeModal,
-  onDrillDown
+  onDrillDown,
+  onUpdateRoomMachines,
+  onResetRoomMachines
 }) => {
   const yearShort = String(year).slice(-2);
+
+  // Edit / Add machine modal state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editModalMode, setEditModalMode] = useState<'add' | 'edit'>('add');
+  const [selectedMachineForEdit, setSelectedMachineForEdit] = useState<RoomMachineConfig | null>(null);
+
+  const handleOpenAddMachine = () => {
+    setEditModalMode('add');
+    setSelectedMachineForEdit(null);
+    setIsEditModalOpen(true);
+  };
+
+  const handleOpenEditMachine = (machId: string) => {
+    const target = room.machines.find(m => m.id === machId);
+    if (!target) return;
+    setEditModalMode('edit');
+    setSelectedMachineForEdit(target);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveMachine = (machineData: RoomMachineConfig, oldMachineId?: string) => {
+    if (!onUpdateRoomMachines) return;
+    let newMachines: RoomMachineConfig[];
+    if (editModalMode === 'add') {
+      newMachines = [...room.machines, machineData];
+    } else {
+      newMachines = room.machines.map(m => m.id === oldMachineId ? machineData : m);
+    }
+    onUpdateRoomMachines(room.id, newMachines);
+  };
+
+  const handleDeleteMachine = (machId: string) => {
+    if (!onUpdateRoomMachines) return;
+    const newMachines = room.machines.filter(m => m.id !== machId);
+    onUpdateRoomMachines(room.id, newMachines);
+  };
 
   // Room Level 4 Charts Data: X axis = Jan-26 ... Dec-26, YTD-26
   const roomMonthLabels = [
@@ -81,7 +127,22 @@ export const MtbfRoomView: React.FC<MtbfRoomViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 text-xs">
+        <div className="flex items-center gap-2.5 text-xs flex-wrap">
+          {onResetRoomMachines && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`ต้องการคืนค่ารายการเครื่องจักรของ "${room.name}" กลับเป็นค่ามาตรฐานหรือไม่?`)) {
+                  onResetRoomMachines(room.id);
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 flex items-center gap-1.5 transition cursor-pointer"
+              title="คืนค่าเครื่องจักรในห้องนี้กลับสู่ค่าเริ่มต้นมาตรฐาน"
+            >
+              <RotateCcw size={13} />
+              <span className="hidden sm:inline">คืนค่าเครื่องจักรเริ่มต้น</span>
+            </button>
+          )}
           {onOpenProductionTimeModal && (
             <button
               type="button"
@@ -303,14 +364,27 @@ export const MtbfRoomView: React.FC<MtbfRoomViewProps> = ({
 
       {/* TABLE 2: ตารางรายเครื่อง พร้อมกราฟ 2 ตัวต่อเครื่อง */}
       <div className="space-y-6">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Wrench size={16} className="text-cyan-400" />
             <h3 className="text-sm font-bold text-white tracking-wide">
               ตารางตัวชี้วัดรายเครื่องจักร ({machinesMetrics.length} เครื่อง)
             </h3>
           </div>
-          <span className="text-xs text-slate-400">ตารางสถิติ & กราฟ Breakdown แยกเครื่อง</span>
+          <div className="flex items-center gap-2.5">
+            {onUpdateRoomMachines && (
+              <button
+                type="button"
+                onClick={handleOpenAddMachine}
+                className="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-cyan-500/20"
+                title="เพิ่มเครื่องจักรตัวใหม่เข้าแดชบอร์ดห้องนี้ เพื่อแทร็ก Breakdown"
+              >
+                <Plus size={14} />
+                <span>+ เพิ่มเครื่องจักรในห้องนี้</span>
+              </button>
+            )}
+            <span className="text-xs text-slate-400 hidden sm:inline">ตารางสถิติ & กราฟ Breakdown แยกเครื่อง</span>
+          </div>
         </div>
 
         {machinesMetrics.map((mach, idx) => {
@@ -346,17 +420,28 @@ export const MtbfRoomView: React.FC<MtbfRoomViewProps> = ({
               <div className="xl:col-span-7 flex flex-col justify-between overflow-x-auto">
                 <div>
                   {/* Machine Header details */}
-                  <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2.5">
-                    <div className="flex items-center gap-2.5">
+                  <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2.5 flex-wrap gap-2">
+                    <div className="flex items-center gap-2.5 flex-wrap">
                       <span className="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-400 font-bold flex items-center justify-center text-xs">
                         {idx + 1}
                       </span>
                       <div>
-                        <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                        <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2 flex-wrap">
                           <span>{mach.machineName}</span>
                           <span className="font-mono text-cyan-300 font-bold bg-slate-900 px-2 py-0.5 rounded border border-cyan-800/40 text-xs">
                             {mach.machineId}
                           </span>
+                          {onUpdateRoomMachines && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditMachine(mach.machineId)}
+                              className="px-2 py-0.5 rounded-md bg-slate-850 hover:bg-cyan-950 text-slate-300 hover:text-cyan-300 border border-slate-700 hover:border-cyan-500/50 transition text-[11px] font-medium flex items-center gap-1 cursor-pointer shadow-sm"
+                              title="คลิกเพื่อแก้ไขรหัส ID, ชื่อเครื่อง หรือ Mapping เพื่อให้ตรงกับทะเบียน"
+                            >
+                              <Edit3 size={11} className="text-cyan-400" />
+                              <span>แก้ไข ID</span>
+                            </button>
+                          )}
                         </h4>
                       </div>
                     </div>
@@ -364,7 +449,9 @@ export const MtbfRoomView: React.FC<MtbfRoomViewProps> = ({
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
                         mach.ranking === 'A' 
                           ? 'bg-rose-500/15 text-rose-300 border border-rose-500/40' 
-                          : 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                          : mach.ranking === 'B'
+                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                          : 'bg-blue-500/15 text-blue-300 border border-blue-500/40'
                       }`}>
                         Ranking {mach.ranking}
                       </span>
@@ -546,6 +633,22 @@ export const MtbfRoomView: React.FC<MtbfRoomViewProps> = ({
           );
         })}
       </div>
+
+      {/* MODAL: เพิ่ม / แก้ไข ID และข้อมูลเครื่องจักร */}
+      {isEditModalOpen && (
+        <RoomMachineEditModal
+          isOpen={isEditModalOpen}
+          mode={editModalMode}
+          room={room}
+          machine={selectedMachineForEdit}
+          allRegisteredMachines={allRegisteredMachines}
+          repairs={repairs}
+          year={year}
+          onSave={handleSaveMachine}
+          onDelete={handleDeleteMachine}
+          onClose={() => setIsEditModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

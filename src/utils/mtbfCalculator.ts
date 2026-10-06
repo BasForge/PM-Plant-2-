@@ -1,4 +1,4 @@
-import { RepairLog } from '../types';
+import { RepairLog, getRepairStoppageType } from '../types';
 import { 
   RoomConfig, 
   RoomMachineConfig, 
@@ -157,10 +157,13 @@ export function calculateMTBFMTTRData(params: {
     const rDate = r.date || r.breakdownTime || '';
     if (!rDate.startsWith(currentYearStr)) continue;
 
-    // กรองประเภทงาน Breakdown:
-    // - ALL_BREAKDOWNS: นับทุกงานซ่อมฉุกเฉิน (Repair) ที่เครื่องหยุด
-    // - PARTS_ONLY: นับเฉพาะที่มีการเปลี่ยนอะไหล่ (hasPartsReplaced || usedParts > 0)
-    // - ALL_REPAIRS: นับทุกใบแจ้งซ่อม
+    // กรองประเภทงาน:
+    // ตามคำสั่งและมาตรฐาน TPM/CPRAM: นำเฉพาะเบรกดาวน์ (BREAKDOWN) มาคิด MTTR / MTBF
+    // ส่วน Minor stoppage (< 15 นาที ไม่เปลี่ยนอะไหล่) และ Adjustment loss (> 15 นาที ไม่เปลี่ยนอะไหล่) ไม่นำมาคิดเด็ดขาด!
+    const stoppageType = getRepairStoppageType(r);
+    if (stoppageType !== 'BREAKDOWN') {
+      continue; // ข้าม Minor stoppage และ Adjustment loss ทันที ไม่นำมาคิด MTTR / MTBF
+    }
     if (stoppageFilter === 'PARTS_ONLY') {
       const hasParts = Boolean((r.usedParts && r.usedParts.length > 0) || r.hasPartsReplaced);
       if (!hasParts) continue;

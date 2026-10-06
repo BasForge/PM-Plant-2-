@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { RoomConfig, RoomMachineConfig } from '../../types/mtbf';
 import { OFFICIAL_MTBF_ROOMS, DEFAULT_PRODUCTION_TIME_MONTHLY_2026, DEFAULT_BASELINE_HISTORY } from '../../data/mtbfRooms';
 import { calculateMTBFMTTRData, exportMtbfMttrToExcel } from '../../utils/mtbfCalculator';
 import { MtbfSumView, DrillDownCellParams } from './MtbfSumView';
@@ -14,20 +15,57 @@ import {
 } from 'lucide-react';
 
 export const MtbfMttrDashboardPage: React.FC = () => {
-  const { repairs, machines, navigateToRepairs } = useApp();
+  const { repairs, machines, navigateToRepairs, settings, setSettings } = useApp();
 
   // Active view: 'SUM' or room id 'room-1'..'room-8'
   const [activeTab, setActiveTab] = useState<string>('SUM');
+
+  // Rooms & machines configuration state (persisted to localStorage & Firestore settings)
+  const [rooms, setRooms] = useState<RoomConfig[]>(() => {
+    if (settings.mtbfRoomsConfig && Array.isArray(settings.mtbfRoomsConfig) && settings.mtbfRoomsConfig.length > 0) {
+      return settings.mtbfRoomsConfig;
+    }
+    try {
+      const saved = localStorage.getItem('mtbf_custom_rooms_config');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return OFFICIAL_MTBF_ROOMS;
+  });
+
+  // Sync rooms if settings change from cloud
+  useEffect(() => {
+    if (settings.mtbfRoomsConfig && Array.isArray(settings.mtbfRoomsConfig) && settings.mtbfRoomsConfig.length > 0) {
+      setRooms(settings.mtbfRoomsConfig);
+    }
+  }, [settings.mtbfRoomsConfig]);
+
+  const handleUpdateRoomMachines = (roomId: string, newMachines: RoomMachineConfig[]) => {
+    const updated = rooms.map(r => r.id === roomId ? { ...r, machines: newMachines } : r);
+    setRooms(updated);
+    try {
+      localStorage.setItem('mtbf_custom_rooms_config', JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    setSettings(prev => ({ ...prev, mtbfRoomsConfig: updated }));
+  };
+
+  const handleResetRoomMachines = (roomId: string) => {
+    const defaultRoom = OFFICIAL_MTBF_ROOMS.find(r => r.id === roomId);
+    if (!defaultRoom) return;
+    handleUpdateRoomMachines(roomId, defaultRoom.machines);
+  };
 
   // Year selector (default = 2026)
   const currentActualYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(2026);
 
   // Stoppage Type filter:
-  // - ALL_BREAKDOWNS: นับทุกงานซ่อมฉุกเฉินที่เครื่องหยุด
-  // - PARTS_ONLY: นับเฉพาะงานที่มีการเปลี่ยนอะไหล่
-  // - ALL_REPAIRS: นับทุกใบแจ้งซ่อม
-  const [stoppageFilter, setStoppageFilter] = useState<'ALL_BREAKDOWNS' | 'PARTS_ONLY' | 'ALL_REPAIRS'>('ALL_BREAKDOWNS');
+  // - ALL_BREAKDOWNS: นับเฉพาะ Breakdown (ไม่รวม Minor stoppage และ Adjustment loss ตามคำสั่งและมาตรฐาน TPM/CPRAM)
+  // - PARTS_ONLY: นับเฉพาะ Breakdown ที่มีการเปลี่ยนอะไหล่
+  const [stoppageFilter, setStoppageFilter] = useState<'ALL_BREAKDOWNS' | 'PARTS_ONLY'>('ALL_BREAKDOWNS');
 
   // Drilldown cases modal state
   const [activeDrillDown, setActiveDrillDown] = useState<DrillDownCellParams | null>(null);
@@ -125,22 +163,22 @@ export const MtbfMttrDashboardPage: React.FC = () => {
     return calculateMTBFMTTRData({
       year: selectedYear,
       repairs,
-      rooms: OFFICIAL_MTBF_ROOMS,
+      rooms,
       productionTimes,
       customMappings,
       stoppageFilter,
       baselineHistory
     });
-  }, [selectedYear, repairs, productionTimes, customMappings, stoppageFilter, baselineHistory]);
+  }, [selectedYear, repairs, rooms, productionTimes, customMappings, stoppageFilter, baselineHistory]);
 
-  const activeRoom = OFFICIAL_MTBF_ROOMS.find(r => r.id === activeTab) || null;
+  const activeRoom = rooms.find(r => r.id === activeTab) || null;
   const activeRoomMetric = roomMetrics.find(r => r.roomId === activeTab) || null;
   const activeRoomMachMetrics = activeRoom ? (machineMetrics[activeRoom.id] || []) : [];
 
   const handleExportExcel = () => {
     exportMtbfMttrToExcel({
       year: selectedYear,
-      rooms: OFFICIAL_MTBF_ROOMS,
+      rooms,
       roomMetrics,
       sumMetrics,
       activeRoomId: activeTab === 'SUM' ? null : activeTab
@@ -167,7 +205,7 @@ export const MtbfMttrDashboardPage: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                คำนวณจากประวัติงานซ่อมบำรุงจริง (Repair Logs) แยกภาพรวม SUM และ 8 ห้องการผลิต
+                คำนวณจากประวัติงานซ่อมบำรุงจริง (Repair Logs) เฉพาะกรณี Breakdown (ไม่นำ Minor stoppage และ Adjustment loss มาคิด MTTR / MTBF)
               </p>
             </div>
           </div>
@@ -194,16 +232,15 @@ export const MtbfMttrDashboardPage: React.FC = () => {
             {/* Breakdown Filter */}
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs">
               <Filter size={14} className="text-cyan-400 shrink-0" />
-              <span className="text-slate-400 font-medium">นับ Breakdown:</span>
+              <span className="text-slate-400 font-medium">เกณฑ์นับ:</span>
               <select
                 id="select-stoppage-filter"
                 value={stoppageFilter}
                 onChange={(e) => setStoppageFilter(e.target.value as any)}
-                className="bg-transparent text-white font-medium focus:outline-none cursor-pointer max-w-[170px] truncate"
+                className="bg-transparent text-white font-medium focus:outline-none cursor-pointer max-w-[210px] truncate"
               >
-                <option value="ALL_BREAKDOWNS" className="bg-slate-900">ทุกงานที่เครื่องหยุด</option>
-                <option value="PARTS_ONLY" className="bg-slate-900">เฉพาะที่เปลี่ยนอะไหล่</option>
-                <option value="ALL_REPAIRS" className="bg-slate-900">ทุกใบแจ้งซ่อม</option>
+                <option value="ALL_BREAKDOWNS" className="bg-slate-900">เฉพาะ Breakdown (ไม่รวม Minor/Adjust)</option>
+                <option value="PARTS_ONLY" className="bg-slate-900">เฉพาะ Breakdown ที่เปลี่ยนอะไหล่</option>
               </select>
             </div>
 
@@ -340,7 +377,7 @@ export const MtbfMttrDashboardPage: React.FC = () => {
       {activeTab === 'SUM' ? (
         <MtbfSumView
           year={selectedYear}
-          rooms={OFFICIAL_MTBF_ROOMS}
+          rooms={rooms}
           roomMetrics={roomMetrics}
           sumMetrics={sumMetrics}
           onSelectRoom={(roomId) => setActiveTab(roomId)}
@@ -363,8 +400,12 @@ export const MtbfMttrDashboardPage: React.FC = () => {
             room={activeRoom}
             roomMetric={activeRoomMetric}
             machinesMetrics={activeRoomMachMetrics}
+            allRegisteredMachines={machines}
+            repairs={repairs}
             onBackToSum={() => setActiveTab('SUM')}
             onOpenProductionTimeModal={() => setShowPTModal(true)}
+            onUpdateRoomMachines={handleUpdateRoomMachines}
+            onResetRoomMachines={handleResetRoomMachines}
             onDrillDown={(params) => {
               navigateToRepairs({
                 targetRepairIds: params.repairIds || [],
@@ -411,7 +452,7 @@ export const MtbfMttrDashboardPage: React.FC = () => {
           isOpen={showPTModal}
           onClose={() => setShowPTModal(false)}
           year={selectedYear}
-          rooms={OFFICIAL_MTBF_ROOMS}
+          rooms={rooms}
           productionTimes={productionTimes}
           onSave={handleSaveProductionTimes}
         />
@@ -421,7 +462,7 @@ export const MtbfMttrDashboardPage: React.FC = () => {
         <MachineMappingModal
           isOpen={showMappingModal}
           onClose={() => setShowMappingModal(false)}
-          rooms={OFFICIAL_MTBF_ROOMS}
+          rooms={rooms}
           repairs={repairs}
           customMappings={customMappings}
           onSaveMappings={handleSaveMappings}
@@ -432,7 +473,7 @@ export const MtbfMttrDashboardPage: React.FC = () => {
         <BaselineEditModal
           isOpen={showBaselineModal}
           onClose={() => setShowBaselineModal(false)}
-          rooms={OFFICIAL_MTBF_ROOMS}
+          rooms={rooms}
           baselineHistory={baselineHistory}
           onSaveBaseline={handleSaveBaseline}
         />

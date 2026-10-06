@@ -400,8 +400,10 @@ export const PlannedProductionTimeModal: React.FC<PlannedProductionTimeModalProp
               </p>
               <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-400">
                 <li><strong className="text-slate-200">% Breakdown</strong> = (Breakdown Time / Planned Production Time) × 100</li>
+                <li><strong className="text-slate-200">MTTR</strong> = Total Breakdown Time / Number of Breakdown Failures</li>
                 <li><strong className="text-slate-200">MTBF</strong> = (Planned Production Time - Breakdown Time) / Number of Failures</li>
                 <li><strong className="text-slate-200">Availability</strong> = (MTBF / (MTBF + MTTR)) × 100 = 100% - % Breakdown</li>
+                <li className="text-cyan-300 font-semibold list-none -ml-4 pt-1">*(นำเฉพาะเหตุการณ์ Breakdown มาคิด MTTR / MTBF โดยไม่รวม Minor stoppage และ Adjustment loss)*</li>
               </ul>
             </div>
           </div>

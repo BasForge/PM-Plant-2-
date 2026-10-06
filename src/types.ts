@@ -187,13 +187,17 @@ export function detectStoppageType(hasUsedParts: boolean, durationMinutes: numbe
 }
 
 export function getRepairStoppageType(repair: {
-  stoppageType?: StoppageType;
+  stoppageType?: StoppageType | string;
   usedParts?: { partId: string; quantity: number }[];
   hasPartsReplaced?: boolean;
   duration?: number;
 }): StoppageType {
   if (repair.stoppageType) {
-    return repair.stoppageType;
+    const raw = String(repair.stoppageType).trim().toUpperCase();
+    if (raw === 'BREAKDOWN') return 'BREAKDOWN';
+    if (raw === 'MINOR_STOPPAGE' || raw === 'MINOR' || raw === 'MINOR_STOP') return 'MINOR_STOPPAGE';
+    if (raw === 'ADJUSTMENT_LOSS' || raw === 'ADJUSTMENT' || raw === 'ADJUST') return 'ADJUSTMENT_LOSS';
+    return repair.stoppageType as StoppageType;
   }
   const hasParts = Boolean((repair.usedParts && repair.usedParts.length > 0) || repair.hasPartsReplaced);
   return detectStoppageType(hasParts, repair.duration || 0);
@@ -344,6 +348,8 @@ export interface SystemSettings {
   defaultPlannedProductionHours?: number; // ค่าเวลา Planned Production Time มาตรฐานต่อเดือน (เช่น 600 ชม.)
   lineNotifyEnabled?: boolean;
   lineNotifyToken?: string;
+  mtbfRoomsConfig?: any[]; // Custom rooms and machines configuration
+  mtbfCustomMappings?: Record<string, { roomId: string; machineId: string }>;
 }
 
 export interface SetupStepLog {

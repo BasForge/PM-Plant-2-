@@ -1,7 +1,7 @@
 export interface RoomMachineConfig {
   id: string; // M/C No. เช่น "RIM01"
   name: string; // Machine Name เช่น "RICE MIXER 1"
-  ranking: 'A' | 'B';
+  ranking: 'A' | 'B' | 'C';
   altIds?: string[]; // รหัสอื่นๆ ที่อาจพบในประวัติซ่อม เช่น "VAC01" สำหรับ "VCA01"
 }
 
@@ -45,7 +45,7 @@ export interface RoomCalculatedMetrics {
 export interface MachineCalculatedMetrics {
   machineId: string;
   machineName: string;
-  ranking: 'A' | 'B';
+  ranking: 'A' | 'B' | 'C';
   monthly: MonthlyBreakdownMetric[];
   ytd: YTDMetric;
 }

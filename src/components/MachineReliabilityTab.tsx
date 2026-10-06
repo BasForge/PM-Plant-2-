@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { Machine, RepairLog } from '../types';
+import { Machine, RepairLog, getRepairStoppageType } from '../types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell 
 } from 'recharts';
@@ -94,12 +94,16 @@ export const MachineReliabilityTab: React.FC<MachineReliabilityTabProps> = ({
   }, [repairs, timeRange, selectedMonth]);
 
   // Calculate reliability metrics per machine using CPRAM TPM Standards:
+  // คำนวณเฉพาะเหตุการณ์ Breakdown เท่านั้น (ไม่รวม Minor stoppage และ Adjustment loss ตามเกณฑ์มาตรฐาน TPM)
   // 1. % Breakdown = (Breakdown Time / Planned Production Time) * 100
   // 2. MTTR = Total Breakdown Repair Time / Number of Failures
   // 3. MTBF = Total Operating Time / Number of Failures (Operating Time = Planned Time - Breakdown Time)
   const machineMetrics = useMemo(() => {
     return machines.map(machine => {
-      const machRepairs = scopedRepairs.filter(r => r.machineId === machine.id);
+      // เอาเฉพาะเบรกดาวน์มาคิด MTTR MTBF ส่วน minor stop และ adjustment loss ไม่นำมาคิด
+      const machRepairs = scopedRepairs.filter(r => 
+        r.machineId === machine.id && getRepairStoppageType(r) === 'BREAKDOWN'
+      );
       const failureCount = machRepairs.length;
       const totalDowntimeMins = machRepairs.reduce((sum, r) => sum + r.duration, 0);
       const totalDowntimeHrs = parseFloat((totalDowntimeMins / 60).toFixed(2));
@@ -473,6 +477,7 @@ export const MachineReliabilityTab: React.FC<MachineReliabilityTabProps> = ({
               </h3>
               <p className="text-[10.5px] text-slate-400">
                 สูตรมาตรฐาน JIPM TPM / CPRAM: ทิศทางความสำเร็จคือ <strong className="text-emerald-400">% Breakdown ↓</strong> + <strong className="text-cyan-400">MTTR ↓</strong> + <strong className="text-amber-400">MTBF ↑</strong>
+                <span className="ml-2 text-cyan-300 font-medium">*(คำนวณเฉพาะเหตุการณ์ Breakdown ไม่รวม Minor stoppage และ Adjustment loss)*</span>
               </p>
             </div>
           </div>
