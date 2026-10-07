@@ -23,7 +23,8 @@ export const DispatchPage: React.FC = () => {
     improvements, setImprovements,
     setupLogs, setSetupLogs,
     settings,
-    spareParts, setSpareParts
+    spareParts, setSpareParts,
+    workOrders, setActivePage
   } = useApp();
 
   // Active Date selector for dispatching and tracking (defaults to actual today)
@@ -1376,6 +1377,44 @@ export const DispatchPage: React.FC = () => {
           />
         </div>
       </div>
+
+      {/* CMMS Work Order Dispatch Integration Banner */}
+      {(() => {
+        const readyToReleaseWOs = workOrders.filter(w => w.status === 'READY_TO_RELEASE');
+        const releasedWOs = workOrders.filter(w => w.status === 'RELEASED');
+        const plannedRatio = workOrders.length > 0 ? ((workOrders.filter(w => w.workCategory === 'PLANNED').length / workOrders.length) * 100).toFixed(1) : '100';
+
+        return (
+          <div className="bg-gradient-to-r from-slate-900 via-cyan-950/40 to-slate-900 border border-cyan-500/30 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                <Wrench size={20} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-white">
+                    ศูนย์สั่งการใบสั่งงาน CMMS (หลัก No Work Order - No Work)
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/40">
+                    %Planned Work: {plannedRatio}%
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  พร้อมปล่อยงาน: <strong className="text-emerald-400">{readyToReleaseWOs.length}</strong> งาน • กำลังทำ: <strong className="text-blue-400">{releasedWOs.length}</strong> งาน (ตรวจความพร้อม 4 ด้าน: เวลา • ระยะเวลา • ช่าง • อะไหล่)
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActivePage(17)}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-black flex items-center gap-1.5 transition shadow-md cursor-pointer shrink-0"
+            >
+              <span>🎯 ไปยังศูนย์ควบคุม Work Order Hub →</span>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* MASTER PAGE TABS (Sub-pages layout matching user's Request 3) */}
       <div className="flex bg-slate-900/60 p-1 border border-slate-800 rounded-xl max-w-md" id="dispatch-subtabs-nav">

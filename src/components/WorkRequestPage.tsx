@@ -64,6 +64,10 @@ import { PrintheadHistoryTab } from './workRequest/PrintheadHistoryTab';
 import { ParsedWorkRequestItem } from '../utils/excelWorkRequestParser';
 import { getTodayDateString } from '../utils/pmAlerts';
 import { TimePicker24H } from './common/TimePicker24H';
+import { WorkOrder } from '../types';
+import { WorkOrderModal } from './workOrder/WorkOrderModal';
+import { EmergencyWOModal } from './workOrder/EmergencyWOModal';
+import { WorkOrderDetailModal } from './workOrder/WorkOrderDetailModal';
 
 export const WorkRequestPage: React.FC = () => {
   const { 
@@ -84,6 +88,7 @@ export const WorkRequestPage: React.FC = () => {
     completeWorkRequest, 
     acceptWorkRequestHandover,
     setRepairs,
+    workOrders,
     syncWithFirebaseNow,
     firebaseStatus,
     lastFirebaseSync
@@ -107,6 +112,32 @@ export const WorkRequestPage: React.FC = () => {
   const [isHandoverModalOpen, setIsHandoverModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [activeRequest, setActiveRequest] = useState<WorkRequest | null>(null);
+
+  // Work Order (CMMS) Integration states
+  const [targetWOReq, setTargetWOReq] = useState<WorkRequest | null>(null);
+  const [isCreateWOModalOpen, setIsCreateWOModalOpen] = useState(false);
+  const [isEmergencyWOModalOpen, setIsEmergencyWOModalOpen] = useState(false);
+  const [selectedDetailWO, setSelectedDetailWO] = useState<WorkOrder | null>(null);
+  const [isDetailWOModalOpen, setIsDetailWOModalOpen] = useState(false);
+
+  // Helper to find linked Work Order for a request
+  const getLinkedWorkOrder = (req: WorkRequest): WorkOrder | undefined => {
+    return workOrders.find(wo => 
+      (req.linkedWorkOrderId && wo.id === req.linkedWorkOrderId) ||
+      (req.workOrderNo && (wo.id === req.workOrderNo || wo.workOrderNo === req.workOrderNo)) ||
+      (wo.sourceRefId && wo.sourceRefId === req.id) ||
+      (wo.workRequestNo && (wo.workRequestNo === req.ticketNo || wo.workRequestNo === req.id))
+    );
+  };
+
+  const handleOpenCreateWO = (req: WorkRequest) => {
+    setTargetWOReq(req);
+    if (req.priority === 'ฉุกเฉินไลน์หยุด') {
+      setIsEmergencyWOModalOpen(true);
+    } else {
+      setIsCreateWOModalOpen(true);
+    }
+  };
 
   // View mode: 'table' (ตารางแถว CPRAM) or 'cards' (แสดงรายละเอียด)
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
@@ -1756,11 +1787,46 @@ export const WorkRequestPage: React.FC = () => {
                           <div className="text-[10px] text-slate-400">{req.requestTime} น.</div>
                         </td>
 
-                        {/* สถานะงาน */}
+                        {/* สถานะงาน & Work Order Link */}
                         <td className="py-3.5 px-3.5 text-center whitespace-nowrap">
                           <div className="flex flex-col items-center gap-1">
                             {renderStatusBadge(req.status)}
                             <span className="scale-90 origin-center">{renderPriorityBadge(req.priority)}</span>
+                            {(() => {
+                              const linkedWO = getLinkedWorkOrder(req);
+                              if (linkedWO) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedDetailWO(linkedWO);
+                                      setIsDetailWOModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-900 transition shadow-xs cursor-pointer"
+                                    title={`คลิกเพื่อดูใบสั่งงาน ${linkedWO.id} (สถานะ: ${linkedWO.status})`}
+                                  >
+                                    <span>🎯 {linkedWO.id}</span>
+                                  </button>
+                                );
+                              }
+                              if (!isProduction) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenCreateWO(req);
+                                    }}
+                                    className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 hover:bg-cyan-50 text-cyan-700 border border-cyan-300 hover:border-cyan-500 transition shadow-2xs cursor-pointer"
+                                    title="ออกใบสั่งงาน Work Order (CMMS) ตามหลัก No WO - No Work"
+                                  >
+                                    <span>+ ออก WO</span>
+                                  </button>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                         </td>
 
@@ -2220,7 +2286,38 @@ export const WorkRequestPage: React.FC = () => {
 
                     {/* Bottom Action Buttons for Engineers / Technicians */}
                     <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-200">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {/* CMMS Work Order Badge or Action Button */}
+                        {!isProduction && (() => {
+                          const linkedWO = getLinkedWorkOrder(req);
+                          if (linkedWO) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDetailWO(linkedWO);
+                                  setIsDetailWOModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-900 transition shadow-xs cursor-pointer"
+                                title={`คลิกเพื่อดูใบสั่งงาน ${linkedWO.id} (สถานะ: ${linkedWO.status})`}
+                              >
+                                <span>🎯 {linkedWO.id} ({linkedWO.status})</span>
+                              </button>
+                            );
+                          }
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCreateWO(req)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-slate-950 shadow-xs transition cursor-pointer"
+                              title="ออกใบสั่งงาน Work Order (CMMS) ตามหลัก No WO - No Work"
+                            >
+                              <Wrench size={13} />
+                              <span>ออก Work Order</span>
+                            </button>
+                          );
+                        })()}
+
                         {!isProduction && (
                           req.linkedRepairLogId ? (
                             <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
@@ -3237,6 +3334,89 @@ export const WorkRequestPage: React.FC = () => {
                 )}
               </div>
 
+              {/* Section 2.5: CMMS Work Order Status (No Work Order - No Work) */}
+              <div className="space-y-2 pt-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-900 bg-cyan-50 px-3 py-1 rounded flex items-center justify-between">
+                  <span>ส่วนที่ 2.5: ใบสั่งงาน CMMS Work Order (วินัย No Work Order - No Work)</span>
+                  {(() => {
+                    const linkedWO = getLinkedWorkOrder(activeRequest);
+                    if (linkedWO) {
+                      return <span className="font-mono text-cyan-700 font-bold">{linkedWO.id}</span>;
+                    }
+                    return null;
+                  })()}
+                </h4>
+                {(() => {
+                  const linkedWO = getLinkedWorkOrder(activeRequest);
+                  if (linkedWO) {
+                    return (
+                      <div className="p-3.5 bg-cyan-950/10 border border-cyan-500/30 rounded-xl space-y-2.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-cyan-800 text-sm">{linkedWO.id}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-100 text-cyan-800">
+                              สถานะ: {linkedWO.status}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                              หมวด: {linkedWO.workCategory === 'PLANNED' ? 'Planned Work (ตามแผน)' : 'Unplanned (ฉุกเฉิน)'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDetailWO(linkedWO);
+                              setIsDetailWOModalOpen(true);
+                            }}
+                            className="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
+                          >
+                            <span>เปิดดูใบสั่งงานเต็ม →</span>
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-cyan-200/60 text-[11px]">
+                          <div>
+                            <span className="text-slate-500 block">1. วัน-เวลาเริ่ม:</span>
+                            <strong className="text-slate-800">{linkedWO.scheduledDate} {linkedWO.scheduledStartTime} น.</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block">2. เวลาประเมิน:</span>
+                            <strong className="text-slate-800">{linkedWO.estimatedDurationMins} นาที</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block">3. ช่างรับผิดชอบ:</span>
+                            <strong className="text-slate-800">{linkedWO.assignedTechnicians?.join(', ') || '-'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block">4. อะไหล่สำรอง:</span>
+                            <strong className={linkedWO.readiness.partsAvailable ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>
+                              {linkedWO.requiresParts ? (linkedWO.readiness.partsAvailable ? 'พร้อมในคลัง' : 'ขาดสต็อก') : 'ไม่ต้องใช้อะไหล่'}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-xs">
+                      <div>
+                        <p className="font-semibold text-slate-700">ยังไม่ได้ออกใบสั่งงาน Work Order สำหรับใบแจ้งซ่อมนี้</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          ตามหลัก No Work Order - No Work ทุกงานต้องออกจากระบบ CMMS เพื่อคำนวณ %Planned Work
+                        </p>
+                      </div>
+                      {!isProduction && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCreateWO(activeRequest)}
+                          className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs shrink-0 shadow-2xs cursor-pointer"
+                        >
+                          ออก Work Order ทันที
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
               {/* Section 3: Handover & Signatures */}
               <div className="space-y-2 pt-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 bg-slate-100 px-3 py-1 rounded">
@@ -3978,6 +4158,48 @@ export const WorkRequestPage: React.FC = () => {
           handleTogglePrinthead(req);
         }}
       />
+
+      {/* CMMS Work Order Modals */}
+      {isCreateWOModalOpen && targetWOReq && (
+        <WorkOrderModal
+          isOpen={isCreateWOModalOpen}
+          onClose={() => {
+            setIsCreateWOModalOpen(false);
+            setTargetWOReq(null);
+          }}
+          fromWorkRequestId={targetWOReq.id}
+          onSaved={(wo) => {
+            showToast(`ออกใบสั่งงาน ${wo.id} สำหรับใบแจ้ง #${targetWOReq.ticketNo || targetWOReq.id} สำเร็จ`);
+          }}
+        />
+      )}
+
+      {isEmergencyWOModalOpen && targetWOReq && (
+        <EmergencyWOModal
+          isOpen={isEmergencyWOModalOpen}
+          onClose={() => {
+            setIsEmergencyWOModalOpen(false);
+            setTargetWOReq(null);
+          }}
+          initialMachineId={targetWOReq.machineId}
+          initialSymptoms={targetWOReq.problemTitle}
+          linkedRequestId={targetWOReq.id}
+          onCreated={(woId) => {
+            showToast(`⚡ ออกใบสั่งงานฉุกเฉิน ${woId} และสั่งปล่อยงานทันทีเรียบร้อย`);
+          }}
+        />
+      )}
+
+      {isDetailWOModalOpen && selectedDetailWO && (
+        <WorkOrderDetailModal
+          isOpen={isDetailWOModalOpen}
+          workOrder={selectedDetailWO}
+          onClose={() => {
+            setIsDetailWOModalOpen(false);
+            setSelectedDetailWO(null);
+          }}
+        />
+      )}
     </div>
   );
 };

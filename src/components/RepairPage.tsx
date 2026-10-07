@@ -7,7 +7,8 @@ import {
   detectStoppageType, 
   getRepairStoppageType,
   SparePart,
-  UsedPartItem
+  UsedPartItem,
+  WorkOrder
 } from '../types';
 import { 
   Plus, Search, SlidersHorizontal, Image as ImageIcon, 
@@ -21,11 +22,13 @@ import { getTodayDateString } from '../utils/pmAlerts';
 import * as XLSX from 'xlsx';
 import { LineTextImportModal } from './repair/LineTextImportModal';
 import { DateTimePicker24H } from './common/DateTimePicker24H';
+import { WorkOrderDetailModal } from './workOrder/WorkOrderDetailModal';
 
 export const RepairPage: React.FC = () => {
   const { 
     repairs, setRepairs, machines, technicians, spareParts, setSpareParts, settings, canEdit, canDelete,
-    repairNavigationFilter, clearRepairNavigationFilter, setActivePage
+    repairNavigationFilter, clearRepairNavigationFilter, setActivePage,
+    workOrders, createEmergencyBreakdownWorkOrder
   } = useApp();
 
   // Search/Filters states
@@ -92,6 +95,12 @@ export const RepairPage: React.FC = () => {
   const [formTechnicians, setFormTechnicians] = useState<string[]>([]);
   const [formCorrection, setFormCorrection] = useState('');
   const [formStatus, setFormStatus] = useState<'กำลังซ่อม' | 'ปิดงาน'>('ปิดงาน');
+  
+  // CMMS Work Order Link states (No Work Order - No Work)
+  const [formWorkOrderId, setFormWorkOrderId] = useState<string>('');
+  const [formWorkOrderNo, setFormWorkOrderNo] = useState<string>('');
+  const [selectedDetailWO, setSelectedDetailWO] = useState<WorkOrder | null>(null);
+  const [isDetailWOModalOpen, setIsDetailWOModalOpen] = useState(false);
   
   // Spare parts in form state
   const [formUsedParts, setFormUsedParts] = useState<UsedPartItem[]>([]);
@@ -404,7 +413,9 @@ export const RepairPage: React.FC = () => {
         status: formStatus,
         usedParts: formUsedParts,
         otherCost: Number(formOtherCost) || 0,
-        excelFile: formExcelName && formExcelContent ? { name: formExcelName, content: formExcelContent } : undefined
+        excelFile: formExcelName && formExcelContent ? { name: formExcelName, content: formExcelContent } : undefined,
+        workOrderId: formWorkOrderId || undefined,
+        workOrderNo: formWorkOrderNo || formWorkOrderId || undefined
       };
 
       setRepairs(prev => prev.map(r => r.id === editingId ? updatedRepair : r));
@@ -439,7 +450,9 @@ export const RepairPage: React.FC = () => {
         status: formStatus,
         usedParts: formUsedParts,
         otherCost: Number(formOtherCost) || 0,
-        excelFile: formExcelName && formExcelContent ? { name: formExcelName, content: formExcelContent } : undefined
+        excelFile: formExcelName && formExcelContent ? { name: formExcelName, content: formExcelContent } : undefined,
+        workOrderId: formWorkOrderId || undefined,
+        workOrderNo: formWorkOrderNo || formWorkOrderId || undefined
       };
       setRepairs(prev => [newLog, ...prev]);
 
@@ -483,6 +496,8 @@ export const RepairPage: React.FC = () => {
     setFormStoppageType('BREAKDOWN');
     setFormHasPartsReplaced(false);
     setIsStoppageManual(false);
+    setFormWorkOrderId('');
+    setFormWorkOrderNo('');
   };
 
   const handleEditClick = (log: RepairLog) => {
@@ -495,6 +510,8 @@ export const RepairPage: React.FC = () => {
     setFormTechnicians(log.technicians || (log.technician ? [log.technician] : []));
     setFormCorrection(log.correctiveAction);
     setFormStatus(log.status || 'ปิดงาน');
+    setFormWorkOrderId(log.workOrderId || '');
+    setFormWorkOrderNo(log.workOrderNo || log.workOrderId || '');
     setWhy1(log.why1 || '');
     setWhy2(log.why2 || '');
     setWhy3(log.why3 || '');
@@ -1641,6 +1658,7 @@ export const RepairPage: React.FC = () => {
                 <th className="py-4 px-3 w-28 font-mono">เครื่อง (ID)</th>
                 <th className="py-4 px-4">ชื่อเครื่องจักร</th>
                 <th className="py-4 px-3 text-center w-36">ประเภทความสูญเสีย</th>
+                <th className="py-4 px-3 text-center w-28">ใบสั่งงาน (WO)</th>
                 <th className="py-4 px-3 text-center">MTTR (นาที)</th>
                 <th className="py-4 px-3 text-center">Std. MTTR</th>
                 <th className="py-4 px-4">อาการเสียชำรุด</th>
@@ -1653,7 +1671,7 @@ export const RepairPage: React.FC = () => {
             <tbody className="divide-y divide-slate-700/50">
               {filteredRepairs.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-slate-500 bg-slate-900/10">
+                  <td colSpan={13} className="py-12 text-center text-slate-500 bg-slate-900/10">
                     ไม่พบข้อมูลแจ้งซ่อมสำหรับตัวกรองที่เลือก
                   </td>
                 </tr>
@@ -1753,6 +1771,47 @@ export const RepairPage: React.FC = () => {
                             );
                           }
                         })()}
+                      </td>
+
+                      {/* Work Order Column (No Work Order - No Work) */}
+                      <td className="py-4 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        {r.workOrderNo || r.workOrderId ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const wo = workOrders.find(w => w.id === r.workOrderId || w.id === r.workOrderNo);
+                              if (wo) {
+                                setSelectedDetailWO(wo);
+                                setIsDetailWOModalOpen(true);
+                              } else {
+                                showToast(`ใบสั่งงาน ${r.workOrderNo || r.workOrderId}`);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-900 transition shadow-xs cursor-pointer"
+                            title="คลิกดูใบสั่งงาน Work Order"
+                          >
+                            <span>🎯 {r.workOrderNo || r.workOrderId}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const created = createEmergencyBreakdownWorkOrder({
+                                machineId: r.machineId,
+                                title: `ซ่อมฉุกเฉิน ${r.machineId}: ${r.symptoms.slice(0, 35)}`,
+                                symptoms: r.symptoms,
+                                leadTech: r.technician || 'ช่างประจำกะ',
+                                targetDurationMins: r.duration || 60
+                              });
+                              setRepairs(prev => prev.map(rep => rep.id === r.id ? { ...rep, workOrderId: created.id, workOrderNo: created.id } : rep));
+                              showToast(`⚡ ออกใบสั่งงานฉุกเฉิน ${created.id} เรียบร้อยแล้ว`);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/40 transition cursor-pointer"
+                            title="กดเพื่อออก Fast-Track Emergency WO ทันทีให้ถูกต้องตามวินัย CMMS"
+                          >
+                            <span>+ ออก WO</span>
+                          </button>
+                        )}
                       </td>
                       <td className="py-4 px-3 text-center font-mono font-bold">
                         <span className={isExceed120Percent ? "text-rose-400 font-extrabold" : "text-slate-300"}>
@@ -1863,6 +1922,77 @@ export const RepairPage: React.FC = () => {
                     <option key={m.id} value={m.id}>{m.id} : {m.name}</option>
                   ))}
                 </select>
+              </div>
+
+              {/* Row 1.1: CMMS Work Order Selection & Fast-Track Button */}
+              <div className="bg-slate-900/90 border border-cyan-500/40 rounded-xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 rounded bg-cyan-500/20 text-cyan-400">
+                      <Wrench size={13} />
+                    </span>
+                    <label className="text-[11px] font-bold text-cyan-300">
+                      ใบสั่งงาน Work Order (ตามหลัก No Work Order - No Work)
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!formMachine) {
+                        alert("กรุณาเลือกเครื่องจักรก่อน");
+                        return;
+                      }
+                      const symp = formSymptoms.trim() || 'แจ้งซ่อมเครื่องจักรขัดข้องด่วน';
+                      const created = createEmergencyBreakdownWorkOrder({
+                        machineId: formMachine,
+                        title: `ฉุกเฉิน ${formMachine}: ${symp.slice(0, 35)}`,
+                        symptoms: symp,
+                        leadTech: formTechnician || technicians[0] || 'ช่างประจำกะ',
+                        targetDurationMins: getLiveMttr() || 60
+                      });
+                      setFormWorkOrderId(created.id);
+                      setFormWorkOrderNo(created.id);
+                      showToast(`⚡ ออกใบสั่งงานฉุกเฉิน ${created.id} และผูกกับงานซ่อมนี้แล้ว`);
+                    }}
+                    className="px-2.5 py-1 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-slate-950 font-black rounded-lg text-[10px] flex items-center gap-1 cursor-pointer shadow-sm transition"
+                    title="ออก Emergency Fast-Track WO ทันทีใน 10 วินาที"
+                  >
+                    <span>⚡ ออก Fast-Track WO ทันที</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <select
+                    value={formWorkOrderId}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      setFormWorkOrderId(selectedId);
+                      setFormWorkOrderNo(selectedId);
+                    }}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="">-- เลือกใบสั่งงานที่เปิดไว้ (หรือกดปุ่มออก WO ทันทีด้านขวา) --</option>
+                    {workOrders
+                      .filter(w => !formMachine || w.machineId === formMachine)
+                      .map(w => (
+                        <option key={w.id} value={w.id}>
+                          [{w.id}] {w.title} ({w.sourceType} - {w.status})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                {formWorkOrderId ? (
+                  <div className="flex items-center gap-2 text-[11px] text-emerald-400">
+                    <CheckCircle2 size={13} />
+                    <span>เชื่อมโยงใบสั่งงาน <strong>{formWorkOrderId}</strong> สำเร็จ (ผ่านเกณฑ์ No WO - No Work)</span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-amber-300/80">
+                    💡 แนะนำ: กดปุ่ม "ออก Fast-Track WO ทันที" เพื่อให้งานซ่อมมีใบสั่งงาน CMMS ครบ 100%
+                  </p>
+                )}
               </div>
 
               {/* Row 1.5: Multi-Technician Select Checkboxes */}
@@ -3374,6 +3504,18 @@ export const RepairPage: React.FC = () => {
           <Check className="w-4 h-4 text-emerald-400" />
           <span className="text-xs font-medium">{toastMsg}</span>
         </div>
+      )}
+
+      {/* CMMS Work Order Detail Modal */}
+      {isDetailWOModalOpen && selectedDetailWO && (
+        <WorkOrderDetailModal
+          isOpen={isDetailWOModalOpen}
+          workOrder={selectedDetailWO}
+          onClose={() => {
+            setIsDetailWOModalOpen(false);
+            setSelectedDetailWO(null);
+          }}
+        />
       )}
     </div>
   );

@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { WorkOrderHub } from './workOrder/WorkOrderHub';
 import { DispatchPage } from './DispatchPage';
 import { SetupPage } from './SetupPage';
-import { Send, Clock, Users, Activity, CheckCircle2, SlidersHorizontal } from 'lucide-react';
+import { Send, Clock, Users, Activity, CheckCircle2, SlidersHorizontal, Wrench, ShieldCheck } from 'lucide-react';
 
 interface SetupAndDispatchHubProps {
-  defaultTab?: 'dispatch' | 'setup';
+  defaultTab?: 'workorder' | 'dispatch' | 'setup';
 }
 
-export const SetupAndDispatchHub: React.FC<SetupAndDispatchHubProps> = ({ defaultTab = 'dispatch' }) => {
-  const { technicians, setupLogs, repairs } = useApp();
-  const [activeSubTab, setActiveSubTab] = useState<'dispatch' | 'setup'>(defaultTab);
+export const SetupAndDispatchHub: React.FC<SetupAndDispatchHubProps> = ({ defaultTab = 'workorder' }) => {
+  const { technicians, setupLogs, repairs, workOrders } = useApp();
+  const [activeSubTab, setActiveSubTab] = useState<'workorder' | 'dispatch' | 'setup'>(defaultTab);
 
   useEffect(() => {
     setActiveSubTab(defaultTab);
@@ -19,6 +20,7 @@ export const SetupAndDispatchHub: React.FC<SetupAndDispatchHubProps> = ({ defaul
   // Quick stats
   const activeTechnicians = technicians.filter(t => t.status === 'Active' || t.status === 'พร้อมปฏิบัติงาน' || !t.status).length;
   const activeRepairsCount = repairs.filter(r => r.status === 'Ongoing' || r.status === 'Pending').length;
+  const readyWOCount = workOrders.filter(w => w.status === 'READY_TO_RELEASE').length;
 
   return (
     <div className="space-y-5" id="setup-dispatch-hub">
@@ -28,7 +30,31 @@ export const SetupAndDispatchHub: React.FC<SetupAndDispatchHubProps> = ({ defaul
         {/* Sub-tab Switcher Buttons */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0" id="hub-dispatch-subtabs">
           
-          {/* Sub-tab 1: ระบบจ่ายงาน */}
+          {/* Sub-tab 1: ใบสั่งงาน Work Order & วินัย CMMS */}
+          <button
+            type="button"
+            id="btn-subtab-workorder"
+            onClick={() => setActiveSubTab('workorder')}
+            className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer select-none ${
+              activeSubTab === 'workorder'
+                ? 'bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600 text-slate-950 shadow-lg shadow-cyan-500/20 ring-1 ring-cyan-400'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+            }`}
+          >
+            <Wrench size={16} className={activeSubTab === 'workorder' ? 'text-slate-950 stroke-[2.5]' : 'text-cyan-400'} />
+            <span>🎯 ศูนย์ใบสั่งงาน Work Order (CMMS)</span>
+            <span 
+              className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-bold transition-colors ${
+                activeSubTab === 'workorder' 
+                  ? 'bg-slate-950/20 text-slate-950' 
+                  : 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/30'
+              }`}
+            >
+              {workOrders.length} WOs
+            </span>
+          </button>
+
+          {/* Sub-tab 2: ระบบสั่งจ่ายงาน */}
           <button
             type="button"
             id="btn-subtab-dispatch"
@@ -39,20 +65,20 @@ export const SetupAndDispatchHub: React.FC<SetupAndDispatchHubProps> = ({ defaul
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
             }`}
           >
-            <Send size={16} className={activeSubTab === 'dispatch' ? 'text-slate-950 stroke-[2.5]' : 'text-cyan-400'} />
-            <span>📋 ระบบควบคุมสั่งจ่ายงาน</span>
+            <Send size={16} className={activeSubTab === 'dispatch' ? 'text-slate-950 stroke-[2.5]' : 'text-blue-400'} />
+            <span>📋 กระดานจ่ายงานช่าง (Live Dispatch)</span>
             <span 
               className={`text-[11px] font-mono px-2 py-0.5 rounded-full font-bold transition-colors ${
                 activeSubTab === 'dispatch' 
                   ? 'bg-slate-950/20 text-slate-950' 
-                  : 'bg-cyan-950/60 text-cyan-400 border border-cyan-500/30'
+                  : 'bg-blue-950/60 text-blue-400 border border-blue-500/30'
               }`}
             >
               {technicians.length} ช่าง
             </span>
           </button>
 
-          {/* Sub-tab 2: บันทึก Setup เครื่อง */}
+          {/* Sub-tab 3: บันทึก Setup เครื่อง */}
           <button
             type="button"
             id="btn-subtab-setup"
@@ -79,7 +105,19 @@ export const SetupAndDispatchHub: React.FC<SetupAndDispatchHubProps> = ({ defaul
 
         {/* Info badge on the right */}
         <div className="hidden lg:flex items-center gap-3 px-3.5 py-1.5 bg-slate-800/60 border border-slate-700/60 rounded-xl text-xs text-slate-300">
-          {activeSubTab === 'dispatch' ? (
+          {activeSubTab === 'workorder' ? (
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1.5 text-cyan-400 font-medium">
+                <ShieldCheck size={13} />
+                เกณฑ์ No WO - No Work: <strong className="text-white font-mono">100%</strong>
+              </span>
+              <span className="text-slate-600">|</span>
+              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                <CheckCircle2 size={13} />
+                พร้อมปล่อยงาน: <strong className="text-white font-mono">{readyWOCount}</strong> งาน
+              </span>
+            </div>
+          ) : activeSubTab === 'dispatch' ? (
             <div className="flex items-center gap-3">
               <span className="flex items-center gap-1.5 text-cyan-400 font-medium">
                 <Users size={13} />
@@ -109,6 +147,7 @@ export const SetupAndDispatchHub: React.FC<SetupAndDispatchHubProps> = ({ defaul
 
       {/* 2. SUB-TAB VIEWPORT */}
       <div className="animate-in fade-in duration-200" key={activeSubTab}>
+        {activeSubTab === 'workorder' && <WorkOrderHub />}
         {activeSubTab === 'dispatch' && <DispatchPage />}
         {activeSubTab === 'setup' && <SetupPage />}
       </div>

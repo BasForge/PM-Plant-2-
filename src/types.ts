@@ -227,6 +227,8 @@ export interface RepairLog {
   stoppageType?: StoppageType; // การจำแนกประเภท: Breakdown, Minor stoppage, Adjustment loss
   otherCost?: number;
   excelFile?: { name: string; content: string }; // ไฟล์ Excel แนบประกอบใบซ่อม (Base64)
+  workOrderId?: string; // รหัสใบสั่งงาน Work Order ที่ผูกกับงานซ่อมนี้ (No Work Order - No Work)
+  workOrderNo?: string; // เลขที่ใบสั่งงาน เช่น WO-2026-0001
 }
 
 export type KaizenCategory = 'KAIZEN' | 'OPL' | 'FA' | 'WHY_WHY' | 'MP_INFO';
@@ -445,6 +447,8 @@ export interface WorkRequest {
   
   // การเชื่อมโยงกับโมดูลอื่น
   linkedRepairLogId?: string; // ID ใบงานซ่อมหากแปลงเข้าตารางซ่อม
+  linkedWorkOrderId?: string; // ID ใบสั่งงาน Work Order ที่ออกให้กับใบแจ้งซ่อมนี้
+  workOrderNo?: string; // เลขที่ใบสั่งงาน e.g. WO-2026-0001
   
   // ข้อมูลประวัติการเปลี่ยนหัวพิมพ์ (Printhead Replacement History)
   isPrintheadReplacement?: boolean; // ติ๊กเลือกเป็นงานเปลี่ยนหัวพิมพ์
@@ -583,6 +587,114 @@ export interface CD5Project {
   // Usage & Lifespan Tracking History
   usageHistory?: CD5UsageHistoryItem[];
 }
+
+// ============================================================================
+// CMMS Work Order & Planning Discipline Models (No Work Order - No Work)
+// ============================================================================
+
+export type WorkOrderPriority = 'ฉุกเฉินไลน์หยุด' | 'เร่งด่วน' | 'ปกติ' | 'ตามแผนนัดหมาย';
+
+export type WorkOrderType = 
+  | 'PM'                  // Preventive Maintenance ตามแผน
+  | 'BREAKDOWN'           // ซ่อมเครื่องจักรหยุดฉุกเฉิน (Unplanned)
+  | 'CORRECTIVE'          // ซ่อมปรับปรุง/งานแก้ไขจากใบแจ้งซ่อม (Planned)
+  | 'IMPROVEMENT'         // Kaizen / Overhaul / Cost Down (Planned)
+  | 'OPERATION';          // ประจำการคุมกะ/ตรวจเช็คไลน์ประจำวัน (Planned)
+
+export type WorkOrderStatus = 
+  | 'DRAFT'                       // แบบร่าง รอวางแผน
+  | 'PENDING_SCHEDULE'            // กำลังจัดเตรียมแผน (คน/เวลา/อะไหล่)
+  | 'WAITING_PARTS'               // รออะไหล่ (สต็อกไม่พอ)
+  | 'READY_TO_RELEASE'            // ผ่านเกณฑ์ความพร้อม 4 ด้าน พร้อมปล่อยงาน
+  | 'RELEASED'                    // ปล่อยงานแล้ว ช่างกำลังปฏิบัติงาน (In Progress)
+  | 'COMPLETED_PENDING_HANDOVER'  // ซ่อมเสร็จ รอฝ่ายผลิตตรวจรับ
+  | 'CLOSED'                      // ฝ่ายผลิตตรวจรับและปิดงานสมบูรณ์
+  | 'CANCELLED';                  // ยกเลิก
+
+export interface WorkOrderPartRequirement {
+  partId: string;
+  partCode: string;
+  partName: string;
+  quantityRequired: number;
+  quantityAvailable: number;
+  isAvailable: boolean;
+  isReserved: boolean;
+  unitCost?: number;
+}
+
+export interface WorkOrderReadinessCheck {
+  timeScheduled: boolean;           // 1. มีกำหนดวันและเวลาเริ่ม
+  estimatedDurationValid: boolean;  // 2. มีประมาณการระยะเวลาการทำงาน (นาที)
+  laborAssigned: boolean;           // 3. มีช่างผู้รับผิดชอบประจำกะ
+  partsAvailable: boolean;          // 4. อะไหล่สำรองในคลังพร้อมครบ (หรือเคสที่ไม่ต้องใช้อะไหล่)
+  gatePassed: boolean;              // ผ่านทั้ง 4 ข้อ พร้อมปล่อยงาน (Ready for Release)
+  missingReasons: string[];         // รายการสิ่งที่ยังขาด
+}
+
+export interface WorkOrder {
+  id: string; // e.g. "WO-2026-0001"
+  workOrderNo?: string;
+  sourceType: WorkOrderType;
+  workCategory: 'PLANNED' | 'UNPLANNED'; // สำหรับคำนวณ % Planned Work Ratio (เป้าหมาย >= 80-90%)
+  title: string;
+  description: string;
+  machineId: string;
+  machineName?: string;
+  lineGroup?: string;
+  priority: WorkOrderPriority;
+  status: WorkOrderStatus;
+  
+  // 4 เสาหลัก Readiness Gate
+  readiness: WorkOrderReadinessCheck;
+  
+  // เสาที่ 1: เวลาเริ่ม
+  scheduledDate: string; // YYYY-MM-DD
+  scheduledStartTime: string; // HH:MM
+  scheduledEndTime?: string; // HH:MM
+  
+  // เสาที่ 2: ระยะเวลา
+  estimatedDurationMins: number; // นาที
+  
+  // เสาที่ 3: กำลังพลช่าง
+  assignedTechnicians: string[];
+  leadTechnician?: string;
+  
+  // เสาที่ 4: อะไหล่สำรอง (Kitting / Stock Reservation)
+  requiresParts: boolean;
+  requiredParts: WorkOrderPartRequirement[];
+  
+  // มาตรการความปลอดภัย
+  lotoRequired: boolean;
+  lotoTag?: string;
+  lotoActive?: boolean;
+  
+  // การเชื่อมโยงกับแหล่งงานต้นทาง
+  sourceRefId?: string; // ID ใบแจ้งซ่อม (REQ-XXX), แผน PM (plan-xxx), Kaizen (CD5-xxx), ฯลฯ
+  workRequestNo?: string;
+  
+  // ข้อมูลเมื่อลงมือปฏิบัติงานจริง
+  actualStartTime?: string;
+  actualEndTime?: string;
+  actualDurationMins?: number;
+  workSummaryNotes?: string;
+  rootCauseWhy1?: string;
+  correctiveAction?: string;
+  
+  // การตรวจรับและส่งมอบงานโดยฝ่ายผลิต (Handover & Acceptance)
+  productionAcceptedBy?: string;
+  productionAcceptedAt?: string;
+  productionHandoverNotes?: string;
+  satisfactionRating?: number;
+  
+  // ข้อมูลระบบ
+  createdAt: string;
+  createdBy: string;
+  releasedAt?: string;
+  releasedBy?: string;
+  closedAt?: string;
+  closedBy?: string;
+}
+
 
 
 

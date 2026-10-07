@@ -3,7 +3,8 @@ import {
   Machine, PMPlan, PMScheduleItem, OperationScheduleItem, 
   RepairLog, ImprovementProject, SystemSettings, ScheduleItem, SetupLog, Employee,
   TechnicianLeave, SparePart, CD5Project, UserAccount, UserRole,
-  WorkRequest, EngineeringResponse, WorkRequestStatus
+  WorkRequest, EngineeringResponse, WorkRequestStatus,
+  WorkOrder
 } from '../types';
 import { 
   PRELOADED_MACHINES, PRELOADED_TECHNICIANS, PRELOADED_PM_PLANS, 
@@ -11,6 +12,8 @@ import {
   PRELOADED_SPARE_PARTS, PRELOADED_CD5_PROJECTS
 } from '../data/preloaded';
 import { PRELOADED_WORK_REQUESTS } from '../data/preloadedRequests';
+import { PRELOADED_WORK_ORDERS } from '../data/preloadedWorkOrders';
+import { evaluateWorkOrderReadiness, generateWorkOrderNo } from '../utils/workOrderUtils';
 import { DEFAULT_USER_ACCOUNTS } from '../data/preloadedUsers';
 import { 
   loadDatabaseFromFirebase, 
@@ -69,6 +72,29 @@ export interface AppContextType {
   setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>;
   workRequests: WorkRequest[];
   setWorkRequests: React.Dispatch<React.SetStateAction<WorkRequest[]>>;
+  workOrders: WorkOrder[];
+  setWorkOrders: React.Dispatch<React.SetStateAction<WorkOrder[]>>;
+  addWorkOrder: (wo: Omit<WorkOrder, 'id' | 'createdAt'>) => WorkOrder;
+  updateWorkOrder: (id: string, updates: Partial<WorkOrder>) => void;
+  deleteWorkOrder: (id: string) => void;
+  releaseWorkOrder: (id: string, operatorName?: string) => { success: boolean; message: string };
+  closeWorkOrder: (id: string, completionData: {
+    actualDurationMins?: number;
+    workSummaryNotes?: string;
+    rootCauseWhy1?: string;
+    correctiveAction?: string;
+    acceptedBy: string;
+    satisfactionRating?: number;
+    handoverNotes?: string;
+  }) => void;
+  createEmergencyBreakdownWorkOrder: (params: {
+    machineId: string;
+    title: string;
+    symptoms: string;
+    leadTech: string;
+    targetDurationMins?: number;
+    lotoTag?: string;
+  }) => WorkOrder;
   updateMachinePlannedTime: (machineId: string, plannedHours: number) => void;
   updateAllMachinesPlannedTime: (plannedHours: number) => void;
   addWorkRequest: (req: Omit<WorkRequest, 'id' | 'createdAt' | 'status'>) => WorkRequest;
@@ -132,6 +158,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [cd5Projects, setCd5Projects] = useState<CD5Project[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     try {
       const storedId = localStorage.getItem('foodfab_current_user_id');
@@ -416,6 +443,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setLeaves(cloudData.leaves || []);
             setCd5Projects(cloudData.cd5Projects && cloudData.cd5Projects.length > 0 ? cloudData.cd5Projects : PRELOADED_CD5_PROJECTS);
             setWorkRequests(sanitizeWorkRequests(cloudData.workRequests && cloudData.workRequests.length > 0 ? cloudData.workRequests : PRELOADED_WORK_REQUESTS));
+            setWorkOrders(cloudData.workOrders && cloudData.workOrders.length > 0 ? cloudData.workOrders : PRELOADED_WORK_ORDERS);
             const userList = ensureAllDefaultUsers(cloudData.users);
             setUsers(userList);
             
@@ -468,6 +496,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const lvs = serverData.leaves || [];
             const cd5 = serverData.cd5Projects || PRELOADED_CD5_PROJECTS;
             const reqs = sanitizeWorkRequests(serverData.workRequests || PRELOADED_WORK_REQUESTS);
+            const wos = serverData.workOrders || PRELOADED_WORK_ORDERS;
             const userList = ensureAllDefaultUsers(serverData.users);
             const stt = serverData.settings || settings;
 
@@ -483,6 +512,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setLeaves(lvs);
             setCd5Projects(cd5);
             setWorkRequests(reqs);
+            setWorkOrders(wos);
             setUsers(userList);
             setSettings(stt);
 
@@ -505,6 +535,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               leaves: lvs,
               cd5Projects: cd5,
               workRequests: reqs,
+              workOrders: wos,
               users: userList,
               settings: stt
             };
@@ -530,6 +561,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const storedLeaves = localStorage.getItem('maint_leaves');
           const storedCd5 = localStorage.getItem('maint_cd5_projects');
           const storedWorkRequests = localStorage.getItem('maint_work_requests');
+          const storedWorkOrders = localStorage.getItem('maint_work_orders');
           const storedUsers = localStorage.getItem('maint_users');
 
           const machs = storedMachines
@@ -550,6 +582,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const parts = storedSpareParts ? JSON.parse(storedSpareParts) : PRELOADED_SPARE_PARTS;
           const cd5 = storedCd5 ? JSON.parse(storedCd5) : PRELOADED_CD5_PROJECTS;
           const reqs = storedWorkRequests ? JSON.parse(storedWorkRequests) : PRELOADED_WORK_REQUESTS;
+          const wos = storedWorkOrders ? JSON.parse(storedWorkOrders) : PRELOADED_WORK_ORDERS;
           const userList: UserAccount[] = ensureAllDefaultUsers(storedUsers ? JSON.parse(storedUsers) : DEFAULT_USER_ACCOUNTS);
           const lvs = storedLeaves ? JSON.parse(storedLeaves) : [
             { id: 'lv-001', technician: 'ช่างอุ้ย', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
@@ -571,6 +604,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setLeaves(lvs);
           setCd5Projects(cd5);
           setWorkRequests(reqs);
+          setWorkOrders(wos);
           setUsers(userList);
           setSettings(stt);
 
@@ -593,6 +627,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             leaves: lvs,
             cd5Projects: cd5,
             workRequests: reqs,
+            workOrders: wos,
             users: userList,
             settings: stt
           };
@@ -659,6 +694,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('maint_spare_parts', JSON.stringify(spareParts));
       localStorage.setItem('maint_cd5_projects', JSON.stringify(cd5Projects));
       localStorage.setItem('maint_work_requests', JSON.stringify(workRequests));
+      localStorage.setItem('maint_work_orders', JSON.stringify(workOrders));
       localStorage.setItem('maint_settings', JSON.stringify(settings));
       localStorage.setItem('maint_users', JSON.stringify(users));
     } catch (e) {
@@ -678,6 +714,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       spareParts,
       cd5Projects,
       workRequests,
+      workOrders,
       settings,
       users
     };
@@ -755,7 +792,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timerId);
   }, [
     machines, technicians, employees, pmPlans, schedules,
-    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, settings, users, isLoaded
+    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, settings, users, isLoaded
   ]);
 
   // Real-time listener for multi-user collaboration via Cloud Firestore
@@ -790,6 +827,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           if (cloudData.workRequests && cloudData.workRequests.length > 0) {
             setWorkRequests(sanitizeWorkRequests(cloudData.workRequests));
+          }
+          if (cloudData.workOrders && cloudData.workOrders.length > 0) {
+            setWorkOrders(cloudData.workOrders);
           }
           if (cloudData.users && cloudData.users.length > 0) {
             setUsers(ensureAllDefaultUsers(cloudData.users));
@@ -838,6 +878,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCd5Projects(cloudData.cd5Projects || PRELOADED_CD5_PROJECTS);
         if (cloudData.workRequests && cloudData.workRequests.length > 0) {
           setWorkRequests(sanitizeWorkRequests(cloudData.workRequests));
+        }
+        if (cloudData.workOrders && cloudData.workOrders.length > 0) {
+          setWorkOrders(cloudData.workOrders);
         }
         if (cloudData.users && cloudData.users.length > 0) {
           setUsers(cloudData.users);
@@ -1203,6 +1246,232 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSettings(prev => ({ ...prev, defaultPlannedProductionHours: plannedHours }));
   };
 
+  const addWorkOrder = (woData: Omit<WorkOrder, 'id' | 'createdAt'>): WorkOrder => {
+    const newId = generateWorkOrderNo(workOrders);
+    const stockMap: Record<string, number> = {};
+    spareParts.forEach(p => { stockMap[p.id] = p.stock; });
+    const readiness = evaluateWorkOrderReadiness(woData, stockMap);
+    
+    // Auto status determination based on 4-pillar readiness gate
+    let initialStatus = woData.status || 'DRAFT';
+    if (!woData.status || woData.status === 'DRAFT' || woData.status === 'PENDING_SCHEDULE') {
+      if (readiness.gatePassed) {
+        initialStatus = 'READY_TO_RELEASE';
+      } else if (!readiness.partsAvailable) {
+        initialStatus = 'WAITING_PARTS';
+      } else {
+        initialStatus = 'PENDING_SCHEDULE';
+      }
+    }
+
+    const newWO: WorkOrder = {
+      ...woData,
+      id: newId,
+      workOrderNo: newId,
+      status: initialStatus,
+      readiness,
+      createdAt: new Date().toISOString(),
+      createdBy: currentUser?.name || 'หัวหน้างานซ่อมบำรุง'
+    };
+
+    setWorkOrders(prev => [newWO, ...prev]);
+    return newWO;
+  };
+
+  const updateWorkOrder = (id: string, updates: Partial<WorkOrder>) => {
+    const stockMap: Record<string, number> = {};
+    spareParts.forEach(p => { stockMap[p.id] = p.stock; });
+    
+    setWorkOrders(prev => prev.map(wo => {
+      if (wo.id === id) {
+        const merged = { ...wo, ...updates };
+        const readiness = evaluateWorkOrderReadiness(merged, stockMap);
+        let updatedStatus = merged.status;
+        if (updatedStatus === 'DRAFT' || updatedStatus === 'PENDING_SCHEDULE' || updatedStatus === 'READY_TO_RELEASE' || updatedStatus === 'WAITING_PARTS') {
+          if (readiness.gatePassed) {
+            updatedStatus = 'READY_TO_RELEASE';
+          } else if (!readiness.partsAvailable) {
+            updatedStatus = 'WAITING_PARTS';
+          } else {
+            updatedStatus = 'PENDING_SCHEDULE';
+          }
+        }
+        return {
+          ...merged,
+          status: updatedStatus,
+          readiness
+        };
+      }
+      return wo;
+    }));
+  };
+
+  const deleteWorkOrder = (id: string) => {
+    setWorkOrders(prev => prev.filter(wo => wo.id !== id));
+  };
+
+  const releaseWorkOrder = (id: string, operatorName?: string): { success: boolean; message: string } => {
+    const target = workOrders.find(w => w.id === id);
+    if (!target) return { success: false, message: 'ไม่พบใบสั่งงาน' };
+
+    const stockMap: Record<string, number> = {};
+    spareParts.forEach(p => { stockMap[p.id] = p.stock; });
+    const readiness = evaluateWorkOrderReadiness(target, stockMap);
+
+    const isEmergency = target.priority === 'ฉุกเฉินไลน์หยุด' || target.sourceType === 'BREAKDOWN';
+
+    if (!readiness.gatePassed && !isEmergency) {
+      return { 
+        success: false, 
+        message: `ไม่สามารถปล่อยงานได้เนื่องจากยังไม่ผ่านเกณฑ์ความพร้อม: ${readiness.missingReasons.join(', ')}` 
+      };
+    }
+
+    const nowIso = new Date().toISOString();
+    setWorkOrders(prev => prev.map(wo => {
+      if (wo.id === id) {
+        return {
+          ...wo,
+          status: 'RELEASED',
+          releasedAt: nowIso,
+          releasedBy: operatorName || currentUser?.name || 'หัวหน้างานซ่อมบำรุง',
+          actualStartTime: wo.actualStartTime || nowIso.slice(11, 16)
+        };
+      }
+      return wo;
+    }));
+
+    return { success: true, message: `ปล่อยใบสั่งงาน ${target.id} ให้ทีมช่างเริ่มปฏิบัติงานเรียบร้อยแล้ว` };
+  };
+
+  const closeWorkOrder = (id: string, completionData: {
+    actualDurationMins?: number;
+    workSummaryNotes?: string;
+    rootCauseWhy1?: string;
+    correctiveAction?: string;
+    acceptedBy: string;
+    satisfactionRating?: number;
+    handoverNotes?: string;
+  }) => {
+    const target = workOrders.find(w => w.id === id);
+    if (!target) return;
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const nowTimeStr = now.toTimeString().slice(0, 5);
+
+    // Deduct required spare parts from stock if not already deducted
+    if (target.requiresParts && target.requiredParts && target.requiredParts.length > 0) {
+      setSpareParts(prevParts => prevParts.map(sp => {
+        const req = target.requiredParts.find(rp => rp.partId === sp.id);
+        if (req && req.quantityRequired > 0) {
+          return {
+            ...sp,
+            stock: Math.max(0, sp.stock - req.quantityRequired),
+            lastUsedDate: nowIso.slice(0, 10),
+            lastWorkRequestNo: target.workRequestNo || target.id
+          };
+        }
+        return sp;
+      }));
+    }
+
+    // Two-way synchronization: If this Work Order was from a PM plan/schedule, mark PM Schedule as completed ('เสร็จสิ้น')
+    if (target.sourceType === 'PM') {
+      const targetDateMonth = (target.scheduledDate || nowIso).slice(0, 7); // YYYY-MM
+      setSchedules(prevScheds => prevScheds.map(sch => {
+        if (
+          sch.type === 'PM' &&
+          sch.machineId === target.machineId &&
+          (sch.date.startsWith(targetDateMonth) || (target.sourceRefId && sch.pmPlanId === target.sourceRefId))
+        ) {
+          return {
+            ...sch,
+            status: 'เสร็จสิ้น',
+            actualDuration: completionData.actualDurationMins || sch.duration
+          };
+        }
+        return sch;
+      }));
+    }
+
+    setWorkOrders(prev => prev.map(wo => {
+      if (wo.id === id) {
+        return {
+          ...wo,
+          status: 'CLOSED',
+          actualDurationMins: completionData.actualDurationMins || wo.estimatedDurationMins,
+          actualEndTime: nowTimeStr,
+          workSummaryNotes: completionData.workSummaryNotes || wo.workSummaryNotes,
+          rootCauseWhy1: completionData.rootCauseWhy1 || wo.rootCauseWhy1,
+          correctiveAction: completionData.correctiveAction || wo.correctiveAction,
+          productionAcceptedBy: completionData.acceptedBy,
+          productionAcceptedAt: nowIso,
+          productionHandoverNotes: completionData.handoverNotes,
+          satisfactionRating: completionData.satisfactionRating || 5,
+          closedAt: nowIso,
+          closedBy: currentUser?.name || 'หัวหน้างานซ่อมบำรุง'
+        };
+      }
+      return wo;
+    }));
+  };
+
+  const createEmergencyBreakdownWorkOrder = (params: {
+    machineId: string;
+    title: string;
+    symptoms: string;
+    leadTech: string;
+    targetDurationMins?: number;
+    lotoTag?: string;
+  }): WorkOrder => {
+    const newId = generateWorkOrderNo(workOrders);
+    const now = new Date();
+    const nowDate = now.toISOString().slice(0, 10);
+    const nowTime = now.toTimeString().slice(0, 5);
+    const mach = machines.find(m => m.id === params.machineId);
+
+    const newWO: WorkOrder = {
+      id: newId,
+      workOrderNo: newId,
+      sourceType: 'BREAKDOWN',
+      workCategory: 'UNPLANNED',
+      title: `⚡ [ฉุกเฉิน] ${params.title}`,
+      description: params.symptoms,
+      machineId: params.machineId,
+      machineName: mach?.name || params.machineId,
+      lineGroup: mach?.lineGroup || '-',
+      priority: 'ฉุกเฉินไลน์หยุด',
+      status: 'RELEASED', // 1-Click Fast Track: Auto-released for emergency
+      readiness: {
+        timeScheduled: true,
+        estimatedDurationValid: true,
+        laborAssigned: true,
+        partsAvailable: true,
+        gatePassed: true,
+        missingReasons: []
+      },
+      scheduledDate: nowDate,
+      scheduledStartTime: nowTime,
+      estimatedDurationMins: params.targetDurationMins || 45,
+      actualStartTime: nowTime,
+      assignedTechnicians: [params.leadTech],
+      leadTechnician: params.leadTech,
+      requiresParts: false,
+      requiredParts: [],
+      lotoRequired: Boolean(params.lotoTag),
+      lotoTag: params.lotoTag,
+      lotoActive: Boolean(params.lotoTag),
+      createdAt: now.toISOString(),
+      createdBy: currentUser?.name || 'ระบบฉุกเฉินไลน์หยุด (Auto-WO Fast-Track)',
+      releasedAt: now.toISOString(),
+      releasedBy: params.leadTech
+    };
+
+    setWorkOrders(prev => [newWO, ...prev]);
+    return newWO;
+  };
+
   const resetToDefaults = () => {
     setMachines(PRELOADED_MACHINES);
     setTechnicians(PRELOADED_TECHNICIANS);
@@ -1285,6 +1554,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       spareParts,
       cd5Projects,
       workRequests,
+      workOrders,
       settings,
       users
     };
@@ -1306,6 +1576,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (dataObj.spareParts) setSpareParts(dataObj.spareParts);
       if (dataObj.cd5Projects) setCd5Projects(dataObj.cd5Projects);
       if (dataObj.workRequests && Array.isArray(dataObj.workRequests)) setWorkRequests(sanitizeWorkRequests(dataObj.workRequests));
+      if (dataObj.workOrders && Array.isArray(dataObj.workOrders)) setWorkOrders(dataObj.workOrders);
       if (dataObj.settings) setSettings(dataObj.settings);
       if (dataObj.users && Array.isArray(dataObj.users)) setUsers(dataObj.users);
       
@@ -1335,6 +1606,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cd5Projects, setCd5Projects,
       users, setUsers,
       workRequests, setWorkRequests,
+      workOrders, setWorkOrders,
+      addWorkOrder, updateWorkOrder, deleteWorkOrder,
+      releaseWorkOrder, closeWorkOrder, createEmergencyBreakdownWorkOrder,
       updateMachinePlannedTime, updateAllMachinesPlannedTime,
       addWorkRequest, addWorkRequestsBatch, updateWorkRequest, deleteWorkRequest, deleteWorkRequestsBatch,
       respondToWorkRequest, completeWorkRequest, acceptWorkRequestHandover,

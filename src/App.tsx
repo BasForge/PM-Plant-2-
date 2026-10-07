@@ -22,6 +22,7 @@ import { PMOverdueAlertModal } from './components/PMOverdueAlertModal';
 import { LoginPage } from './components/LoginPage';
 import { UserManagementModal } from './components/UserManagementModal';
 import { MtbfMttrDashboardPage } from './components/mtbf/MtbfMttrDashboardPage';
+import { WorkOrderHub } from './components/workOrder/WorkOrderHub';
 import { getOverdueAndRescheduledSummary, getTodayDateString } from './utils/pmAlerts';
 
 import { 
@@ -93,7 +94,7 @@ const LiveClockHeader: React.FC = React.memo(() => {
 function AppContent() {
   const { 
     currentUser, logout, isAdmin, canEdit, canDelete,
-    schedules, workRequests, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow,
+    schedules, workRequests, workOrders, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow,
     activePage, setActivePage
   } = useApp();
   
@@ -118,6 +119,7 @@ function AppContent() {
   const todayStr = getTodayDateString();
   const { totalOverdueCount, totalRescheduledCount } = getOverdueAndRescheduledSummary(schedules, todayStr);
   const pendingWorkRequestCount = workRequests.filter(r => r.status === 'รอตอบรับ').length;
+  const readyWOCount = workOrders.filter(w => w.status === 'READY_TO_RELEASE').length;
 
   // Dark/Light theme state
 
@@ -179,6 +181,7 @@ function AppContent() {
       case 8: return <SetupAndDispatchHub defaultTab="setup" />;
       case 7: return <SetupAndDispatchHub defaultTab="dispatch" />;
       case 10: return <InventoryPage />;
+      case 17: return <WorkOrderHub />;
       case 6:
       case 9:
       case 16: return <MtbfMttrDashboardPage />;
@@ -190,6 +193,7 @@ function AppContent() {
   // List of sidebar navigation buttons
   const navigationItems = [
     { id: 14, label: "🔔 แจ้งซ่อมและตอบรับงาน", icon: BellRing, desc: "ฝ่ายผลิตแจ้ง / วิศวกรรมตอบ" },
+    { id: 17, label: "🎯 ใบสั่งงาน Work Order (CMMS)", icon: ClipboardCheck, desc: "No WO-No Work & %Planned Work" },
     { id: 3, label: "📅 ตารางงานช่าง", icon: CalendarDays, desc: "มาสเตอร์พิกัดกะ" },
     { id: 1, label: "🏭 เครื่องจักร & แผน PM", icon: Activity, desc: "ทะเบียน, แผนงาน PM & TBM Matrix" },
     { id: 4, label: "🔧 ประวัติซ่อม & ประวัติ PM", icon: Wrench, desc: "บันทึกซ่อม Why-Why & งาน PM" },
@@ -321,6 +325,20 @@ function AppContent() {
                       title={`${totalOverdueCount} งาน PM เลยกำหนด`}
                     >
                       {totalOverdueCount}
+                    </span>
+                  )}
+
+                  {/* Ready Work Orders badge indicator */}
+                  {item.id === 17 && readyWOCount > 0 && (
+                    <span 
+                      className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold shrink-0 ${
+                        isSelected 
+                          ? 'bg-slate-950 text-emerald-400' 
+                          : 'bg-emerald-400 text-slate-950 animate-pulse'
+                      }`}
+                      title={`${readyWOCount} ใบสั่งงานผ่านเกณฑ์ 4 ด้านพร้อมปล่อยงาน`}
+                    >
+                      {readyWOCount} พร้อม
                     </span>
                   )}
                 </button>

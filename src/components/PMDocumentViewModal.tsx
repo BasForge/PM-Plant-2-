@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { PMPlan, Machine } from '../types';
+import { useApp } from '../context/AppContext';
 import { Printer, Download, X, CheckCircle2, AlertCircle, FileText, Sparkles, Wrench } from 'lucide-react';
 import { downloadPMTemplateExcel } from '../utils/pmExcelParser';
+import { getTodayDateString } from '../utils/pmAlerts';
 
 interface PMDocumentViewModalProps {
   plan: PMPlan;
@@ -10,9 +12,11 @@ interface PMDocumentViewModalProps {
 }
 
 export const PMDocumentViewModal: React.FC<PMDocumentViewModalProps> = ({ plan, machine, onClose }) => {
+  const { addWorkOrder, technicians, currentUser } = useApp();
   const [checkResults, setCheckResults] = useState<Record<number, 'ปกติ' | 'ไม่ปกติ'>>({});
   const [abnormalNotes, setAbnormalNotes] = useState<Record<number, string>>({});
   const [interactiveMode, setInteractiveMode] = useState(false);
+  const [createdWoMsg, setCreatedWoMsg] = useState<string | null>(null);
 
   const docCode = plan.docCode || 'F-QMS-011/12';
   const revision = plan.revision || '00';
@@ -26,6 +30,36 @@ export const PMDocumentViewModal: React.FC<PMDocumentViewModalProps> = ({ plan, 
 
   const handleExportExcel = () => {
     downloadPMTemplateExcel(machineId, machineName);
+  };
+
+  const handleCreatePMWorkOrder = () => {
+    const today = getTodayDateString();
+    const created = addWorkOrder({
+      workOrderNo: '',
+      title: `Preventive Maintenance ประจำรอบ: ${machineName} (${machineId})`,
+      description: `งานบำรุงรักษาเชิงป้องกันตามรายการตรวจสอบเอกสาร ${docCode}\n- จำนวนข้อตรวจเช็ค: ${plan.items?.length || 0} รายการ\n- ข้อควรระวัง: ปฏิบัติตามมาตรฐานความปลอดภัย LOTO`,
+      sourceType: 'PM',
+      workCategory: 'PLANNED',
+      priority: 'ตามแผนนัดหมาย',
+      status: 'READY_TO_RELEASE',
+      machineId: machineId,
+      machineName: machineName,
+      lineGroup: machine?.lineGroup || '-',
+      scheduledDate: plan.nextDueDate || today,
+      scheduledStartTime: '08:30',
+      estimatedDurationMins: 90,
+      assignedTechnicians: technicians.length > 0 ? [technicians[0]] : ['ช่างประจำกะ'],
+      leadTechnician: technicians[0] || 'ช่างประจำกะ',
+      requiresParts: false,
+      requiredParts: [],
+      lotoRequired: true,
+      lotoTag: `LOTO-${machineId}`,
+      sourceRefId: plan.id,
+      createdBy: currentUser?.name || 'วิศวกรวางแผน PM'
+    });
+
+    setCreatedWoMsg(`⚡ ออกใบสั่งงาน ${created.id} สำหรับแผน PM นี้สำเร็จแล้ว (เข้าสู่วินัย CMMS เรียบร้อย)`);
+    setTimeout(() => setCreatedWoMsg(null), 4000);
   };
 
   const getMethodBadge = (method?: string) => {
@@ -69,6 +103,16 @@ export const PMDocumentViewModal: React.FC<PMDocumentViewModalProps> = ({ plan, 
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={handleCreatePMWorkOrder}
+              className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-black transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="ออกใบสั่งงาน Work Order ประจำรอบ PM (ตามหลัก No Work Order - No Work)"
+            >
+              <Wrench size={13} className="stroke-[3]" />
+              <span>🎯 ออก PM Work Order</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setInteractiveMode(!interactiveMode)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 interactiveMode 
@@ -107,6 +151,14 @@ export const PMDocumentViewModal: React.FC<PMDocumentViewModalProps> = ({ plan, 
             </button>
           </div>
         </div>
+
+        {/* Feedback Alert for Work Order creation */}
+        {createdWoMsg && (
+          <div className="bg-emerald-950 text-emerald-200 border-b border-emerald-500/40 px-5 py-2.5 text-xs font-bold flex items-center gap-2 print:hidden animate-in fade-in">
+            <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+            <span>{createdWoMsg}</span>
+          </div>
+        )}
 
         {/* Scrollable Printable Document Body */}
         <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-white font-sans text-xs print:p-2 print:overflow-visible">

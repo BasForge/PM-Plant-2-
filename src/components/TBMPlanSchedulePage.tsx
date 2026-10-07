@@ -26,12 +26,14 @@ interface TBMPlanSchedulePageProps {
   initialMachineId?: string;
   onNavigateToSchedule?: () => void;
   onNavigateToHistory?: () => void;
+  workOrderMode?: boolean;
 }
 
 export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
   initialMachineId,
   onNavigateToSchedule,
-  onNavigateToHistory
+  onNavigateToHistory,
+  workOrderMode = false
 }) => {
   const { 
     machines, 
@@ -41,7 +43,10 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
     setSchedules, 
     technicians,
     canEdit, 
-    canDelete 
+    canDelete,
+    workOrders,
+    addWorkOrder,
+    currentUser
   } = useApp();
 
   const todayStr = getTodayDateString();
@@ -356,6 +361,9 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
     setShowScheduleModal(true);
   };
 
+  // CMMS Work Order Sync
+  const [autoCreateWorkOrder, setAutoCreateWorkOrder] = useState<boolean>(true);
+
   // Handler: Confirm Create / Update PM Schedule Task
   const handleConfirmSchedule = () => {
     if (!targetPlanForSchedule) return;
@@ -365,6 +373,43 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
     const existingIndex = schedules.findIndex(
       s => s.type === 'PM' && s.machineId === targetPlanForSchedule.machineId && (s.pmPlanId === targetPlanForSchedule.id || s.title?.includes(targetPlanForSchedule.title)) && s.date.startsWith(`${currentYear}-${monthStr}`)
     );
+
+    // Check if Work Order already exists in CMMS
+    const existingWO = workOrders.find(
+      wo => wo.sourceType === 'PM' &&
+        wo.machineId === targetPlanForSchedule.machineId &&
+        (wo.sourceRefId === targetPlanForSchedule.id || wo.title.includes(targetPlanForSchedule.title)) &&
+        wo.scheduledDate.startsWith(`${currentYear}-${monthStr}`)
+    );
+
+    let woCreatedNo: string | undefined = undefined;
+    if (autoCreateWorkOrder && !existingWO) {
+      const mach = machines.find(m => m.id === targetPlanForSchedule.machineId);
+      const createdWO = addWorkOrder({
+        workOrderNo: '',
+        title: `PM ตามรอบ TBM (${targetPlanForSchedule.frequency}): ${mach?.name || targetPlanForSchedule.machineId} - ${targetPlanForSchedule.title}`,
+        description: `งานบำรุงรักษาเชิงป้องกันตามรอบเวลา (TBM Datamatrix)\n- รหัสเครื่อง: ${targetPlanForSchedule.machineId}\n- แผนงาน: ${targetPlanForSchedule.title}\n- ความถี่: ${targetPlanForSchedule.frequency}\n${scheduleNotes ? `- หมายเหตุ: ${scheduleNotes}` : ''}`,
+        sourceType: 'PM',
+        workCategory: 'PLANNED',
+        priority: 'ตามแผนนัดหมาย',
+        status: 'READY_TO_RELEASE',
+        machineId: targetPlanForSchedule.machineId,
+        machineName: mach?.name || targetPlanForSchedule.machineId,
+        lineGroup: mach?.lineGroup || '-',
+        scheduledDate: scheduleDate,
+        scheduledStartTime: '08:30',
+        estimatedDurationMins: targetPlanForSchedule.ttm || 60,
+        assignedTechnicians: [scheduleTech],
+        leadTechnician: scheduleTech,
+        requiresParts: Boolean(targetPlanForSchedule.spareParts),
+        requiredParts: [],
+        lotoRequired: true,
+        lotoTag: `LOTO-${targetPlanForSchedule.machineId}`,
+        sourceRefId: targetPlanForSchedule.id,
+        createdBy: currentUser?.name || 'หัวหน้างาน CMMS'
+      });
+      woCreatedNo = createdWO.workOrderNo || createdWO.id;
+    }
 
     if (existingIndex >= 0) {
       setSchedules(prev => {
@@ -379,7 +424,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
         return next;
       });
       setShowScheduleModal(false);
-      showToast(`✏️ ปรับปรุงนัดหมายงาน PM เครื่อง ${targetPlanForSchedule.machineId} เรียบร้อยแล้ว (${scheduleDate})`);
+      showToast(`✏️ ปรับปรุงนัดหมายงาน PM เครื่อง ${targetPlanForSchedule.machineId} เรียบร้อยแล้ว (${scheduleDate})${woCreatedNo ? ` พร้อมสร้างใบสั่งงาน Work Order #${woCreatedNo}` : ''}`);
     } else {
       const newJob: PMScheduleItem = {
         id: `sched-tbm-${Date.now()}`,
@@ -396,7 +441,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
 
       setSchedules(prev => [newJob, ...prev]);
       setShowScheduleModal(false);
-      showToast(`✅ ออกใบงาน PM เครื่อง ${targetPlanForSchedule.machineId} เข้าตารางช่างเรียบร้อยแล้ว (${scheduleDate})`);
+      showToast(`✅ ออกใบงาน PM เครื่อง ${targetPlanForSchedule.machineId} เข้าตารางช่างเรียบร้อยแล้ว (${scheduleDate})${woCreatedNo ? ` พร้อมสร้างใบสั่งงาน Work Order #${woCreatedNo}` : ''}`);
     }
   };
 
@@ -1680,7 +1725,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
                             </div>
                           </td>
 
-                          {/* 6. 12 Month Cells */}
+                           {/* 6. 12 Month Cells */}
                           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => {
                             const mData = plan.monthStatusMap[m];
                             const isFocus = m === selectedMonth;
@@ -1690,6 +1735,13 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
                             const isOverdue = mData?.status === 'overdue';
                             const isSched = mData?.status === 'scheduled';
                             const isNone = mData?.status === 'none';
+                            const monthStr = String(m).padStart(2, '0');
+                            const cellWO = workOrders.find(
+                              wo => wo.sourceType === 'PM' &&
+                                wo.machineId === plan.machineId &&
+                                (wo.sourceRefId === plan.id || wo.title.includes(plan.title)) &&
+                                wo.scheduledDate.startsWith(`${currentYear}-${monthStr}`)
+                            );
 
                             return (
                               <td
@@ -1705,29 +1757,46 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
                                   <div className="flex flex-col items-center justify-center gap-1">
                                     {/* P (Plan) Block */}
                                     {hasPlan && (
-                                      <button
-                                        onClick={() => handleOpenScheduleModal(plan, m)}
-                                        className={`w-6 h-5 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-all ${
-                                          isOverdue
-                                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
-                                            : isSched
-                                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                            : isInProg
-                                            ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                                            : 'bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30'
-                                        }`}
-                                        title={
-                                          isOverdue 
-                                            ? 'เลยกำหนดแผน! คลิกเพื่อจัดสรรช่าง'
-                                            : isSched
-                                            ? `นัดหมายในตาราง (${mData?.item?.date}) โดย ${mData?.technician}`
-                                            : isInProg
-                                            ? `กำลังดำเนินการ โดย ${mData?.technician}`
-                                            : 'มีแผน TBM ในเดือนนี้ คลิกเพื่อออกใบงาน'
-                                        }
-                                      >
-                                        P
-                                      </button>
+                                      <div className="relative inline-flex items-center justify-center">
+                                        <button
+                                          onClick={() => handleOpenScheduleModal(plan, m)}
+                                          className={`w-6 h-5 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-all ${
+                                            isOverdue
+                                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                                              : isSched
+                                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                              : isInProg
+                                              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                                              : 'bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30'
+                                          }`}
+                                          title={
+                                            cellWO
+                                              ? `มี Work Order CMMS: #${cellWO.workOrderNo || cellWO.id} (${cellWO.status})`
+                                              : isOverdue 
+                                              ? 'เลยกำหนดแผน! คลิกเพื่อจัดสรรช่าง'
+                                              : isSched
+                                              ? `นัดหมายในตาราง (${mData?.item?.date}) โดย ${mData?.technician}`
+                                              : isInProg
+                                              ? `กำลังดำเนินการ โดย ${mData?.technician}`
+                                              : 'มีแผน TBM ในเดือนนี้ คลิกเพื่อออกใบงาน'
+                                          }
+                                        >
+                                          P
+                                        </button>
+                                        {cellWO && (
+                                          <span 
+                                            className={`absolute -top-1.5 -right-2 text-[7px] font-mono font-black px-0.5 rounded leading-none border shadow-sm pointer-events-none ${
+                                              cellWO.status === 'READY_TO_RELEASE' ? 'bg-emerald-950 text-emerald-300 border-emerald-500' :
+                                              cellWO.status === 'RELEASED' ? 'bg-blue-950 text-blue-300 border-blue-500' :
+                                              cellWO.status === 'CLOSED_COMPLETED' ? 'bg-slate-900 text-slate-400 border-slate-700' :
+                                              'bg-cyan-950 text-cyan-300 border-cyan-500'
+                                            }`}
+                                            title={`Work Order: ${cellWO.workOrderNo || cellWO.id}`}
+                                          >
+                                            WO
+                                          </span>
+                                        )}
+                                      </div>
                                     )}
 
                                     {/* A (Actual) Block */}
@@ -2618,6 +2687,58 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
                   placeholder="เช่น ต้องดับเบรคเกอร์ก่อนเข้าทำงาน, ติดต่อหัวหน้ากะผลิต..."
                 />
               </div>
+
+              {/* CMMS Work Order Integration Box */}
+              {(() => {
+                const m = parseInt(scheduleDate.split('-')[1], 10);
+                const monthStr = String(m).padStart(2, '0');
+                const existingWO = workOrders.find(
+                  wo => wo.sourceType === 'PM' &&
+                    wo.machineId === targetPlanForSchedule.machineId &&
+                    (wo.sourceRefId === targetPlanForSchedule.id || wo.title.includes(targetPlanForSchedule.title)) &&
+                    wo.scheduledDate.startsWith(`${currentYear}-${monthStr}`)
+                );
+
+                return (
+                  <div className="p-3 rounded-xl bg-slate-950 border border-indigo-500/30 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                        <span className="p-1 rounded bg-indigo-500/20 text-indigo-400 font-mono text-[10px]">CMMS</span>
+                        <span>ระบบใบสั่งงาน Work Order:</span>
+                      </div>
+                      {existingWO ? (
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                          existingWO.status === 'READY_TO_RELEASE' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
+                          existingWO.status === 'RELEASED' ? 'bg-blue-950 text-blue-300 border border-blue-800' :
+                          'bg-slate-800 text-slate-300'
+                        }`}>
+                          {existingWO.workOrderNo || existingWO.id} ({existingWO.status === 'READY_TO_RELEASE' ? '🟢 พร้อมปล่อยงาน' : existingWO.status})
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-amber-400 font-bold bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/40">ยังไม่ได้ออก WO</span>
+                      )}
+                    </div>
+
+                    {existingWO ? (
+                      <p className="text-[11px] text-slate-400">
+                        มีใบสั่งงาน Work Order ในระบบ CMMS แล้ว (กำหนดเริ่ม {existingWO.scheduledDate} {existingWO.scheduledStartTime})
+                      </p>
+                    ) : (
+                      <label className="flex items-center gap-2 pt-1 text-xs text-indigo-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={autoCreateWorkOrder}
+                          onChange={(e) => setAutoCreateWorkOrder(e.target.checked)}
+                          className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-700 cursor-pointer"
+                        />
+                        <span className="font-semibold text-white">
+                          ⚡ สร้างใบสั่งงาน Work Order (CMMS) เข้าหมวด Planned Work ทันที
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {(() => {

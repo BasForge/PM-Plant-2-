@@ -27,7 +27,8 @@ import {
   SystemSettings,
   Employee,
   UserAccount,
-  WorkRequest
+  WorkRequest,
+  WorkOrder
 } from '../types';
 
 export interface AppDatabaseState {
@@ -44,6 +45,7 @@ export interface AppDatabaseState {
   spareParts: SparePart[];
   cd5Projects: CD5Project[];
   workRequests?: WorkRequest[];
+  workOrders?: WorkOrder[];
   settings: SystemSettings;
 }
 
@@ -264,6 +266,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         settingSnap,
         usersSnap,
         workRequestsSnap,
+        workOrdersSnap,
         repairsCatalogSnap
       ] = await Promise.all([
         getDoc(doc(firestore, 'catalog', 'technicians')),
@@ -278,6 +281,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         getDoc(doc(firestore, 'catalog', 'settings')),
         getDoc(doc(firestore, 'catalog', 'users')),
         getDoc(doc(firestore, 'catalog', 'workRequests')),
+        getDoc(doc(firestore, 'catalog', 'workOrders')),
         getDoc(doc(firestore, 'catalog', 'repairs'))
       ]);
 
@@ -308,6 +312,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         cd5Projects: await loadCatalogList<CD5Project>(cd5Snap, 'cd5Projects'),
         users: await loadCatalogList<UserAccount>(usersSnap, 'users'),
         workRequests: await loadCatalogList<WorkRequest>(workRequestsSnap, 'workRequests'),
+        workOrders: await loadCatalogList<WorkOrder>(workOrdersSnap, 'workOrders'),
         settings: settingSnap.exists() ? (settingSnap.data().data || {}) : {} as SystemSettings,
       };
     }
@@ -403,6 +408,7 @@ export async function saveDatabaseToFirebase(data: AppDatabaseState): Promise<vo
       cd5Projects: { list: cleanData.cd5Projects || [] },
       users: { list: cleanData.users || [] },
       workRequests: { list: cleanData.workRequests || [] },
+      workOrders: { list: cleanData.workOrders || [] },
       repairs: { list: cleanData.repairs || [] },
       settings: { data: cleanData.settings || {} }
     };
