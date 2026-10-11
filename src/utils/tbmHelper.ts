@@ -24,25 +24,112 @@ export type MachineCriticality = 'A' | 'B' | 'C';
 
 export interface CriticalityInfo {
   level: MachineCriticality;
+  rankNum: 1 | 2 | 3;
   label: string;
   shortLabel: string;
+  displayRank: string;
+  parenLabel: string;
   desc: string;
   badgeClass: string;
   dotClass: string;
 }
 
+export const MACHINE_RANK_OPTIONS: { 
+  rank: 'A' | 'B' | 'C'; 
+  rankNum: 1 | 2 | 3; 
+  label: string; 
+  shortLabel: string; 
+  displayRank: string; 
+  desc: string; 
+  badgeClass: string; 
+  dotClass: string 
+}[] = [
+  { rank: 'A', rankNum: 1, label: 'Rank 1 (A - วิกฤต)', shortLabel: 'A', displayRank: 'Rank 1 (A)', desc: 'เครื่องจักรสำคัญสูง หยุดทำงานแล้วกระทบทั้งโรงงาน', badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40', dotClass: 'bg-rose-400' },
+  { rank: 'B', rankNum: 2, label: 'Rank 2 (B - สำคัญ)', shortLabel: 'B', displayRank: 'Rank 2 (B)', desc: 'เครื่องจักรหลักประจำไลน์ มีผลกระทบต่ออัตราผลิต', badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40', dotClass: 'bg-amber-400' },
+  { rank: 'C', rankNum: 3, label: 'Rank 3 (C - ทั่วไป)', shortLabel: 'C', displayRank: 'Rank 3 (C)', desc: 'เครื่องจักรรอง/ทั่วไป การหยุดไม่กระทบไลน์ทันที', badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/30', dotClass: 'bg-sky-400' }
+];
+
+export function normalizeMachineRank(rankInput?: string | number): 'A' | 'B' | 'C' {
+  if (!rankInput) return 'B';
+  const str = String(rankInput).trim().toUpperCase();
+  if (str === '1' || str === 'A' || str.includes('1') || str.includes('วิกฤต') || str.includes('CRITICAL')) return 'A';
+  if (str === '2' || str === 'B' || str.includes('2') || str.includes('สำคัญ') || str.includes('MAJOR')) return 'B';
+  if (str === '3' || str === 'C' || str.includes('3') || str.includes('ทั่วไป') || str.includes('MINOR')) return 'C';
+  return 'B';
+}
+
 /**
- * Calculates machine criticality (A/B/C) based on equipment type, name, and importance
+ * Calculates machine criticality (A/B/C) based on equipment type, name, importance, and explicit ranking
  */
 export function getMachineCriticality(machine?: Machine): CriticalityInfo {
   if (!machine) {
     return { 
       level: 'C', 
-      label: 'ระดับ C (ทั่วไป)', 
+      rankNum: 3,
+      label: 'ระดับ 3 (ทั่วไป)', 
       shortLabel: 'C',
+      displayRank: 'Rank 3 (C)',
+      parenLabel: '(3) ทั่วไป',
       desc: 'เครื่องจักรรอง/ทั่วไป การหยุดไม่กระทบไลน์ทันที', 
       badgeClass: 'bg-slate-700/60 text-slate-300 border-slate-600',
       dotClass: 'bg-slate-400'
+    };
+  }
+
+  // 1. Explicit Machine Ranking from Machine Registry (ทะเบียนเครื่องจักร)
+  if (machine.ranking) {
+    const r = String(machine.ranking).trim().toUpperCase();
+    if (r === 'A' || r === '1' || r === 'CLASS A' || r === 'วิกฤต') {
+      return { 
+        level: 'A', 
+        rankNum: 1,
+        label: 'ระดับ 1 (A - วิกฤต)', 
+        shortLabel: 'A',
+        displayRank: 'Rank 1 (A)',
+        parenLabel: '(1) วิกฤต',
+        desc: 'เครื่องจักรสำคัญสูง หยุดทำงานแล้วกระทบทั้งโรงงาน', 
+        badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+        dotClass: 'bg-rose-400'
+      };
+    }
+    if (r === 'B' || r === '2' || r === 'CLASS B' || r === 'สำคัญ') {
+      return { 
+        level: 'B', 
+        rankNum: 2,
+        label: 'ระดับ 2 (B - สำคัญ)', 
+        shortLabel: 'B',
+        displayRank: 'Rank 2 (B)',
+        parenLabel: '(2) สำคัญ',
+        desc: 'เครื่องจักรหลักประจำไลน์ มีผลกระทบต่ออัตราผลิต', 
+        badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+        dotClass: 'bg-amber-400'
+      };
+    }
+    if (r === 'C' || r === '3' || r === 'CLASS C' || r === 'ทั่วไป') {
+      return { 
+        level: 'C', 
+        rankNum: 3,
+        label: 'ระดับ 3 (C - ทั่วไป)', 
+        shortLabel: 'C',
+        displayRank: 'Rank 3 (C)',
+        parenLabel: '(3) ทั่วไป',
+        desc: 'เครื่องจักรรอง/ทั่วไป การหยุดไม่กระทบไลน์ทันที', 
+        badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+        dotClass: 'bg-sky-400'
+      };
+    }
+    const rankNum = r === '1' ? 1 : r === '2' ? 2 : 3;
+    const level = (r === 'A' || r === 'B' ? r : 'C') as MachineCriticality;
+    return {
+      level,
+      rankNum,
+      label: `ระดับ ${r}`,
+      shortLabel: r,
+      displayRank: `Rank ${r}`,
+      parenLabel: `(${r})`,
+      desc: `เครื่องจักร Rank ${r}`,
+      badgeClass: r === 'A' ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : r === 'B' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+      dotClass: r === 'A' ? 'bg-rose-400' : r === 'B' ? 'bg-amber-400' : 'bg-sky-400'
     };
   }
   
@@ -69,8 +156,11 @@ export function getMachineCriticality(machine?: Machine): CriticalityInfo {
   ) {
     return { 
       level: 'A', 
-      label: 'ระดับ A (วิกฤต)', 
+      rankNum: 1,
+      label: 'ระดับ 1 (A - วิกฤต)', 
       shortLabel: 'A',
+      displayRank: 'Rank 1 (A)',
+      parenLabel: '(1) วิกฤต',
       desc: 'เครื่องจักรสำคัญสูง หยุดทำงานแล้วกระทบทั้งโรงงาน', 
       badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
       dotClass: 'bg-rose-400'
@@ -94,8 +184,11 @@ export function getMachineCriticality(machine?: Machine): CriticalityInfo {
   ) {
     return { 
       level: 'B', 
-      label: 'ระดับ B (สำคัญ)', 
+      rankNum: 2,
+      label: 'ระดับ 2 (B - สำคัญ)', 
       shortLabel: 'B',
+      displayRank: 'Rank 2 (B)',
+      parenLabel: '(2) สำคัญ',
       desc: 'เครื่องจักรหลักประจำไลน์ มีผลกระทบต่ออัตราผลิต', 
       badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
       dotClass: 'bg-amber-400'
@@ -105,8 +198,11 @@ export function getMachineCriticality(machine?: Machine): CriticalityInfo {
   // Class C: General equipment
   return { 
     level: 'C', 
-    label: 'ระดับ C (ทั่วไป)', 
+    rankNum: 3,
+    label: 'ระดับ 3 (C - ทั่วไป)', 
     shortLabel: 'C',
+    displayRank: 'Rank 3 (C)',
+    parenLabel: '(3) ทั่วไป',
     desc: 'เครื่องจักรทั่วไป มีเครื่องสำรองหรือซ่อมบำรุงไม่เร่งด่วน', 
     badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
     dotClass: 'bg-sky-400'

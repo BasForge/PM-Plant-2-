@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { parseMachineRegistryPDF, ParseResult } from '../utils/pdfMachineParser';
 import { CPRAM_PDF_MACHINES } from '../data/cpramMachines';
+import { getMachineCriticality, MACHINE_RANK_OPTIONS, MachineCriticality } from '../utils/tbmHelper';
 
 interface MachinePageProps {
   onNavigateToTbm?: (machineId?: string) => void;
@@ -19,6 +20,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [selectedRank, setSelectedRank] = useState<string>('ALL');
   const [expandedMachineId, setExpandedMachineId] = useState<string | null>(null);
   
   // PDF Import Modal State
@@ -43,6 +45,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
   const [newRemark, setNewRemark] = useState('');
   const [newPlannedHours, setNewPlannedHours] = useState<number>(600);
   const [newStatus, setNewStatus] = useState<'ปกติ' | 'เสีย/ซ่อม' | 'ยกเลิกใช้'>('ปกติ');
+  const [newRanking, setNewRanking] = useState<'A' | 'B' | 'C'>('B');
   const [errorMsg, setErrorMsg] = useState('');
 
   // Modal states for editing a machine
@@ -59,6 +62,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
   const [editRemark, setEditRemark] = useState('');
   const [editPlannedHours, setEditPlannedHours] = useState<number>(600);
   const [editStatus, setEditStatus] = useState<'ปกติ' | 'เสีย/ซ่อม' | 'ยกเลิกใช้'>('ปกติ');
+  const [editRanking, setEditRanking] = useState<'A' | 'B' | 'C'>('B');
   const [editErrorMsg, setEditErrorMsg] = useState('');
 
   // Confirmation state for deleting a machine
@@ -93,7 +97,14 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
   // Extract unique line groups for filtering
   const lineGroups = Array.from(new Set(machines.map(m => m.location || m.lineGroup || 'ทั่วไป'))).filter(Boolean);
 
+  const handleQuickChangeRank = (mId: string, newRank: 'A' | 'B' | 'C') => {
+    if (!canEdit) return;
+    setMachines(prev => prev.map(m => m.id === mId ? { ...m, ranking: newRank } : m));
+    showToast(`✅ เปลี่ยน Rank เครื่องจักร ${mId} เป็น Rank ${newRank} เรียบร้อยแล้ว`);
+  };
+
   const filteredMachines = machines.filter(m => {
+    const crit = getMachineCriticality(m);
     const matchesSearch = 
       m.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -105,8 +116,9 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
 
     const matchesGroup = selectedGroup === 'ALL' || (m.location === selectedGroup || m.lineGroup === selectedGroup);
     const matchesStatus = selectedStatus === 'ALL' || m.status === selectedStatus;
+    const matchesRank = selectedRank === 'ALL' || crit.shortLabel === selectedRank;
 
-    return matchesSearch && matchesGroup && matchesStatus;
+    return matchesSearch && matchesGroup && matchesStatus && matchesRank;
   });
 
   // Handle PDF file upload
@@ -182,16 +194,39 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
       return;
     }
 
-    const trimmedId = newId.trim().toUpperCase();
-    if (machines.some(m => m.id === trimmedId)) {
-      setErrorMsg('รหัสเครื่องจักรนี้มีอยู่แล้วในระบบ');
+    let detectedRank = newRanking;
+    let finalId = newId.trim().toUpperCase();
+    let finalName = newName.trim().toUpperCase();
+
+    const idParenMatch = finalId.match(/[\(\[\{]\s*([0-9]+|[A-Za-z]+)\s*[\)\]\}]/);
+    if (idParenMatch) {
+      const r = idParenMatch[1];
+      if (r === '1' || r === 'A') detectedRank = 'A';
+      else if (r === '2' || r === 'B') detectedRank = 'B';
+      else if (r === '3' || r === 'C') detectedRank = 'C';
+      finalId = finalId.replace(/[\(\[\{]\s*([0-9]+|[A-Za-z]+)\s*[\)\]\}]/g, '').trim();
+    }
+
+    const nameParenMatch = finalName.match(/[\(\[\{]\s*([0-9]+|[A-Za-z]+)\s*[\)\]\}]/);
+    if (nameParenMatch) {
+      const r = nameParenMatch[1];
+      if (!idParenMatch) {
+        if (r === '1' || r === 'A') detectedRank = 'A';
+        else if (r === '2' || r === 'B') detectedRank = 'B';
+        else if (r === '3' || r === 'C') detectedRank = 'C';
+      }
+      finalName = finalName.replace(/[\(\[\{]\s*([0-9]+|[A-Za-z]+)\s*[\)\]\}]/g, '').trim();
+    }
+
+    if (machines.some(m => m.id === finalId)) {
+      setErrorMsg(`รหัสเครื่องจักร ${finalId} มีอยู่แล้วในระบบ`);
       return;
     }
 
     const newMachine: Machine = {
       orderNo: machines.length + 1,
-      id: trimmedId,
-      name: newName.trim().toUpperCase(),
+      id: finalId,
+      name: finalName,
       lineGroup: newLineGroup.trim() || newLocation.trim() || 'ทั่วไป',
       model: newModel.trim(),
       power: newPower.trim() || '-',
@@ -201,12 +236,13 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
       serialNumber: newSerialNumber.trim(),
       remark: newRemark.trim(),
       plannedProductionHours: Number(newPlannedHours) || 600,
-      status: newStatus
+      status: newStatus,
+      ranking: detectedRank
     };
 
     setMachines(prev => [newMachine, ...prev]);
     setShowAddModal(false);
-    showToast(`✅ เพิ่มเครื่องจักร ${newMachine.id} เรียบร้อยแล้ว`);
+    showToast(`✅ เพิ่มเครื่องจักร ${newMachine.id} (Rank ${newRanking}) เรียบร้อยแล้ว`);
     
     // Reset Form
     setNewId('');
@@ -221,6 +257,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
     setNewRemark('');
     setNewPlannedHours(600);
     setNewStatus('ปกติ');
+    setNewRanking('B');
     setErrorMsg('');
   };
 
@@ -237,6 +274,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
     setEditRemark(m.remark || '');
     setEditPlannedHours(m.plannedProductionHours ?? 600);
     setEditStatus(m.status || 'ปกติ');
+    setEditRanking((m.ranking as any) || getMachineCriticality(m).shortLabel);
     setEditErrorMsg('');
     setShowEditModal(true);
   };
@@ -263,7 +301,8 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
           serialNumber: editSerialNumber.trim(),
           remark: editRemark.trim(),
           plannedProductionHours: Number(editPlannedHours) || 600,
-          status: editStatus
+          status: editStatus,
+          ranking: editRanking
         };
       }
       return m;
@@ -271,7 +310,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
 
     setShowEditModal(false);
     setEditingMachine(null);
-    showToast(`✅ อัปเดตข้อมูลเครื่องจักร ${editingMachine.id} สำเร็จ`);
+    showToast(`✅ อัปเดตข้อมูลเครื่องจักร ${editingMachine.id} (Rank ${editRanking}) สำเร็จ`);
   };
 
   const handleDeleteClick = (m: Machine) => {
@@ -350,7 +389,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
         <div className="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3.5 flex flex-col justify-between">
           <span className="text-xs text-slate-400 font-medium">เครื่องจักรทั้งหมดในระบบ</span>
           <div className="flex items-baseline gap-2 mt-1">
@@ -385,6 +424,23 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
             <span className="text-xs text-slate-500">เครื่อง</span>
           </div>
         </div>
+        <div className="bg-slate-800/90 border border-slate-700/80 rounded-xl p-3.5 flex flex-col justify-between col-span-2 sm:col-span-1">
+          <span className="text-xs text-slate-400 font-medium flex items-center justify-between">
+            <span>Rank เครื่องจักร</span>
+            <span className="text-[10px] text-cyan-400 font-mono">1/A, 2/B, 3/C</span>
+          </span>
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded border bg-rose-500/20 text-rose-300 border-rose-500/40 font-mono" title="Rank 1 (A) วิกฤต">
+              1 (A): {machines.filter(m => getMachineCriticality(m).shortLabel === 'A').length}
+            </span>
+            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/40 font-mono" title="Rank 2 (B) สำคัญ">
+              2 (B): {machines.filter(m => getMachineCriticality(m).shortLabel === 'B').length}
+            </span>
+            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded border bg-sky-500/15 text-sky-300 border-sky-500/30 font-mono" title="Rank 3 (C) ทั่วไป">
+              3 (C): {machines.filter(m => getMachineCriticality(m).shortLabel === 'C').length}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Filter and search block */}
@@ -402,13 +458,28 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
           />
         </div>
 
+        {/* Filter by Rank */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 whitespace-nowrap">Rank เครื่องจักร:</label>
+          <select
+            value={selectedRank}
+            onChange={(e) => setSelectedRank(e.target.value)}
+            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-semibold"
+          >
+            <option value="ALL">Rank: ทั้งหมด ({machines.length})</option>
+            <option value="A">Rank 1 (A - วิกฤต) ({machines.filter(m => getMachineCriticality(m).shortLabel === 'A').length})</option>
+            <option value="B">Rank 2 (B - สำคัญ) ({machines.filter(m => getMachineCriticality(m).shortLabel === 'B').length})</option>
+            <option value="C">Rank 3 (C - ทั่วไป) ({machines.filter(m => getMachineCriticality(m).shortLabel === 'C').length})</option>
+          </select>
+        </div>
+
         {/* Filter by Line / Location */}
         <div className="flex items-center gap-2">
           <label className="text-xs text-slate-400 whitespace-nowrap">ตำแหน่ง/ไลน์:</label>
           <select
             value={selectedGroup}
             onChange={(e) => setSelectedGroup(e.target.value)}
-            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 max-w-[200px]"
+            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 max-w-[180px]"
           >
             <option value="ALL">ทั้งหมด ({machines.length})</option>
             {lineGroups.map(grp => (
@@ -444,7 +515,8 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
             <thead>
               <tr className="bg-slate-850 border-b border-slate-700 text-slate-300 text-[11px] tracking-wider uppercase font-medium">
                 <th className="py-3.5 px-3 w-12 text-center font-medium">ลำดับ</th>
-                <th className="py-3.5 px-3 w-28 font-mono font-medium">รหัสเครื่อง (ID)</th>
+                <th className="py-3.5 px-3 w-36 font-mono font-medium">รหัสเครื่อง (Asset Code)</th>
+                <th className="py-3.5 px-3 w-28 text-center font-medium">Rank เครื่องจักร</th>
                 <th className="py-3.5 px-3 font-medium">ชื่อเครื่องจักร</th>
                 <th className="py-3.5 px-3 font-medium hidden md:table-cell">รุ่น (Model)</th>
                 <th className="py-3.5 px-3 font-medium hidden lg:table-cell">ตำแหน่ง / ไลน์ผลิต</th>
@@ -457,7 +529,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
             <tbody className="divide-y divide-slate-700/50">
               {filteredMachines.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-500 bg-slate-900/20">
+                  <td colSpan={10} className="py-12 text-center text-slate-500 bg-slate-900/20">
                     <p className="text-base font-medium text-slate-400">ไม่พบข้อมูลเครื่องจักร</p>
                     <p className="text-xs mt-1 text-slate-500">ลองค้นด้วยคำอื่น หรือกดนำเข้าไฟล์ PDF ด้านบน</p>
                   </td>
@@ -466,6 +538,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
                 filteredMachines.map((m, index) => {
                   const stats = getMachineStats(m.id);
                   const isExpanded = expandedMachineId === m.id;
+                  const crit = getMachineCriticality(m);
 
                   return (
                     <React.Fragment key={`${m.id}-${m.orderNo || index}`}>
@@ -476,8 +549,36 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
                         <td className="py-3.5 px-3 text-center text-slate-400 text-xs font-mono">
                           {m.orderNo || index + 1}
                         </td>
-                        <td className="py-3.5 px-3 font-mono font-bold text-cyan-400">
-                          {m.id}
+                        <td className="py-3.5 px-3">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono font-bold text-cyan-400 text-xs sm:text-sm">{m.id}</span>
+                            {/* Criticality Badge matching user's image ATS01 [1/B] */}
+                            <span 
+                              className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border uppercase tracking-wider ${crit.badgeClass}`}
+                              title={`Rank ${crit.shortLabel}: ${crit.desc}`}
+                            >
+                              ({crit.rankNum || (crit.shortLabel === 'A' ? 1 : crit.shortLabel === 'B' ? 2 : 3)}) {crit.shortLabel}
+                            </span>
+                          </div>
+                        </td>
+                        {/* Interactive Rank Selector Column */}
+                        <td className="py-3.5 px-3 text-center">
+                          {canEdit ? (
+                            <select
+                              value={crit.shortLabel}
+                              onChange={(e) => handleQuickChangeRank(m.id, e.target.value as 'A' | 'B' | 'C')}
+                              className={`text-xs font-bold font-mono rounded-lg px-2 py-1 border transition-all cursor-pointer focus:outline-none shadow-sm ${crit.badgeClass}`}
+                              title="คลิกเพื่อเปลี่ยน Rank ของเครื่องจักรนี้ทันที"
+                            >
+                              <option value="A" className="bg-slate-900 text-rose-300">Rank 1 (A - วิกฤต)</option>
+                              <option value="B" className="bg-slate-900 text-amber-300">Rank 2 (B - สำคัญ)</option>
+                              <option value="C" className="bg-slate-900 text-sky-300">Rank 3 (C - ทั่วไป)</option>
+                            </select>
+                          ) : (
+                            <span className={`text-[11px] font-bold font-mono px-2 py-1 rounded border uppercase ${crit.badgeClass}`}>
+                              Rank {crit.rankNum || (crit.shortLabel === 'A' ? 1 : crit.shortLabel === 'B' ? 2 : 3)} ({crit.shortLabel})
+                            </span>
+                          )}
                         </td>
                         <td className="py-3.5 px-3 font-medium text-slate-200">
                           <div>{m.name}</div>
@@ -1012,6 +1113,22 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
                 </div>
 
                 <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-rose-300 flex items-center justify-between">
+                    <span>🏷️ Rank เครื่องจักร (ตัวเลขในวงเล็บ เช่น (1), (2), (3))*</span>
+                    <span className="text-[10px] text-slate-400 font-normal">ระดับความสำคัญ</span>
+                  </label>
+                  <select
+                    value={newRanking}
+                    onChange={(e) => setNewRanking(e.target.value as 'A' | 'B' | 'C')}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3.5 py-2 text-slate-200 text-sm focus:outline-none focus:border-cyan-500 font-semibold"
+                  >
+                    <option value="A" className="text-rose-300 bg-slate-900">Rank 1 (A - วิกฤต: หยุดทำงานกระทบทั้งโรงงาน)</option>
+                    <option value="B" className="text-amber-300 bg-slate-900">Rank 2 (B - สำคัญ: เครื่องจักรหลักประจำไลน์)</option>
+                    <option value="C" className="text-sky-300 bg-slate-900">Rank 3 (C - ทั่วไป: เครื่องจักรรอง/ไม่กระทบไลน์ทันที)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-cyan-400">Planned Production Time (ชม./เดือน)</label>
                   <input
                     type="number"
@@ -1178,6 +1295,22 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
                     <option value="ปกติ">ปกติ (พร้อมใช้งาน)</option>
                     <option value="เสีย/ซ่อม">เสีย / กำลังซ่อม</option>
                     <option value="ยกเลิกใช้">ยกเลิกใช้งาน</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-rose-300 flex items-center justify-between">
+                    <span>🏷️ Rank เครื่องจักร (ตัวเลขในวงเล็บ เช่น (1), (2), (3))*</span>
+                    <span className="text-[10px] text-slate-400 font-normal">ระดับความสำคัญ</span>
+                  </label>
+                  <select
+                    value={editRanking}
+                    onChange={(e) => setEditRanking(e.target.value as 'A' | 'B' | 'C')}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3.5 py-2 text-slate-200 text-sm focus:outline-none focus:border-cyan-500 font-semibold"
+                  >
+                    <option value="A" className="text-rose-300 bg-slate-900">Rank 1 (A - วิกฤต: หยุดทำงานกระทบทั้งโรงงาน)</option>
+                    <option value="B" className="text-amber-300 bg-slate-900">Rank 2 (B - สำคัญ: เครื่องจักรหลักประจำไลน์)</option>
+                    <option value="C" className="text-sky-300 bg-slate-900">Rank 3 (C - ทั่วไป: เครื่องจักรรอง/ไม่กระทบไลน์ทันที)</option>
                   </select>
                 </div>
 

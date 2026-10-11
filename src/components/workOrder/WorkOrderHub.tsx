@@ -7,18 +7,26 @@ import { EmergencyWOModal } from './EmergencyWOModal';
 import { WorkOrderDetailModal } from './WorkOrderDetailModal';
 import { PlannedWorkAnalyticsTab } from './PlannedWorkAnalyticsTab';
 import { TBMPlanSchedulePage } from '../TBMPlanSchedulePage';
+import { PMExcelImportModal } from '../PMExcelImportModal';
 import { 
   Wrench, Zap, Plus, Filter, Search, CheckCircle2, AlertTriangle, 
   Clock, Calendar, User, Package, ShieldCheck, ShieldAlert, 
   Layers, ArrowUpDown, Eye, Play, Check, ChevronRight, BarChart3, 
-  Sparkles, RefreshCw, AlertCircle, FileText, CalendarRange, Edit3, Trash2 
+  Sparkles, RefreshCw, AlertCircle, FileText, CalendarRange, Edit3, Trash2,
+  FileSpreadsheet, CheckSquare, Square, X
 } from 'lucide-react';
 
 export const WorkOrderHub: React.FC = () => {
   const { 
     workOrders, 
+    setWorkOrders,
+    repairs,
+    setRepairs,
+    schedules,
+    setSchedules,
     releaseWorkOrder, 
     workRequests, 
+    setWorkRequests,
     pmPlans, 
     machines, 
     currentUser, 
@@ -49,6 +57,13 @@ export const WorkOrderHub: React.FC = () => {
   // Delete modal state
   const [woToDelete, setWoToDelete] = useState<WorkOrder | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
+  const [showPMExcelImportModal, setShowPMExcelImportModal] = useState<boolean>(false);
+
+  // Bulk Selection and Bulk Delete State (ระบบเลือกทั้งหมด & ลบแผนงาน WO เป็นชุด)
+  const [selectedWOIds, setSelectedWOIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState<boolean>(false);
+  const [bulkDeleteLinkedSchedules, setBulkDeleteLinkedSchedules] = useState<boolean>(true);
 
   // Notifications / feedback toast
   const [actionNotice, setActionNotice] = useState<{ text: string; isError?: boolean } | null>(null);
@@ -113,7 +128,31 @@ export const WorkOrderHub: React.FC = () => {
   const handleConfirmDelete = () => {
     if (!woToDelete) return;
     const woLabel = woToDelete.workOrderNo || woToDelete.id;
-    deleteWorkOrder(woToDelete.id);
+    const woId = woToDelete.id;
+    const woNo = woToDelete.workOrderNo;
+
+    deleteWorkOrder(woId);
+
+    // Unlink from repairs
+    setRepairs(prev => prev.map(r => {
+      const matchId = r.workOrderId === woId || r.workOrderNo === woId;
+      const matchNo = woNo && (r.workOrderId === woNo || r.workOrderNo === woNo);
+      if (matchId || matchNo) {
+        return { ...r, workOrderId: undefined, workOrderNo: undefined };
+      }
+      return r;
+    }));
+
+    // Unlink from workRequests
+    setWorkRequests(prev => prev.map(req => {
+      const matchId = req.workOrderId === woId || req.workOrderNo === woId;
+      const matchNo = woNo && (req.workOrderId === woNo || req.workOrderNo === woNo);
+      if (matchId || matchNo) {
+        return { ...req, workOrderId: undefined, workOrderNo: undefined, status: req.status === 'IN_PROGRESS' ? 'ACCEPTED' : req.status };
+      }
+      return req;
+    }));
+
     setShowDeleteModal(false);
     if (selectedWO?.id === woToDelete.id) {
       setShowDetailModal(false);
@@ -122,6 +161,178 @@ export const WorkOrderHub: React.FC = () => {
     setWoToDelete(null);
     showToast(`🗑️ ลบใบสั่งงาน ${woLabel} เรียบร้อยแล้ว`);
   };
+
+  // ---------------------------------------------------------------------------
+  // BULK SELECTION & BULK DELETION LOGIC (ระบบเลือกทั้งหมด & ลบใบสั่งงาน WO เป็นชุด)
+  // ---------------------------------------------------------------------------
+  const isAllFilteredSelected = useMemo(() => {
+    if (filteredWorkOrders.length === 0) return false;
+    return filteredWorkOrders.every(wo => selectedWOIds.has(wo.id));
+  }, [filteredWorkOrders, selectedWOIds]);
+
+  const isSomeFilteredSelected = useMemo(() => {
+    if (filteredWorkOrders.length === 0) return false;
+    return filteredWorkOrders.some(wo => selectedWOIds.has(wo.id)) && !isAllFilteredSelected;
+  }, [filteredWorkOrders, selectedWOIds, isAllFilteredSelected]);
+
+  const handleToggleSelectWO = (woId: string) => {
+    setSelectedWOIds(prev => {
+      const next = new Set(prev);
+      if (next.has(woId)) {
+        next.delete(woId);
+      } else {
+        next.add(woId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    if (isAllFilteredSelected) {
+      setSelectedWOIds(prev => {
+        const next = new Set(prev);
+        filteredWorkOrders.forEach(wo => next.delete(wo.id));
+        return next;
+      });
+    } else {
+      setSelectedWOIds(prev => {
+        const next = new Set(prev);
+        filteredWorkOrders.forEach(wo => next.add(wo.id));
+        return next;
+      });
+    }
+  };
+
+  const handleSelectAllInSystem = () => {
+    const allIds = workOrders.map(wo => wo.id);
+    setSelectedWOIds(new Set(allIds));
+    showToast(`☑️ เลือกใบสั่งงาน WO ทั้งหมดในระบบแล้ว (${allIds.length} งาน)`);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedWOIds(new Set());
+  };
+
+  const handleOpenBulkDeleteModal = () => {
+    if (selectedWOIds.size === 0) {
+      showToast('⚠️ กรุณาเลือกใบสั่งงาน Work Order ที่ต้องการลบก่อน', true);
+      return;
+    }
+    setShowBulkDeleteModal(true);
+  };
+
+  const handleConfirmBulkDelete = () => {
+    if (selectedWOIds.size === 0) return;
+    const count = selectedWOIds.size;
+    const idsToDelete = new Set(selectedWOIds);
+    const targetWOs = workOrders.filter(wo => idsToDelete.has(wo.id));
+    const targetNumbers = new Set(targetWOs.map(w => w.workOrderNo).filter(Boolean) as string[]);
+
+    setWorkOrders(prev => prev.filter(wo => !idsToDelete.has(wo.id)));
+
+    // Unlink from repairs
+    setRepairs(prev => prev.map(r => {
+      const matchId = (r.workOrderId && idsToDelete.has(r.workOrderId)) || (r.workOrderNo && idsToDelete.has(r.workOrderNo));
+      const matchNo = (r.workOrderId && targetNumbers.has(r.workOrderId)) || (r.workOrderNo && targetNumbers.has(r.workOrderNo));
+      if (matchId || matchNo) {
+        return { ...r, workOrderId: undefined, workOrderNo: undefined };
+      }
+      return r;
+    }));
+
+    // Unlink from workRequests
+    setWorkRequests(prev => prev.map(req => {
+      const matchId = (req.workOrderId && idsToDelete.has(req.workOrderId)) || (req.workOrderNo && idsToDelete.has(req.workOrderNo));
+      const matchNo = (req.workOrderId && targetNumbers.has(req.workOrderId)) || (req.workOrderNo && targetNumbers.has(req.workOrderNo));
+      if (matchId || matchNo) {
+        return { ...req, workOrderId: undefined, workOrderNo: undefined, status: req.status === 'IN_PROGRESS' ? 'ACCEPTED' : req.status };
+      }
+      return req;
+    }));
+
+    // Clean up uncompleted linked schedules if requested
+    if (bulkDeleteLinkedSchedules) {
+      const deletedRefIds = new Set(targetWOs.map(w => w.sourceRefId).filter(Boolean));
+      const deletedTitles = new Set(targetWOs.map(w => w.title));
+      setSchedules(prev => prev.filter(s => {
+        if (s.status === 'เสร็จสิ้น') return true;
+        if (s.pmPlanId && deletedRefIds.has(s.pmPlanId)) return false;
+        if (s.title && deletedTitles.has(s.title)) return false;
+        return true;
+      }));
+    }
+
+    if (selectedWO && idsToDelete.has(selectedWO.id)) {
+      setShowDetailModal(false);
+      setSelectedWO(null);
+    }
+
+    setSelectedWOIds(new Set());
+    setShowBulkDeleteModal(false);
+    showToast(`🗑️ ลบแผนงาน Work Order ที่เลือกทั้งหมด ${count} รายการ เรียบร้อยแล้ว`);
+  };
+
+  const handleConfirmDeleteAllInSystem = () => {
+    const totalCount = workOrders.length;
+    if (totalCount === 0) return;
+
+    setWorkOrders([]);
+    setRepairs(prev => prev.map(r => ({
+      ...r,
+      workOrderId: undefined,
+      workOrderNo: undefined
+    })));
+    setWorkRequests(prev => prev.map(req => ({
+      ...req,
+      workOrderId: undefined,
+      workOrderNo: undefined,
+      status: req.status === 'IN_PROGRESS' ? 'ACCEPTED' : req.status
+    })));
+
+    if (bulkDeleteLinkedSchedules) {
+      setSchedules(prev => prev.filter(s => s.status === 'เสร็จสิ้น'));
+    }
+    if (selectedWO) {
+      setShowDetailModal(false);
+      setSelectedWO(null);
+    }
+    setSelectedWOIds(new Set());
+    setShowDeleteAllModal(false);
+    showToast(`🗑️ ล้างแผนงาน Work Order ทั้งหมดในระบบเรียบร้อย (${totalCount} รายการ)`);
+  };
+
+  // Detect breakdown Work Orders whose source repair was deleted
+  const orphanedBreakdownWOs = useMemo(() => {
+    return workOrders.filter(wo => {
+      if (wo.sourceType !== 'BREAKDOWN') return false;
+      const hasRepair = repairs.some(r => 
+        (wo.sourceRefId && r.id === wo.sourceRefId) ||
+        r.workOrderId === wo.id ||
+        r.workOrderNo === wo.id ||
+        (wo.workOrderNo && (r.workOrderId === wo.workOrderNo || r.workOrderNo === wo.workOrderNo))
+      );
+      return !hasRepair;
+    });
+  }, [workOrders, repairs]);
+
+  const handleDeleteOrphanedBreakdownWOs = () => {
+    if (orphanedBreakdownWOs.length === 0) return;
+    const count = orphanedBreakdownWOs.length;
+    const orphanIds = new Set(orphanedBreakdownWOs.map(w => w.id));
+    setWorkOrders(prev => prev.filter(w => !orphanIds.has(w.id)));
+    if (bulkDeleteLinkedSchedules) {
+      setSchedules(prev => prev.filter(s => {
+        if (s.status === 'Completed' || s.status === 'เสร็จสิ้น') return true;
+        if (s.workOrderId && orphanIds.has(s.workOrderId)) return false;
+        return true;
+      }));
+    }
+    showToast(`🧹 ลบใบสั่งงานฉุกเฉินที่งานซ่อมต้นทางถูกลบไปแล้ว ${count} รายการ เรียบร้อยแล้ว`);
+  };
+
+  const selectedWOsList = useMemo(() => {
+    return workOrders.filter(wo => selectedWOIds.has(wo.id));
+  }, [workOrders, selectedWOIds]);
 
   const handleDirectRelease = (wo: WorkOrder) => {
     const res = releaseWorkOrder(wo.id, currentUser?.name);
@@ -458,6 +669,16 @@ export const WorkOrderHub: React.FC = () => {
                   <Sparkles size={14} className="text-amber-300" />
                   <span>⚡ ดึงแผนเดือนนี้ออก Work Order ({pmPlansDueInSelectedMonth} แผน)</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPMExcelImportModal(true)}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm"
+                  title="นำเข้าแผน PM จากไฟล์ Excel (.xlsx, .xls, .csv) เข้าสู่ระบบ"
+                >
+                  <FileSpreadsheet size={14} className="text-emerald-400" />
+                  <span>📥 นำเข้าแผน PM จาก Excel</span>
+                </button>
               </div>
             </div>
 
@@ -492,6 +713,48 @@ export const WorkOrderHub: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-4">
+          {/* Orphaned Breakdown Work Orders Alert Banner */}
+          {orphanedBreakdownWOs.length > 0 && (
+            <div 
+              id="banner-orphaned-breakdown-wos"
+              className="bg-rose-950/40 border-2 border-rose-500/50 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-rose-200 shadow-xl shadow-rose-950/40 animate-in fade-in"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/40 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm flex items-center gap-2">
+                    <span>ตรวจพบใบสั่งงาน WO (Breakdown) ที่งานซ่อมต้นทางถูกลบไปแล้ว</span>
+                    <span className="px-2 py-0.5 rounded-full bg-rose-900 text-rose-200 text-xs font-mono font-bold border border-rose-700/50">
+                      {orphanedBreakdownWOs.length} รายการ
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-rose-300/80 mt-0.5 leading-relaxed">
+                    ใบสั่งงานเหล่านี้เคยถูกสร้างจากงานซ่อมเบรกดาวน์ แต่บันทึกงานซ่อมต้นทางดังกล่าวถูกลบออกจากระบบไปแล้ว (กดดูแล้วไม่มีประวัติเดิม) ท่านสามารถลบออกเพื่อรักษาความถูกต้องของวินัย CMMS
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setTypeFilter('BREAKDOWN')}
+                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-700 text-xs font-semibold cursor-pointer transition"
+                >
+                  🔍 กรองดูงานกลุ่มนี้
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteOrphanedBreakdownWOs}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5 active:scale-95 transition"
+                >
+                  <Trash2 size={13} />
+                  <span>ลบใบงานที่ต้นทางถูกลบ ({orphanedBreakdownWOs.length})</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Search & Filter Toolbar */}
           <div className="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-3">
             {/* Search Input */}
@@ -559,6 +822,138 @@ export const WorkOrderHub: React.FC = () => {
             </div>
           </div>
 
+          {/* Quick Selection & Bulk Action Bar */}
+          <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-2xl flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                id="btn-wo-select-all-filtered"
+                onClick={handleSelectAllFiltered}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-xl border flex items-center gap-1.5 transition cursor-pointer select-none ${
+                  isAllFilteredSelected
+                    ? 'bg-cyan-600 text-slate-950 border-cyan-400 font-bold'
+                    : 'bg-slate-950 hover:bg-slate-800 text-slate-300 border-slate-700'
+                }`}
+              >
+                {isAllFilteredSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+                <span>{isAllFilteredSelected ? `ยกเลิกเลือก (${filteredWorkOrders.length})` : `เลือกทั้งหมดที่แสดง (${filteredWorkOrders.length})`}</span>
+              </button>
+
+              {workOrders.length > filteredWorkOrders.length && (
+                <button
+                  type="button"
+                  id="btn-wo-select-all-system"
+                  onClick={handleSelectAllInSystem}
+                  className="px-3 py-1.5 text-xs font-semibold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 rounded-xl transition cursor-pointer"
+                >
+                  ☑️ เลือกทุก WO ในระบบ ({workOrders.length})
+                </button>
+              )}
+
+              {selectedWOIds.size > 0 && (
+                <>
+                  <span className="text-slate-600">|</span>
+                  <button
+                    type="button"
+                    id="btn-wo-bulk-delete-selected"
+                    onClick={handleOpenBulkDeleteModal}
+                    className="px-3.5 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl shadow-md shadow-rose-950/60 flex items-center gap-1.5 transition active:scale-95 cursor-pointer animate-in fade-in"
+                  >
+                    <Trash2 size={13} />
+                    <span>ลบที่เลือก ({selectedWOIds.size} รายการ)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearSelection}
+                    className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    ล้างการเลือก
+                  </button>
+                </>
+              )}
+            </div>
+
+            {workOrders.length > 0 && (
+              <button
+                type="button"
+                id="btn-wo-delete-all-system"
+                onClick={() => setShowDeleteAllModal(true)}
+                className="px-3 py-1.5 text-xs font-semibold bg-rose-950/30 hover:bg-rose-950/60 text-rose-300 border border-rose-800/40 rounded-xl transition cursor-pointer flex items-center gap-1.5 ml-auto active:scale-95"
+                title="ลบแผนงาน Work Order ทั้งหมดในระบบ CMMS (รีเซ็ตตารางใบงาน)"
+              >
+                <Trash2 size={13} className="text-rose-400" />
+                <span>ล้าง WO ทั้งหมดในระบบ ({workOrders.length})</span>
+              </button>
+            )}
+          </div>
+
+          {/* STICKY FLOATING SELECTION ACTION BAR (เมื่อมีการเลือกแผนงาน WO) */}
+          {selectedWOIds.size > 0 && (
+            <div 
+              id="wo-floating-selection-bar"
+              className="sticky top-2 z-40 bg-slate-900/95 border-2 border-cyan-500/80 backdrop-blur-md rounded-2xl p-3.5 shadow-2xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  <CheckSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                    <span>เลือกอยู่ <span className="text-amber-400 font-mono text-sm font-bold">{selectedWOIds.size}</span> จาก {filteredWorkOrders.length} แผนงาน WO ที่แสดง</span>
+                    <span className="text-slate-600">|</span>
+                    <span className="text-slate-400">ทั้งหมดในระบบ {workOrders.length} รายการ</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    คุณสามารถเลือกลบแผนงาน WO เป็นชุด หรือเลือกลบทุกใบสั่งงานในระบบพร้อมกัน
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSelectAllFiltered}
+                  className="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 transition cursor-pointer"
+                >
+                  {isAllFilteredSelected ? 'ยกเลิกเลือกที่แสดง' : `เลือกทั้งหมดที่แสดง (${filteredWorkOrders.length})`}
+                </button>
+                {workOrders.length > filteredWorkOrders.length && (
+                  <button
+                    type="button"
+                    onClick={handleSelectAllInSystem}
+                    className="px-3 py-1.5 text-xs font-semibold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 rounded-xl border border-indigo-500/40 transition cursor-pointer"
+                  >
+                    เลือกทุก WO ในระบบ ({workOrders.length})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  id="btn-confirm-bulk-delete-bar"
+                  onClick={handleOpenBulkDeleteModal}
+                  className="px-4 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl shadow-lg shadow-rose-950/60 flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>ลบแผนงาน WO ที่เลือก ({selectedWOIds.size} รายการ)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteAllModal(true)}
+                  className="px-3 py-1.5 text-xs font-semibold bg-rose-950/40 hover:bg-rose-950/70 text-rose-300 border border-rose-800/50 rounded-xl transition cursor-pointer"
+                >
+                  ล้างทั้งหมด
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearSelection}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer ml-1"
+                  title="ยกเลิกการเลือกทั้งหมด"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Work Orders Grid / Table */}
           {filteredWorkOrders.length === 0 ? (
             <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-12 text-center space-y-3">
@@ -576,6 +971,18 @@ export const WorkOrderHub: React.FC = () => {
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-[#0f1b33] text-slate-400 font-bold uppercase tracking-wider border-b border-slate-800 text-[11px]">
                     <tr>
+                      <th className="py-3 px-3 text-center w-10">
+                        <input
+                          type="checkbox"
+                          checked={isAllFilteredSelected}
+                          ref={(input) => {
+                            if (input) input.indeterminate = isSomeFilteredSelected;
+                          }}
+                          onChange={handleSelectAllFiltered}
+                          className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-slate-700 cursor-pointer accent-cyan-500"
+                          title={isAllFilteredSelected ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมดที่แสดง'}
+                        />
+                      </th>
                       <th className="py-3 px-3.5">เลขที่ใบสั่งงาน</th>
                       <th className="py-3 px-3">หมวดวินัย</th>
                       <th className="py-3 px-3">เครื่องจักร & พื้นที่</th>
@@ -589,16 +996,31 @@ export const WorkOrderHub: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-800/80 text-slate-300">
                     {filteredWorkOrders.map((wo) => {
+                      const isRowSelected = selectedWOIds.has(wo.id);
                       const isReadyToRelease = wo.readiness.gatePassed || wo.priority === 'ฉุกเฉินไลน์หยุด';
                       const isLineStop = wo.priority === 'ฉุกเฉินไลน์หยุด';
                       return (
                         <tr 
                           key={wo.id}
                           className={`hover:bg-cyan-950/20 transition cursor-pointer group ${
-                            isLineStop ? 'bg-rose-950/10' : ''
+                            isRowSelected
+                              ? 'bg-cyan-950/35 ring-1 ring-cyan-500/40 border-l-2 border-l-cyan-400'
+                              : isLineStop
+                              ? 'bg-rose-950/10'
+                              : ''
                           }`}
                           onClick={() => handleOpenDetail(wo)}
                         >
+                          {/* Checkbox Column */}
+                          <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isRowSelected}
+                              onChange={() => handleToggleSelectWO(wo.id)}
+                              className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-slate-700 cursor-pointer accent-cyan-500"
+                            />
+                          </td>
+
                           {/* WO Number */}
                           <td className="py-3 px-3.5 font-mono">
                             <span className="font-bold text-cyan-400 group-hover:underline">
@@ -623,6 +1045,14 @@ export const WorkOrderHub: React.FC = () => {
                             <div className="text-[10px] text-slate-400 mt-0.5">
                               {wo.sourceType}
                             </div>
+                            {orphanedBreakdownWOs.some(o => o.id === wo.id) && (
+                              <span 
+                                className="inline-block mt-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-950 text-rose-300 border border-rose-800/60 font-sans whitespace-nowrap" 
+                                title="งานซ่อมเบรกดาวน์ต้นทางของใบงานนี้ถูกลบออกจากระบบแล้ว"
+                              >
+                                ⚠️ ต้นทางถูกลบ
+                              </span>
+                            )}
                           </td>
 
                           {/* Machine & Line */}
@@ -979,6 +1409,200 @@ export const WorkOrderHub: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* BULK DELETE WORK ORDERS MODAL (ลบแผนงาน WO แบบเลือกหลายรายการ / ทั้งหมด) */}
+      {showBulkDeleteModal && (
+        <div 
+          id="modal-bulk-delete-wo"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200"
+        >
+          <div 
+            className="bg-[#0b1325] border-2 border-rose-500/60 rounded-3xl w-full max-w-xl p-5 sm:p-6 shadow-2xl space-y-4 ring-1 ring-rose-500/30 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 shrink-0">
+                  <Trash2 size={24} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">
+                    ยืนยันการลบแผนงาน Work Order ที่เลือก ({selectedWOIds.size} รายการ)
+                  </h3>
+                  <p className="text-xs text-rose-300/80">
+                    รายการที่เลือกจะถูกลบออกจากระบบ CMMS ถาวร
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Summary badges */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="px-2.5 py-1 rounded-lg bg-rose-950/60 border border-rose-500/30 text-rose-300 font-bold">
+                จำนวนที่เลือกลบ: {selectedWOIds.size} แผนงาน
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 font-mono">
+                จากทั้งหมดในระบบ {workOrders.length} รายการ
+              </span>
+            </div>
+
+            {/* Preview of items to be deleted */}
+            <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2 text-xs max-h-52 overflow-y-auto custom-scrollbar">
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                รายการแผนงาน WO ที่จะถูกลบ:
+              </div>
+              {selectedWOsList.slice(0, 10).map(wo => (
+                <div key={wo.id} className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-slate-900/60 border border-slate-800/80 text-slate-300">
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="font-mono text-cyan-400 font-bold shrink-0">{wo.id}</span>
+                    <span className="text-slate-400 shrink-0">[{wo.machineId}]</span>
+                    <span className="truncate text-white" title={wo.title}>{wo.title}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                      wo.workCategory === 'PLANNED'
+                        ? 'bg-cyan-950/60 text-cyan-300 border-cyan-500/30'
+                        : 'bg-rose-950/60 text-rose-300 border-rose-500/30'
+                    }`}>
+                      {wo.sourceType}
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                      {wo.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {selectedWOsList.length > 10 && (
+                <div className="text-center text-[11px] text-slate-500 pt-1">
+                  ... และอีก {selectedWOsList.length - 10} รายการ
+                </div>
+              )}
+            </div>
+
+            {/* Optional checkbox to also remove uncompleted schedules */}
+            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-900/70 border border-slate-800 text-xs text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={bulkDeleteLinkedSchedules}
+                onChange={(e) => setBulkDeleteLinkedSchedules(e.target.checked)}
+                className="w-4 h-4 rounded text-rose-500 bg-slate-950 border-slate-700 cursor-pointer accent-rose-500 mt-0.5"
+              />
+              <div>
+                <span className="font-bold text-white">ลบรายการนัดหมายในตารางงานช่างที่เกี่ยวข้องด้วย</span>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  ลบคิวนัดหมายของแผนงานเหล่านี้ในตารางงานช่าง (เฉพาะงานที่ยังไม่เสร็จสิ้น)
+                </p>
+              </div>
+            </label>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-bulk-delete-action"
+                onClick={handleConfirmBulkDelete}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-rose-950/50 transition cursor-pointer active:scale-95"
+              >
+                <Trash2 size={14} />
+                <span>ยืนยันลบ {selectedWOIds.size} รายการ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE ALL WORK ORDERS IN SYSTEM MODAL (ล้างแผนงาน WO ทั้งหมดในระบบ) */}
+      {showDeleteAllModal && (
+        <div 
+          id="modal-delete-all-wo"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200"
+        >
+          <div 
+            className="bg-[#0b1325] border-2 border-rose-600 rounded-3xl w-full max-w-md p-5 sm:p-6 shadow-2xl space-y-4 ring-2 ring-rose-500/40 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
+              <div className="p-3 rounded-2xl bg-rose-600/20 text-rose-400 border border-rose-600/40 shrink-0">
+                <AlertTriangle size={26} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white">
+                  ล้างแผนงาน Work Order ทั้งหมดในระบบ
+                </h3>
+                <p className="text-xs text-rose-300">
+                  คำเตือน: การกระทำนี้จะล้างใบสั่งงาน WO ทุกใบในระบบ
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-rose-950/30 border border-rose-500/40 rounded-xl space-y-2 text-xs text-rose-200">
+              <div className="font-bold flex items-center gap-1.5">
+                <Trash2 size={14} className="text-rose-400" />
+                <span>จำนวนใบสั่งงานที่จะถูกลบทั้งหมด: {workOrders.length} รายการ</span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                ระบบจะล้างตารางใบสั่งงาน Work Order ทั้งหมดเป็น 0 รายการ 
+                สถิติและตัวชี้วัด %Planned Work จะถูกรีเซ็ตตามข้อมูลใหม่
+              </p>
+            </div>
+
+            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-900/70 border border-slate-800 text-xs text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={bulkDeleteLinkedSchedules}
+                onChange={(e) => setBulkDeleteLinkedSchedules(e.target.checked)}
+                className="w-4 h-4 rounded text-rose-500 bg-slate-950 border-slate-700 cursor-pointer accent-rose-500 mt-0.5"
+              />
+              <div>
+                <span className="font-bold text-white">ล้างคิวนัดหมายในตารางงานช่างด้วย</span>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  รีเซ็ตตารางนัดหมายงานช่างที่ไม่ใช่ประวัติเสร็จสิ้น
+                </p>
+              </div>
+            </label>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowDeleteAllModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-delete-all-wo-action"
+                onClick={handleConfirmDeleteAllInSystem}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-rose-950/60 transition cursor-pointer active:scale-95"
+              >
+                <Trash2 size={14} />
+                <span>ยืนยันล้างทั้งหมด ({workOrders.length})</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Excel PM Import Modal */}
+      {showPMExcelImportModal && (
+        <PMExcelImportModal
+          machines={machines}
+          onClose={() => setShowPMExcelImportModal(false)}
+        />
       )}
     </div>
   );

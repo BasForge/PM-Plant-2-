@@ -4,7 +4,7 @@ import {
   RepairLog, ImprovementProject, SystemSettings, ScheduleItem, SetupLog, Employee,
   TechnicianLeave, SparePart, CD5Project, UserAccount, UserRole,
   WorkRequest, EngineeringResponse, WorkRequestStatus,
-  WorkOrder
+  WorkOrder, KaizenNavigationFilter
 } from '../types';
 import { 
   PRELOADED_MACHINES, PRELOADED_TECHNICIANS, PRELOADED_PM_PLANS, 
@@ -44,6 +44,10 @@ export interface AppContextType {
   setRepairNavigationFilter: React.Dispatch<React.SetStateAction<RepairFilterNavigation | null>>;
   navigateToRepairs: (filter: RepairFilterNavigation) => void;
   clearRepairNavigationFilter: () => void;
+  kaizenNavigationFilter: KaizenNavigationFilter | null;
+  setKaizenNavigationFilter: React.Dispatch<React.SetStateAction<KaizenNavigationFilter | null>>;
+  navigateToKaizen: (filter?: KaizenNavigationFilter) => void;
+  clearKaizenNavigationFilter: () => void;
   machines: Machine[];
   setMachines: React.Dispatch<React.SetStateAction<Machine[]>>;
   technicians: string[];
@@ -77,6 +81,8 @@ export interface AppContextType {
   addWorkOrder: (wo: Omit<WorkOrder, 'id' | 'createdAt'>) => WorkOrder;
   updateWorkOrder: (id: string, updates: Partial<WorkOrder>) => void;
   deleteWorkOrder: (id: string) => void;
+  deleteRepair: (id: string, deleteLinkedWO?: boolean) => void;
+  deleteRepairsBatch: (ids: string[], deleteLinkedWO?: boolean) => void;
   releaseWorkOrder: (id: string, operatorName?: string) => { success: boolean; message: string };
   closeWorkOrder: (id: string, completionData: {
     actualDurationMins?: number;
@@ -94,6 +100,7 @@ export interface AppContextType {
     leadTech: string;
     targetDurationMins?: number;
     lotoTag?: string;
+    repairId?: string;
   }) => WorkOrder;
   updateMachinePlannedTime: (machineId: string, plannedHours: number) => void;
   updateAllMachinesPlannedTime: (plannedHours: number) => void;
@@ -143,6 +150,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearRepairNavigationFilter = () => {
     setRepairNavigationFilter(null);
+  };
+
+  const [kaizenNavigationFilter, setKaizenNavigationFilter] = useState<KaizenNavigationFilter | null>(null);
+
+  const navigateToKaizen = (filter?: KaizenNavigationFilter) => {
+    setKaizenNavigationFilter(filter || null);
+    setActivePage(5);
+  };
+
+  const clearKaizenNavigationFilter = () => {
+    setKaizenNavigationFilter(null);
   };
 
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -1307,7 +1325,83 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteWorkOrder = (id: string) => {
+    const target = workOrders.find(w => w.id === id);
+    const targetNo = target?.workOrderNo;
+
     setWorkOrders(prev => prev.filter(wo => wo.id !== id));
+
+    // Also unlink from repairs
+    setRepairs(prev => prev.map(r => {
+      const matchId = r.workOrderId === id || r.workOrderNo === id;
+      const matchNo = targetNo && (r.workOrderId === targetNo || r.workOrderNo === targetNo);
+      if (matchId || matchNo) {
+        return {
+          ...r,
+          workOrderId: undefined,
+          workOrderNo: undefined
+        };
+      }
+      return r;
+    }));
+
+    // Also unlink from workRequests
+    setWorkRequests(prev => prev.map(req => {
+      const matchId = req.workOrderId === id || req.workOrderNo === id;
+      const matchNo = targetNo && (req.workOrderId === targetNo || req.workOrderNo === targetNo);
+      if (matchId || matchNo) {
+        return {
+          ...req,
+          workOrderId: undefined,
+          workOrderNo: undefined,
+          status: req.status === 'IN_PROGRESS' ? 'ACCEPTED' : req.status
+        };
+      }
+      return req;
+    }));
+  };
+
+  const deleteRepair = (id: string, deleteLinkedWO: boolean = true) => {
+    const target = repairs.find(r => r.id === id);
+    setRepairs(prev => prev.filter(r => r.id !== id));
+
+    if (deleteLinkedWO && target) {
+      const woId = target.workOrderId || target.workOrderNo;
+      setWorkOrders(prev => prev.filter(w => {
+        if (w.sourceRefId && w.sourceRefId === id) return false;
+        if (woId && (w.id === woId || w.workOrderNo === woId)) return false;
+        return true;
+      }));
+      setSchedules(prev => prev.filter(s => {
+        if (s.status === 'Completed') return true;
+        if (s.type === 'Repair' && s.id === id) return false;
+        return true;
+      }));
+    }
+  };
+
+  const deleteRepairsBatch = (ids: string[], deleteLinkedWO: boolean = true) => {
+    const idSet = new Set(ids);
+    const targetRepairs = repairs.filter(r => idSet.has(r.id));
+    const linkedWoIds = new Set<string>();
+    targetRepairs.forEach(r => {
+      if (r.workOrderId) linkedWoIds.add(r.workOrderId);
+      if (r.workOrderNo) linkedWoIds.add(r.workOrderNo);
+    });
+
+    setRepairs(prev => prev.filter(r => !idSet.has(r.id)));
+
+    if (deleteLinkedWO) {
+      setWorkOrders(prev => prev.filter(w => {
+        if (w.sourceRefId && idSet.has(w.sourceRefId)) return false;
+        if (linkedWoIds.has(w.id) || (w.workOrderNo && linkedWoIds.has(w.workOrderNo))) return false;
+        return true;
+      }));
+      setSchedules(prev => prev.filter(s => {
+        if (s.status === 'Completed') return true;
+        if (s.type === 'Repair' && idSet.has(s.id)) return false;
+        return true;
+      }));
+    }
   };
 
   const releaseWorkOrder = (id: string, operatorName?: string): { success: boolean; message: string } => {
@@ -1424,6 +1518,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     leadTech: string;
     targetDurationMins?: number;
     lotoTag?: string;
+    repairId?: string;
   }): WorkOrder => {
     const newId = generateWorkOrderNo(workOrders);
     const now = new Date();
@@ -1435,6 +1530,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: newId,
       workOrderNo: newId,
       sourceType: 'BREAKDOWN',
+      sourceRefId: params.repairId,
       workCategory: 'UNPLANNED',
       title: `⚡ [ฉุกเฉิน] ${params.title}`,
       description: params.symptoms,
@@ -1469,6 +1565,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setWorkOrders(prev => [newWO, ...prev]);
+
+    if (params.repairId) {
+      setRepairs(prev => prev.map(r => r.id === params.repairId ? { ...r, workOrderId: newId, workOrderNo: newId } : r));
+    }
+
     return newWO;
   };
 
@@ -1592,6 +1693,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       activePage, setActivePage,
       repairNavigationFilter, setRepairNavigationFilter,
       navigateToRepairs, clearRepairNavigationFilter,
+      kaizenNavigationFilter, setKaizenNavigationFilter,
+      navigateToKaizen, clearKaizenNavigationFilter,
       machines, setMachines,
       technicians, setTechnicians,
       employees, setEmployees,
@@ -1608,6 +1711,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       workRequests, setWorkRequests,
       workOrders, setWorkOrders,
       addWorkOrder, updateWorkOrder, deleteWorkOrder,
+      deleteRepair, deleteRepairsBatch,
       releaseWorkOrder, closeWorkOrder, createEmergencyBreakdownWorkOrder,
       updateMachinePlannedTime, updateAllMachinesPlannedTime,
       addWorkRequest, addWorkRequestsBatch, updateWorkRequest, deleteWorkRequest, deleteWorkRequestsBatch,

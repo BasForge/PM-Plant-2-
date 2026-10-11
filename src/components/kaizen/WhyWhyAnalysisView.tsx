@@ -31,6 +31,8 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
   onUpdateProject
 }) => {
   const [activeWhyModal, setActiveWhyModal] = useState<ImprovementProject | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
 
   const whyPhotoInputRef = useRef<HTMLInputElement>(null);
   const whyFileInputRef = useRef<HTMLInputElement>(null);
@@ -42,78 +44,119 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
 
   const handleQuickAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!currentWhyModal || !onUpdateProject) return;
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const rawFiles: File[] = e.target.files ? Array.from(e.target.files) : [];
+    if (rawFiles.length === 0) return;
 
-    const newPhotos: MediaPhotoItem[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        const compressed = await compressImageFile(file);
-        newPhotos.push({
-          id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
-          url: compressed,
-          caption: file.name.replace(/\.[^/.]+$/, ""),
-          uploadedAt: new Date().toISOString().split('T')[0],
-          type: 'evidence'
-        });
-      } catch (err) {
-        console.error('Failed to compress photo', err);
+    setIsUploadingPhoto(true);
+    try {
+      const newPhotos: MediaPhotoItem[] = [];
+      for (let i = 0; i < rawFiles.length; i++) {
+        const file: File = rawFiles[i];
+        try {
+          const compressed = await compressImageFile(file);
+          newPhotos.push({
+            id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+            url: compressed,
+            caption: file.name.replace(/\.[^/.]+$/, ""),
+            uploadedAt: new Date().toISOString().split('T')[0],
+            type: 'evidence'
+          });
+        } catch (err) {
+          console.warn('Failed to compress photo in WhyWhyView, falling back to raw data URL', err);
+          try {
+            const rawUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            });
+            newPhotos.push({
+              id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+              url: rawUrl,
+              caption: file.name.replace(/\.[^/.]+$/, ""),
+              uploadedAt: new Date().toISOString().split('T')[0],
+              type: 'evidence'
+            });
+          } catch (readErr) {
+            console.error('Failed to read image in WhyWhyView:', file.name, readErr);
+          }
+        }
       }
-    }
 
-    if (newPhotos.length > 0) {
-      const updated: ImprovementProject = {
-        ...currentWhyModal,
-        photos: [...(currentWhyModal.photos || []), ...newPhotos]
-      };
-      onUpdateProject(updated);
-      setActiveWhyModal(updated);
+      if (newPhotos.length > 0) {
+        const updated: ImprovementProject = {
+          ...currentWhyModal,
+          photos: [...(currentWhyModal.photos || []), ...newPhotos]
+        };
+        onUpdateProject(updated);
+        setActiveWhyModal(updated);
+      }
+    } catch (err) {
+      console.error('Error adding photos', err);
+    } finally {
+      setIsUploadingPhoto(false);
+      if (e.target) e.target.value = '';
     }
-    if (e.target) e.target.value = '';
   };
 
-  const handleQuickAddFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleQuickAddFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!currentWhyModal || !onUpdateProject) return;
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const rawFiles: File[] = e.target.files ? Array.from(e.target.files) : [];
+    if (rawFiles.length === 0) return;
 
-    const newDocs: PDFFileAttachment[] = [];
-    let completedCount = 0;
+    setIsUploadingFile(true);
+    try {
+      const readPromises = rawFiles.map((file: File) => {
+        return new Promise<PDFFileAttachment>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const content = event.target?.result as string;
+            const sizeFormatted = file.size > 1024 * 1024 
+              ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+              : `${Math.round(file.size / 1024)} KB`;
 
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        const sizeFormatted = file.size > 1024 * 1024 
-          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-          : `${Math.round(file.size / 1024)} KB`;
+            const isExcel = isExcelAttachment({ name: file.name });
 
-        const isExcel = isExcelAttachment({ name: file.name });
-
-        newDocs.push({
-          id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-          name: file.name,
-          size: sizeFormatted,
-          uploadedAt: new Date().toISOString().split('T')[0],
-          content: content,
-          fileType: isExcel ? 'excel' : 'pdf'
-        });
-
-        completedCount++;
-        if (completedCount === files.length) {
-          const updated: ImprovementProject = {
-            ...currentWhyModal,
-            pdfFiles: [...(currentWhyModal.pdfFiles || []), ...newDocs]
+            resolve({
+              id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              name: file.name,
+              size: sizeFormatted,
+              uploadedAt: new Date().toISOString().split('T')[0],
+              content: content,
+              fileType: isExcel ? 'excel' : 'pdf'
+            });
           };
-          onUpdateProject(updated);
-          setActiveWhyModal(updated);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+          reader.onerror = () => {
+            console.error('Error reading file in WhyWhyView', file.name);
+            resolve({
+              id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              name: file.name,
+              size: `${Math.round(file.size / 1024)} KB`,
+              uploadedAt: new Date().toISOString().split('T')[0],
+              content: '',
+              fileType: isExcelAttachment({ name: file.name }) ? 'excel' : 'pdf'
+            });
+          };
+          reader.readAsDataURL(file);
+        });
+      });
 
-    if (e.target) e.target.value = '';
+      const newDocs = await Promise.all(readPromises);
+      const validDocs = newDocs.filter(d => Boolean(d.content));
+      if (validDocs.length > 0) {
+        const updated: ImprovementProject = {
+          ...currentWhyModal,
+          pdfFiles: [...(currentWhyModal.pdfFiles || []), ...validDocs]
+        };
+        onUpdateProject(updated);
+        setActiveWhyModal(updated);
+      }
+    } catch (err) {
+      console.error('Error uploading files in WhyWhyView', err);
+    } finally {
+      setIsUploadingFile(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   const getMachineName = (machineId?: string) => {
@@ -180,12 +223,19 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                 className="bg-slate-900/90 hover:bg-slate-850 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 shadow-xl relative group"
               >
                 <div>
-                  {/* Machine Badge */}
+                  {/* Machine Badge & Breakdown Link Indicator */}
                   <div className="flex items-center justify-between gap-2 mb-3">
-                    <span className="text-xs font-semibold text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-                      <Wrench size={13} />
-                      {getMachineName(item.machineId)}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                        <Wrench size={13} />
+                        {getMachineName(item.machineId)}
+                      </span>
+                      {(item.id.startsWith('why-breakdown-') || item.description?.includes('เบรกดาวน์')) && (
+                        <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                          ⚡ ลิ้งก์จากงานเบรกดาวน์
+                        </span>
+                      )}
+                    </div>
                     {data?.standardizationRef && (
                       <span className="text-[11px] font-mono text-amber-400 bg-amber-950/40 border border-amber-800/40 px-2.5 py-0.5 rounded-lg">
                         Std: {data.standardizationRef}
@@ -247,8 +297,8 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                   )}
 
                   {/* Photos & PDF */}
-                  {hasPhotos && (
-                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-800/80">
+                  {(hasPhotos || hasPdf) && (
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-800/80 flex-wrap">
                       {item.photoBefore && (
                         <button
                           type="button"
@@ -288,29 +338,31 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                         const excelFiles = item.pdfFiles.filter(isExcelAttachment);
                         const pdfFiles = item.pdfFiles.filter(f => !isExcelAttachment(f));
                         return (
-                          <div className="ml-auto flex items-center gap-1.5">
-                            {excelFiles.length > 0 && (
+                          <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                            {excelFiles.map((file) => (
                               <button
+                                key={file.id}
                                 type="button"
-                                onClick={() => onOpenPDF(excelFiles[0])}
-                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold transition-all"
-                                title={`เปิดตาราง Excel: ${excelFiles[0].name}`}
+                                onClick={() => onOpenPDF(file)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold transition-all shadow-sm"
+                                title={`เปิดตาราง Excel: ${file.name}`}
                               >
-                                <FileSpreadsheet size={13} />
-                                Excel ({excelFiles.length})
+                                <FileSpreadsheet size={13} className="text-emerald-400" />
+                                <span className="max-w-[130px] truncate">{file.name}</span>
                               </button>
-                            )}
-                            {pdfFiles.length > 0 && (
+                            ))}
+                            {pdfFiles.map((file) => (
                               <button
+                                key={file.id}
                                 type="button"
-                                onClick={() => onOpenPDF(pdfFiles[0])}
-                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-semibold transition-all"
-                                title={`เปิดรายงาน PDF: ${pdfFiles[0].name}`}
+                                onClick={() => onOpenPDF(file)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-semibold transition-all shadow-sm"
+                                title={`เปิดรายงาน PDF: ${file.name}`}
                               >
-                                <FileText size={13} />
-                                PDF ({pdfFiles.length})
+                                <FileText size={13} className="text-rose-400" />
+                                <span className="max-w-[130px] truncate">{file.name}</span>
                               </button>
-                            )}
+                            ))}
                           </div>
                         );
                       })()}
@@ -368,7 +420,7 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
             <input
               ref={whyPhotoInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.jpg,.jpeg,.png,.webp"
               multiple
               onChange={handleQuickAddPhotos}
               className="hidden"
@@ -376,7 +428,7 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
             <input
               ref={whyFileInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv,application/pdf"
+              accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,application/pdf"
               multiple
               onChange={handleQuickAddFiles}
               className="hidden"
@@ -516,11 +568,15 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                   </span>
                   <button
                     type="button"
-                    onClick={() => whyPhotoInputRef.current?.click()}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                    disabled={isUploadingPhoto}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      whyPhotoInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 active:scale-95 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     <Plus size={12} />
-                    + แนบรูปภาพเพิ่ม
+                    <span>{isUploadingPhoto ? 'กำลังประมวลผลรูป...' : '+ แนบรูปภาพเพิ่ม'}</span>
                   </button>
                 </div>
 
@@ -632,11 +688,15 @@ export const WhyWhyAnalysisView: React.FC<WhyWhyAnalysisViewProps> = ({
                   </h5>
                   <button
                     type="button"
-                    onClick={() => whyFileInputRef.current?.click()}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                    disabled={isUploadingFile}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      whyFileInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     <Plus size={12} />
-                    + แนบไฟล์เอกสาร
+                    <span>{isUploadingFile ? 'กำลังอ่านไฟล์...' : '+ แนบไฟล์เอกสาร'}</span>
                   </button>
                 </div>
 

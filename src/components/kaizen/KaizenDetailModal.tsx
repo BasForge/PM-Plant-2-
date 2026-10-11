@@ -3,7 +3,7 @@ import { ImprovementProject, Machine, WorkLog, isExcelAttachment, MediaPhotoItem
 import { 
   X, Clock, Calendar, Users, Wrench, FileText, FileSpreadsheet, Image as ImageIcon, 
   CheckCircle2, Plus, Trash2, Edit3, Sparkles, BookOpen, Search, HelpCircle, Upload,
-  FileCheck, Send, AlertCircle
+  FileCheck, Send, AlertCircle, ArrowDown
 } from 'lucide-react';
 import { compressImageFile } from '../../utils/imageUtils';
 
@@ -31,6 +31,14 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
   const [newLogDate, setNewLogDate] = useState(new Date().toISOString().split('T')[0]);
   const [newLogHours, setNewLogHours] = useState(2);
   const [newLogNote, setNewLogNote] = useState('');
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3000);
+  };
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -38,75 +46,118 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
   if (!project) return null;
 
   const handleQuickAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const rawFiles: File[] = e.target.files ? Array.from(e.target.files) : [];
+    if (rawFiles.length === 0) return;
 
-    const newPhotos: MediaPhotoItem[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        const compressed = await compressImageFile(file);
-        newPhotos.push({
-          id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
-          url: compressed,
-          caption: file.name.replace(/\.[^/.]+$/, ""),
-          uploadedAt: new Date().toISOString().split('T')[0],
-          type: 'evidence'
-        });
-      } catch (err) {
-        console.error('Failed to compress photo', err);
+    setIsUploadingPhoto(true);
+    try {
+      const newPhotos: MediaPhotoItem[] = [];
+      for (let i = 0; i < rawFiles.length; i++) {
+        const file: File = rawFiles[i];
+        try {
+          const compressed = await compressImageFile(file);
+          newPhotos.push({
+            id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+            url: compressed,
+            caption: file.name.replace(/\.[^/.]+$/, ""),
+            uploadedAt: new Date().toISOString().split('T')[0],
+            type: 'evidence'
+          });
+        } catch (err) {
+          console.warn('Image compression fallback to raw data URL', err);
+          try {
+            const rawUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            });
+            newPhotos.push({
+              id: `photo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+              url: rawUrl,
+              caption: file.name.replace(/\.[^/.]+$/, ""),
+              uploadedAt: new Date().toISOString().split('T')[0],
+              type: 'evidence'
+            });
+          } catch (readErr) {
+            console.error('Failed to read image file:', file.name, readErr);
+          }
+        }
       }
-    }
 
-    if (newPhotos.length > 0) {
-      const updated: ImprovementProject = {
-        ...project,
-        photos: [...(project.photos || []), ...newPhotos]
-      };
-      onUpdate(updated);
+      if (newPhotos.length > 0) {
+        const updated: ImprovementProject = {
+          ...project,
+          photos: [...(project.photos || []), ...newPhotos]
+        };
+        onUpdate(updated);
+        showToast(`📸 แนบรูปภาพสำเร็จ ${newPhotos.length} รูป`);
+      }
+    } catch (err) {
+      console.error('Error adding photos', err);
+    } finally {
+      setIsUploadingPhoto(false);
+      if (e.target) e.target.value = '';
     }
-    if (e.target) e.target.value = '';
   };
 
-  const handleQuickAddFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const handleQuickAddFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFiles: File[] = e.target.files ? Array.from(e.target.files) : [];
+    if (rawFiles.length === 0) return;
 
-    const newDocs: PDFFileAttachment[] = [];
-    let completedCount = 0;
+    setIsUploadingFile(true);
+    try {
+      const readPromises = rawFiles.map((file: File) => {
+        return new Promise<PDFFileAttachment>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const content = event.target?.result as string;
+            const sizeFormatted = file.size > 1024 * 1024 
+              ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+              : `${Math.round(file.size / 1024)} KB`;
 
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        const sizeFormatted = file.size > 1024 * 1024 
-          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-          : `${Math.round(file.size / 1024)} KB`;
+            const isExcel = isExcelAttachment({ name: file.name });
 
-        const isExcel = isExcelAttachment({ name: file.name });
-
-        newDocs.push({
-          id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-          name: file.name,
-          size: sizeFormatted,
-          uploadedAt: new Date().toISOString().split('T')[0],
-          content: content,
-          fileType: isExcel ? 'excel' : 'pdf'
-        });
-
-        completedCount++;
-        if (completedCount === files.length) {
-          const updated: ImprovementProject = {
-            ...project,
-            pdfFiles: [...(project.pdfFiles || []), ...newDocs]
+            resolve({
+              id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              name: file.name,
+              size: sizeFormatted,
+              uploadedAt: new Date().toISOString().split('T')[0],
+              content: content,
+              fileType: isExcel ? 'excel' : 'pdf'
+            });
           };
-          onUpdate(updated);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+          reader.onerror = () => {
+            console.error('Error reading file:', file.name);
+            resolve({
+              id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              name: file.name,
+              size: `${Math.round(file.size / 1024)} KB`,
+              uploadedAt: new Date().toISOString().split('T')[0],
+              content: '',
+              fileType: isExcelAttachment({ name: file.name }) ? 'excel' : 'pdf'
+            });
+          };
+          reader.readAsDataURL(file);
+        });
+      });
 
-    if (e.target) e.target.value = '';
+      const newDocs = await Promise.all(readPromises);
+      const validDocs = newDocs.filter(d => Boolean(d.content));
+      if (validDocs.length > 0) {
+        const updated: ImprovementProject = {
+          ...project,
+          pdfFiles: [...(project.pdfFiles || []), ...validDocs]
+        };
+        onUpdate(updated);
+        showToast(`📎 แนบไฟล์เอกสารสำเร็จ ${validDocs.length} ไฟล์`);
+      }
+    } catch (err) {
+      console.error('Error uploading files:', err);
+    } finally {
+      setIsUploadingFile(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   const getMachineName = (machineId?: string) => {
@@ -156,13 +207,20 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
-      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+      {/* Toast Alert Feedback */}
+      {toastMsg && (
+        <div className="fixed top-6 right-6 z-[120] bg-slate-900 border border-emerald-500/50 text-emerald-300 px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-top-2">
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
+      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden relative">
         
         {/* Hidden File and Photo Inputs */}
         <input
           ref={photoInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.jpg,.jpeg,.png,.webp"
           multiple
           onChange={handleQuickAddPhotos}
           className="hidden"
@@ -170,7 +228,7 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".xlsx,.xls,.csv,application/pdf"
+          accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,application/pdf"
           multiple
           onChange={handleQuickAddFiles}
           className="hidden"
@@ -283,6 +341,213 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
             </p>
           </div>
 
+          {/* Why-Why Analysis Section */}
+          {(project.category === 'WHY_WHY' || project.whyWhyData) && project.whyWhyData && (
+            <div className="bg-gradient-to-br from-amber-950/25 via-slate-900 to-amber-950/20 p-5 rounded-2xl border border-amber-500/40 space-y-4 shadow-lg">
+              <div className="flex items-center justify-between border-b border-amber-500/30 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                    <HelpCircle size={18} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                      การวิเคราะห์สาเหตุรากเหง้า (Why-Why Analysis & 5 Whys)
+                    </h4>
+                    <p className="text-[10px] text-amber-400/80 font-mono">
+                      {project.id.startsWith('why-breakdown-') ? '⚡ เชื่อมโยงอัตโนมัติจากงานเบรกดาวน์เครื่องจักร' : 'บันทึกวิเคราะห์ Why-Why ประจำเครื่อง'}
+                    </p>
+                  </div>
+                </div>
+                {project.whyWhyData.standardizationRef && (
+                  <span className="text-[11px] font-mono text-amber-400 bg-amber-950/60 border border-amber-800/60 px-2.5 py-1 rounded-lg">
+                    อ้างอิง: {project.whyWhyData.standardizationRef}
+                  </span>
+                )}
+              </div>
+
+              {/* Problem & Phenomenon */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {project.whyWhyData.problemStatement && (
+                  <div className="bg-rose-500/10 border border-rose-500/25 p-3 rounded-xl text-rose-300 space-y-1">
+                    <span className="font-bold block text-rose-400 text-[11px]">🚨 สภาพปัญหา (Problem Statement):</span>
+                    <p className="leading-relaxed">{project.whyWhyData.problemStatement}</p>
+                  </div>
+                )}
+                {project.whyWhyData.phenomenon && (
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-300 space-y-1">
+                    <span className="font-bold block text-amber-400 text-[11px]">👁️ ปรากฏการณ์หน้างาน (Phenomenon):</span>
+                    <p className="leading-relaxed">{project.whyWhyData.phenomenon}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* 5-Whys Ladder */}
+              {(() => {
+                const whys = [
+                  { num: 1, label: 'Why 1', text: project.whyWhyData?.why1 },
+                  { num: 2, label: 'Why 2', text: project.whyWhyData?.why2 },
+                  { num: 3, label: 'Why 3', text: project.whyWhyData?.why3 },
+                  { num: 4, label: 'Why 4', text: project.whyWhyData?.why4 },
+                  { num: 5, label: 'Why 5 (Root Cause)', text: project.whyWhyData?.why5, isRoot: true },
+                ].filter(w => Boolean(w.text && w.text.trim()));
+
+                if (whys.length === 0) return null;
+
+                return (
+                  <div className="space-y-2 bg-slate-950/80 p-4 rounded-xl border border-slate-800">
+                    <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1.5 mb-2">
+                      <HelpCircle size={13} />
+                      ลำดับการถาม-ตอบหาสาเหตุรากเหง้า (5 Whys Chain):
+                    </span>
+                    <div className="space-y-2">
+                      {whys.map((w, idx) => (
+                        <div key={w.num}>
+                          <div className={`p-3 rounded-xl border transition-all ${
+                            w.isRoot
+                              ? 'bg-rose-950/30 border-rose-500/40 text-rose-200'
+                              : 'bg-slate-900 border-slate-800 text-slate-200'
+                          }`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold font-mono ${
+                                w.isRoot ? 'bg-rose-500 text-white' : 'bg-amber-500 text-slate-950'
+                              }`}>
+                                {w.num}
+                              </span>
+                              <span className={`text-xs font-bold ${w.isRoot ? 'text-rose-400' : 'text-amber-400'}`}>
+                                {w.label}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-200 pl-7 leading-relaxed font-medium">
+                              {w.text}
+                            </p>
+                          </div>
+                          {idx < whys.length - 1 && (
+                            <div className="flex justify-center my-1 text-slate-600">
+                              <ArrowDown size={14} className="text-amber-500/50" />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Root cause and Countermeasures */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {project.whyWhyData.rootCauseSummary && (
+                  <div className="bg-amber-950/20 border border-amber-500/30 p-3.5 rounded-xl text-amber-300 space-y-1">
+                    <span className="font-bold block text-amber-400 text-[11px]">🎯 สาเหตุรากเหง้าที่แท้จริง (Root Cause):</span>
+                    <p className="leading-relaxed text-slate-200">{project.whyWhyData.rootCauseSummary}</p>
+                  </div>
+                )}
+                {project.whyWhyData.countermeasure && (
+                  <div className="bg-emerald-950/20 border border-emerald-500/30 p-3.5 rounded-xl text-emerald-300 space-y-1">
+                    <span className="font-bold block text-emerald-400 text-[11px] flex items-center gap-1">
+                      <CheckCircle2 size={13} />
+                      มาตรการแก้ไขและป้องกันการเกิดซ้ำ (Countermeasure):
+                    </span>
+                    <p className="leading-relaxed text-slate-200">{project.whyWhyData.countermeasure}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Failure Analysis (FA) Section */}
+          {(project.category === 'FA' || project.faData) && project.faData && (
+            <div className="bg-rose-950/20 p-5 rounded-2xl border border-rose-800/40 space-y-4">
+              <div className="flex items-center gap-2">
+                <Search size={18} className="text-rose-400" />
+                <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider">
+                  ผลการวิเคราะห์ชิ้นส่วนชำรุด (Failure Analysis - FA)
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">ชิ้นส่วนที่เสียหาย:</span>
+                  <span className="text-white font-bold block">{project.faData.failurePartName || '-'}</span>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">ลักษณะการชำรุด (Failure Mode):</span>
+                  <span className="text-rose-300 font-bold block">{project.faData.failureMode || '-'}</span>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">หมวดหมู่สาเหตุราก:</span>
+                  <span className="text-amber-300 font-bold block">{project.faData.rootCauseCategory || '-'}</span>
+                </div>
+              </div>
+
+              {project.faData.mechanismDescription && (
+                <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 text-xs space-y-1">
+                  <span className="text-slate-400 font-bold block">กลไกการเกิดความเสียหาย (Mechanism):</span>
+                  <p className="text-slate-200 leading-relaxed">{project.faData.mechanismDescription}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {project.faData.immediateContainment && (
+                  <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 space-y-1">
+                    <span className="text-amber-400 font-bold block">การแก้ปัญหาเฉพาะหน้า:</span>
+                    <p className="text-slate-200 leading-relaxed">{project.faData.immediateContainment}</p>
+                  </div>
+                )}
+                {project.faData.permanentAction && (
+                  <div className="bg-emerald-950/20 p-3 rounded-xl border border-emerald-800/40 space-y-1">
+                    <span className="text-emerald-400 font-bold block">มาตรการป้องกันถาวร:</span>
+                    <p className="text-slate-200 leading-relaxed">{project.faData.permanentAction}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* One Point Lesson (OPL) Section */}
+          {(project.category === 'OPL' || project.oplData) && project.oplData && (
+            <div className="bg-amber-950/20 p-5 rounded-2xl border border-amber-800/40 space-y-4">
+              <div className="flex items-center gap-2">
+                <BookOpen size={18} className="text-amber-400" />
+                <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                  บทเรียนจุดเดียว (One Point Lesson - OPL)
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">หมวดหมู่ OPL:</span>
+                  <span className="text-amber-300 font-bold block">{project.oplData.category || 'การแก้ไขปัญหา'}</span>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">กลุ่มเป้าหมาย (Audience):</span>
+                  <span className="text-slate-200 font-bold block">{project.oplData.targetAudience || 'ช่างและผู้เดินเครื่อง'}</span>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                  <span className="text-slate-500 block text-[11px] mb-1">เอกสาร SOP อ้างอิง:</span>
+                  <span className="text-cyan-300 font-mono font-bold block">{project.oplData.sopDocumentRef || '-'}</span>
+                </div>
+              </div>
+
+              {project.oplData.purpose && (
+                <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 text-xs space-y-1">
+                  <span className="text-amber-400 font-bold block">วัตถุประสงค์บทเรียน (Purpose):</span>
+                  <p className="text-slate-200 leading-relaxed">{project.oplData.purpose}</p>
+                </div>
+              )}
+
+              {project.oplData.keyPoints && project.oplData.keyPoints.length > 0 && (
+                <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 text-xs space-y-1.5">
+                  <span className="text-emerald-400 font-bold block">จุดสำคัญที่ต้องปฏิบัติ (Key Points):</span>
+                  <ul className="list-disc list-inside space-y-1 text-slate-200">
+                    {project.oplData.keyPoints.map((kp, idx) => (
+                      <li key={idx}>{kp}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* MP Information Sheet Specific Section */}
           {(project.category === 'MP_INFO' || project.mpData) && project.mpData && (
             <div className="bg-emerald-950/20 p-5 rounded-2xl border border-emerald-800/40 space-y-4">
@@ -363,11 +628,15 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
               </h4>
               <button
                 type="button"
-                onClick={() => photoInputRef.current?.click()}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                disabled={isUploadingPhoto}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  photoInputRef.current?.click();
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 active:scale-95 text-cyan-400 border border-cyan-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm cursor-pointer disabled:opacity-50"
               >
                 <Plus size={13} />
-                + แนบรูปภาพเพิ่ม
+                <span>{isUploadingPhoto ? 'กำลังประมวลผลรูป...' : '+ แนบรูปภาพเพิ่ม'}</span>
               </button>
             </div>
 
@@ -452,11 +721,15 @@ export const KaizenDetailModal: React.FC<KaizenDetailModalProps> = ({
               </h4>
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                disabled={isUploadingFile}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all shadow-sm cursor-pointer disabled:opacity-50"
               >
                 <Plus size={13} />
-                + แนบไฟล์เอกสาร
+                <span>{isUploadingFile ? 'กำลังอ่านไฟล์...' : '+ แนบไฟล์เอกสาร'}</span>
               </button>
             </div>
             

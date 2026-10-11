@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ImprovementProject, KaizenCategory, PDFFileAttachment } from '../types';
+import { ImprovementProject, KaizenCategory, PDFFileAttachment, RepairAttachmentItem } from '../types';
 import { 
   Wrench, BookOpen, Search as SearchIcon, HelpCircle, Plus, 
   BarChart3, Filter, FileText, Image as ImageIcon, Sparkles, Layers, FileCheck 
@@ -19,15 +19,160 @@ import { PhotoLightboxModal } from './kaizen/PhotoLightboxModal';
 type ActiveTab = 'kaizen' | 'opl' | 'fa' | 'why_why' | 'mp_info' | 'overview';
 
 export const ImprovementPage: React.FC = () => {
-  const { improvements, setImprovements, machines, technicians } = useApp();
+  const { 
+    improvements, 
+    setImprovements, 
+    machines, 
+    technicians, 
+    repairs,
+    setRepairs,
+    kaizenNavigationFilter, 
+    clearKaizenNavigationFilter 
+  } = useApp();
 
   // Active Tab Navigation
-  const [activeTab, setActiveTab] = useState<ActiveTab>('kaizen');
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (kaizenNavigationFilter?.category === 'FA') return 'fa';
+    if (kaizenNavigationFilter?.category === 'OPL') return 'opl';
+    if (kaizenNavigationFilter?.category === 'WHY_WHY') return 'why_why';
+    if (kaizenNavigationFilter?.category === 'MP_INFO') return 'mp_info';
+    return 'kaizen';
+  });
 
   // Search and Filters
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(kaizenNavigationFilter?.searchQuery || '');
   const [filterTechnician, setFilterTechnician] = useState<string>('all');
-  const [filterMachine, setFilterMachine] = useState<string>('all');
+  const [filterMachine, setFilterMachine] = useState<string>(kaizenNavigationFilter?.machineId || 'all');
+
+  // Automatically link Why-Why analysis & files from breakdown repair records into Kaizen Why-Why
+  const linkedBreakdownWhyProjects = useMemo<ImprovementProject[]>(() => {
+    const existingWhyIds = new Set(
+      improvements.filter(i => i.category === 'WHY_WHY').map(i => i.id)
+    );
+
+    return repairs
+      .filter(r => {
+        const hasWhys = Boolean(r.why1 && r.why1.trim().length > 0);
+        const hasWhyExcel = Boolean(r.excelFile);
+        const hasWhyAtt = Boolean(r.repairAttachments?.some(a => a.category === 'WHY_WHY' || /why/i.test(a.name)));
+        const hasWhyFile = Boolean(r.whyWhyFile);
+        return hasWhys || hasWhyExcel || hasWhyAtt || hasWhyFile;
+      })
+      .map(r => {
+        const projId = `why-breakdown-${r.id}`;
+        if (existingWhyIds.has(projId) || existingWhyIds.has(r.id)) {
+          return null;
+        }
+
+        const files: PDFFileAttachment[] = [];
+        if (r.whyWhyFile) {
+          files.push({
+            id: r.whyWhyFile.id,
+            name: r.whyWhyFile.name,
+            size: r.whyWhyFile.size || 'เอกสาร Why-Why',
+            uploadedAt: r.whyWhyFile.uploadedAt || r.date,
+            content: r.whyWhyFile.content,
+            fileType: r.whyWhyFile.fileType === 'excel' ? 'excel' : 'pdf'
+          });
+        }
+        if (r.excelFile && !files.some(f => f.name === r.excelFile!.name)) {
+          files.push({
+            id: `excel-${r.id}`,
+            name: r.excelFile.name,
+            size: 'ไฟล์แนบ Excel',
+            uploadedAt: r.date,
+            content: r.excelFile.content,
+            fileType: 'excel'
+          });
+        }
+        if (r.repairAttachments) {
+          r.repairAttachments
+            .filter(a => a.category === 'WHY_WHY' || /why/i.test(a.name) || a.fileType === 'excel')
+            .forEach(a => {
+              if (!files.some(f => f.name === a.name)) {
+                files.push({
+                  id: a.id,
+                  name: a.name,
+                  size: a.size || 'ไฟล์แนบ',
+                  uploadedAt: a.uploadedAt || r.date,
+                  content: a.content,
+                  fileType: a.fileType === 'excel' ? 'excel' : 'pdf'
+                });
+              }
+            });
+        }
+
+        const isWhyExcelNamed = r.excelFile && /why/i.test(r.excelFile.name);
+        const title = isWhyExcelNamed
+          ? `[Why-Why เบรกดาวน์] ${r.machineId}: ${r.excelFile!.name.replace(/\.[^/.]+$/, "")}`
+          : `[Why-Why เบรกดาวน์] ${r.machineId}: ${r.symptoms}`;
+
+        const project: ImprovementProject = {
+          id: projId,
+          type: 'Improvement',
+          category: 'WHY_WHY',
+          title,
+          description: `การสืบค้นวิเคราะห์สาเหตุรากเหง้า Why-Why Analysis เชื่อมโยงจากประวัติงานซ่อม #${r.id} (เครื่อง ${r.machineId}) วันที่ ${r.date}`,
+          machineId: r.machineId,
+          startDate: r.date,
+          plannedEndDate: r.date,
+          status: 'เสร็จแล้ว',
+          technician: r.technician || 'ช่างประจำกะ',
+          technicians: r.technicians || [r.technician || 'ช่างประจำกะ'],
+          workLogs: [],
+          photoBefore: r.photo,
+          pdfFiles: files,
+          whyWhyData: {
+            problemStatement: r.symptoms,
+            phenomenon: r.symptoms,
+            why1: r.why1 || '',
+            why2: r.why2 || '',
+            why3: r.why3 || '',
+            why4: r.why4 || '',
+            why5: r.why5 || '',
+            rootCauseSummary: r.why5 || r.why4 || r.why3 || r.why2 || r.why1 || 'วิเคราะห์สาเหตุรากเหง้าตามลำดับ 5 Whys',
+            countermeasure: r.correctiveAction || 'มาตรการแก้ไขและป้องกันการเกิดซ้ำ',
+            standardizationRef: r.workOrderNo || r.workOrderId || `ใบงานซ่อม #${r.id}`
+          }
+        };
+        return project;
+      })
+      .filter((p): p is ImprovementProject => p !== null);
+  }, [repairs, improvements]);
+
+  // Handle incoming kaizenNavigationFilter (run only when a new filter is received)
+  useEffect(() => {
+    if (!kaizenNavigationFilter) return;
+
+    if (kaizenNavigationFilter.category === 'FA') setActiveTab('fa');
+    else if (kaizenNavigationFilter.category === 'OPL') setActiveTab('opl');
+    else if (kaizenNavigationFilter.category === 'WHY_WHY') setActiveTab('why_why');
+    else if (kaizenNavigationFilter.category === 'MP_INFO') setActiveTab('mp_info');
+    else if (kaizenNavigationFilter.category === 'KAIZEN') setActiveTab('kaizen');
+
+    if (kaizenNavigationFilter.machineId) {
+      setFilterMachine(kaizenNavigationFilter.machineId);
+    }
+    if (kaizenNavigationFilter.searchQuery) {
+      setSearchTerm(kaizenNavigationFilter.searchQuery);
+    }
+    if (kaizenNavigationFilter.projectId) {
+      const found = improvements.find(i => i.id === kaizenNavigationFilter.projectId)
+        || linkedBreakdownWhyProjects.find(i => i.id === kaizenNavigationFilter.projectId);
+      if (found) {
+        setSelectedProject(found);
+      }
+    } else if (kaizenNavigationFilter.sourceRepairId) {
+      const found = improvements.find(i => i.id === `why-breakdown-${kaizenNavigationFilter.sourceRepairId}` || i.id === `imp-${kaizenNavigationFilter.sourceRepairId}` || i.description?.includes(kaizenNavigationFilter.sourceRepairId))
+        || linkedBreakdownWhyProjects.find(i => i.id === `why-breakdown-${kaizenNavigationFilter.sourceRepairId}`);
+      if (found) {
+        setSelectedProject(found);
+      }
+    }
+
+    // Clear filter immediately after applying so subsequent edits/uploads don't reset state
+    clearKaizenNavigationFilter();
+  }, [kaizenNavigationFilter, improvements, linkedBreakdownWhyProjects, clearKaizenNavigationFilter]);
 
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -71,16 +216,43 @@ export const ImprovementPage: React.FC = () => {
         const matchTech = item.technician?.toLowerCase().includes(query);
         const matchPart = item.faData?.failurePartName?.toLowerCase().includes(query);
         const matchSop = item.oplData?.sopDocumentRef?.toLowerCase().includes(query);
-        const matchWhy = item.whyWhyData?.problemStatement?.toLowerCase().includes(query);
+        const matchWhy = item.whyWhyData?.problemStatement?.toLowerCase().includes(query) || item.whyWhyData?.rootCauseSummary?.toLowerCase().includes(query);
         const matchMp = item.mpData?.issueDescription?.toLowerCase().includes(query) || item.mpData?.proposedDesignChange?.toLowerCase().includes(query) || item.mpData?.mpCategory?.toLowerCase().includes(query);
+        const matchFile = item.pdfFiles?.some(f => f.name.toLowerCase().includes(query));
 
-        if (!matchTitle && !matchDesc && !matchMachine && !matchTech && !matchPart && !matchSop && !matchWhy && !matchMp) {
+        if (!matchTitle && !matchDesc && !matchMachine && !matchTech && !matchPart && !matchSop && !matchWhy && !matchMp && !matchFile) {
           return false;
         }
       }
       return true;
     });
   }, [improvements, filterTechnician, filterMachine, searchTerm]);
+
+  // Filter linked breakdown Why-Why projects
+  const filteredLinkedBreakdownWhy = useMemo(() => {
+    return linkedBreakdownWhyProjects.filter(item => {
+      if (filterTechnician !== 'all') {
+        const hasTech = item.technician === filterTechnician || item.technicians?.includes(filterTechnician);
+        if (!hasTech) return false;
+      }
+      if (filterMachine !== 'all' && item.machineId !== filterMachine) {
+        return false;
+      }
+      if (searchTerm.trim()) {
+        const query = searchTerm.toLowerCase();
+        const matchTitle = item.title?.toLowerCase().includes(query);
+        const matchDesc = item.description?.toLowerCase().includes(query);
+        const matchMachine = item.machineId?.toLowerCase().includes(query);
+        const matchTech = item.technician?.toLowerCase().includes(query);
+        const matchWhy = item.whyWhyData?.problemStatement?.toLowerCase().includes(query) || item.whyWhyData?.rootCauseSummary?.toLowerCase().includes(query);
+        const matchFile = item.pdfFiles?.some(f => f.name.toLowerCase().includes(query));
+        if (!matchTitle && !matchDesc && !matchMachine && !matchTech && !matchWhy && !matchFile) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [linkedBreakdownWhyProjects, filterTechnician, filterMachine, searchTerm]);
 
   // Separate by Category
   const kaizenProjects = useMemo(() => {
@@ -96,8 +268,11 @@ export const ImprovementPage: React.FC = () => {
   }, [filteredImprovements]);
 
   const whyWhyProjects = useMemo(() => {
-    return filteredImprovements.filter(i => i.category === 'WHY_WHY');
-  }, [filteredImprovements]);
+    return [
+      ...filteredImprovements.filter(i => i.category === 'WHY_WHY'),
+      ...filteredLinkedBreakdownWhy
+    ];
+  }, [filteredImprovements, filteredLinkedBreakdownWhy]);
 
   const mpProjects = useMemo(() => {
     return filteredImprovements.filter(i => i.category === 'MP_INFO');
@@ -178,14 +353,80 @@ export const ImprovementPage: React.FC = () => {
   };
 
   const handleUpdateSelectedProject = (updated: ImprovementProject) => {
-    setImprovements(prev => prev.map(p => p.id === updated.id ? updated : p));
+    setImprovements(prev => {
+      const exists = prev.some(p => p.id === updated.id);
+      if (exists) {
+        return prev.map(p => p.id === updated.id ? updated : p);
+      }
+      return [updated, ...prev];
+    });
     setSelectedProject(updated);
+
+    // Sync back to repair record if linked from breakdown
+    if (updated.id.startsWith('why-breakdown-')) {
+      const repairId = updated.id.replace('why-breakdown-', '');
+      setRepairs(prev => prev.map(r => {
+        if (r.id !== repairId) return r;
+        const newAttachments: RepairAttachmentItem[] = (updated.pdfFiles || []).map(f => ({
+          id: f.id,
+          category: 'WHY_WHY',
+          name: f.name,
+          content: f.content,
+          fileType: f.fileType === 'excel' ? 'excel' : 'pdf',
+          size: f.size,
+          uploadedAt: f.uploadedAt
+        }));
+
+        return {
+          ...r,
+          photo: updated.photoBefore || r.photo,
+          whyWhyFile: newAttachments.find(a => a.category === 'WHY_WHY') || r.whyWhyFile,
+          repairAttachments: [
+            ...(r.repairAttachments?.filter(a => !newAttachments.some(na => na.name === a.name)) || []),
+            ...newAttachments
+          ]
+        };
+      }));
+    }
   };
 
   const handleUpdateProject = (updated: ImprovementProject) => {
-    setImprovements(prev => prev.map(p => p.id === updated.id ? updated : p));
+    setImprovements(prev => {
+      const exists = prev.some(p => p.id === updated.id);
+      if (exists) {
+        return prev.map(p => p.id === updated.id ? updated : p);
+      }
+      return [updated, ...prev];
+    });
     if (selectedProject?.id === updated.id) {
       setSelectedProject(updated);
+    }
+
+    // Sync back to repair record if linked from breakdown
+    if (updated.id.startsWith('why-breakdown-')) {
+      const repairId = updated.id.replace('why-breakdown-', '');
+      setRepairs(prev => prev.map(r => {
+        if (r.id !== repairId) return r;
+        const newAttachments: RepairAttachmentItem[] = (updated.pdfFiles || []).map(f => ({
+          id: f.id,
+          category: 'WHY_WHY',
+          name: f.name,
+          content: f.content,
+          fileType: f.fileType === 'excel' ? 'excel' : 'pdf',
+          size: f.size,
+          uploadedAt: f.uploadedAt
+        }));
+
+        return {
+          ...r,
+          photo: updated.photoBefore || r.photo,
+          whyWhyFile: newAttachments.find(a => a.category === 'WHY_WHY') || r.whyWhyFile,
+          repairAttachments: [
+            ...(r.repairAttachments?.filter(a => !newAttachments.some(na => na.name === a.name)) || []),
+            ...newAttachments
+          ]
+        };
+      }));
     }
   };
 
@@ -197,6 +438,48 @@ export const ImprovementPage: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
+      {/* Kaizen Navigation from Repair Filter Banner */}
+      {kaizenNavigationFilter && (
+        <div 
+          id="banner-kaizen-navigation-linked"
+          className="bg-gradient-to-r from-cyan-950 via-slate-900 to-indigo-950 border-2 border-cyan-500/70 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xl animate-in fade-in slide-in-from-top-2"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shrink-0">
+              <Sparkles size={20} />
+            </div>
+            <div>
+              <div className="font-bold text-white text-sm flex items-center gap-2">
+                <span>📍 กำลังแสดงผลงานเชื่อมโยงจากประวัติงานซ่อมเบรกดาวน์</span>
+                {kaizenNavigationFilter.machineId && (
+                  <span className="font-mono text-cyan-300 bg-slate-900 px-2 py-0.5 rounded-md border border-cyan-500/30 text-xs">
+                    [{kaizenNavigationFilter.machineId}]
+                  </span>
+                )}
+                {kaizenNavigationFilter.category && (
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-950 text-indigo-300 border border-indigo-500/40 text-xs font-bold">
+                    {kaizenNavigationFilter.category}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                เปิดตรงจากหน้าประวัติงานซ่อมเบรกดาวน์เพื่อตรวจสอบเอกสาร FA, OPL หรือผลงาน Kaizen
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              clearKaizenNavigationFilter();
+              setFilterMachine('all');
+              setSearchTerm('');
+            }}
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold border border-slate-700 transition cursor-pointer shrink-0 self-end sm:self-auto"
+          >
+            ✕ ล้างตัวกรองและดูทั้งหมด
+          </button>
+        </div>
+      )}
       
       {/* Top Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl">

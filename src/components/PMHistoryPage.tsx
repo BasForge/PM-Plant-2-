@@ -5,7 +5,8 @@ import {
   Plus, Search, ClipboardCheck, Clock, ChevronDown, CheckCircle, 
   AlertTriangle, Filter, Trash2, Edit, FileSpreadsheet, Hourglass, 
   HelpCircle, Sparkles, TrendingUp, TrendingDown, Users, RefreshCw,
-  Bell, History, Send, ShieldAlert, ArrowRight, Package, PenLine, PlusCircle, Wrench
+  Bell, History, Send, ShieldAlert, ArrowRight, Package, PenLine, PlusCircle, Wrench,
+  CheckSquare, Square, X, AlertOctagon, Check
 } from 'lucide-react';
 import { PMRescheduleModal } from './PMRescheduleModal';
 import { 
@@ -36,6 +37,17 @@ export const PMHistoryPage: React.FC = () => {
 
   // Details popover/info
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Bulk Selection & Deletion System states
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [bulkDeleteScope, setBulkDeleteScope] = useState<'selected' | 'allFiltered' | 'allSystem'>('selected');
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
 
   // Form Inputs
   const [formMachine, setFormMachine] = useState(machines[0]?.id || '');
@@ -516,6 +528,89 @@ export const PMHistoryPage: React.FC = () => {
     return 0;
   });
 
+  // Bulk selection calculations & helpers
+  const allFilteredSelected = filteredPmJobs.length > 0 && filteredPmJobs.every(j => selectedJobIds.has(j.id));
+  const someFilteredSelected = filteredPmJobs.some(j => selectedJobIds.has(j.id));
+
+  const handleToggleSelectJob = (id: string) => {
+    setSelectedJobIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleToggleSelectAllFiltered = () => {
+    if (allFilteredSelected) {
+      setSelectedJobIds(prev => {
+        const next = new Set(prev);
+        filteredPmJobs.forEach(j => next.delete(j.id));
+        return next;
+      });
+    } else {
+      setSelectedJobIds(prev => {
+        const next = new Set(prev);
+        filteredPmJobs.forEach(j => next.add(j.id));
+        return next;
+      });
+    }
+  };
+
+  const handleSelectAllSystem = () => {
+    setSelectedJobIds(new Set(pmJobs.map(j => j.id)));
+    showToast(`✓ เลือกประวัติ PM ทั้งหมดในระบบ ${pmJobs.length} รายการ`);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedJobIds(new Set());
+  };
+
+  const getJobsToDelete = (): PMScheduleItem[] => {
+    if (bulkDeleteScope === 'allSystem') {
+      return pmJobs;
+    }
+    if (bulkDeleteScope === 'allFiltered') {
+      return filteredPmJobs;
+    }
+    return pmJobs.filter(j => selectedJobIds.has(j.id));
+  };
+
+  const handleExecuteBulkDelete = () => {
+    const targetJobs = getJobsToDelete();
+    if (targetJobs.length === 0) return;
+
+    // 1. Restore spare parts inventory stock
+    let tempSpareParts = [...spareParts];
+    let totalRestoredParts = 0;
+    for (const job of targetJobs) {
+      if (job.usedParts && job.usedParts.length > 0) {
+        for (const op of job.usedParts) {
+          tempSpareParts = tempSpareParts.map(sp => {
+            if (sp.id === op.partId) {
+              totalRestoredParts += op.quantity;
+              return { ...sp, quantity: sp.quantity + op.quantity };
+            }
+            return sp;
+          });
+        }
+      }
+    }
+    if (totalRestoredParts > 0) {
+      setSpareParts(tempSpareParts);
+    }
+
+    // 2. Remove jobs from schedules
+    const targetIdsSet = new Set(targetJobs.map(j => j.id));
+    setSchedules(prev => prev.filter(s => !targetIdsSet.has(s.id)));
+
+    // 3. Reset selection and modal
+    setSelectedJobIds(new Set());
+    setShowBulkDeleteModal(false);
+    setDeleteConfirmId(null);
+    showToast(`🗑️ ลบข้อมูลประวัติ PM สำเร็จแล้ว ${targetJobs.length} รายการ (คืนสต็อกอะไหล่ ${totalRestoredParts} ชิ้น)`);
+  };
+
   // Calculate high level KPI Metrics for the dashboard
   const { overdueJobs, rescheduledJobs, totalOverdueCount, totalRescheduledCount, criticalCount } = 
     getOverdueAndRescheduledSummary(pmJobs, todayStr);
@@ -539,6 +634,12 @@ export const PMHistoryPage: React.FC = () => {
 
   return (
     <div className="space-y-6" id="pm-history-page-root">
+      {/* Toast Alert Feedback */}
+      {toastMsg && (
+        <div className="fixed top-6 right-6 z-[120] bg-slate-900 border border-emerald-500/50 text-emerald-300 px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-top-2">
+          <span>{toastMsg}</span>
+        </div>
+      )}
       
       {/* HIGH VISIBILITY OVERDUE PM ALERT BANNER */}
       {totalOverdueCount > 0 && (
@@ -630,6 +731,23 @@ export const PMHistoryPage: React.FC = () => {
           >
             <FileSpreadsheet size={14} className="text-emerald-400" />
             <span>ออกรายงาน Excel (CSV)</span>
+          </button>
+
+          <button
+            id="btn-trigger-bulk-delete-pm"
+            onClick={() => {
+              if (selectedJobIds.size > 0) {
+                setBulkDeleteScope('selected');
+              } else {
+                setBulkDeleteScope('allFiltered');
+              }
+              setShowBulkDeleteModal(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 hover:border-rose-500/50 rounded-xl text-xs font-bold transition duration-150 cursor-pointer shadow-md"
+            title="ระบบลบข้อมูลประวัติ PM แบบเลือกทั้งหมด / เลือกลบตามต้องการ"
+          >
+            <Trash2 size={14} className="text-rose-400" />
+            <span>ลบข้อมูลประวัติ PM แบบเลือกทั้งหมด {selectedJobIds.size > 0 ? `(${selectedJobIds.size})` : ''}</span>
           </button>
 
           <button
@@ -874,12 +992,106 @@ export const PMHistoryPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="text-[10.5px] font-bold text-slate-400 bg-slate-900/60 px-2.5 py-1 rounded-lg border border-slate-800/50">
-            ค้นพบรายการประวัติบำรุงรักษา: <span className="text-cyan-450">{filteredPmJobs.length}</span> / {pmJobs.length} รายการ
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              id="btn-quick-select-all-filtered"
+              onClick={handleToggleSelectAllFiltered}
+              className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1.5 border cursor-pointer ${
+                allFilteredSelected
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                  : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+              }`}
+              title={allFilteredSelected ? "ยกเลิกเลือกทั้งหมด" : "เลือกทั้งหมดตามเงื่อนไขตัวกรอง"}
+            >
+              <CheckSquare size={13} className={allFilteredSelected ? 'text-rose-400' : 'text-slate-400'} />
+              <span>{allFilteredSelected ? 'ยกเลิกเลือกทั้งหมด' : `เลือกทั้งหมด (${filteredPmJobs.length})`}</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-quick-bulk-delete"
+              onClick={() => {
+                setBulkDeleteScope(selectedJobIds.size > 0 ? 'selected' : 'allFiltered');
+                setShowBulkDeleteModal(true);
+              }}
+              className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+              title="ลบข้อมูลประวัติ PM แบบเลือกทั้งหมด"
+            >
+              <Trash2 size={13} className="text-rose-400" />
+              <span>ลบประวัติ PM {selectedJobIds.size > 0 ? `(${selectedJobIds.size} ที่เลือก)` : 'แบบเลือกทั้งหมด'}</span>
+            </button>
+
+            <div className="text-[10.5px] font-bold text-slate-400 bg-slate-900/60 px-2.5 py-1 rounded-lg border border-slate-800/50">
+              ค้นพบรายการประวัติบำรุงรักษา: <span className="text-cyan-450">{filteredPmJobs.length}</span> / {pmJobs.length} รายการ
+            </div>
           </div>
         </div>
 
       </div>
+
+      {/* BULK ACTION BAR */}
+      {selectedJobIds.size > 0 && (
+        <div className="bg-gradient-to-r from-rose-950/70 via-slate-900 to-rose-950/70 border-2 border-rose-500/50 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xl animate-in slide-in-from-top-2 duration-150">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-300 font-black font-mono text-sm shrink-0">
+              {selectedJobIds.size}
+            </div>
+            <div>
+              <p className="text-xs font-black text-rose-200 flex items-center gap-2">
+                <span>เลือกประวัติ PM ไว้แล้ว {selectedJobIds.size} รายการ</span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  (จากทั้งหมด {filteredPmJobs.length} รายการที่แสดง)
+                </span>
+              </p>
+              <p className="text-[10px] text-slate-400">
+                คุณสามารถกดลบรายการที่เลือกทั้งหมด หรือเลือกลบทั้งหมดในระบบได้ในคลิกเดียว
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleToggleSelectAllFiltered}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold transition border border-slate-700 cursor-pointer"
+            >
+              {allFilteredSelected ? 'ยกเลิกเลือกตามตัวกรอง' : `เลือกทั้งหมดตามตัวกรอง (${filteredPmJobs.length})`}
+            </button>
+
+            {filteredPmJobs.length !== pmJobs.length && (
+              <button
+                type="button"
+                onClick={handleSelectAllSystem}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-bold transition border border-amber-500/30 cursor-pointer"
+              >
+                เลือกทั้งหมดในระบบ ({pmJobs.length})
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              className="px-3 py-1.5 text-slate-400 hover:text-white rounded-lg text-xs font-bold transition cursor-pointer"
+            >
+              ยกเลิก
+            </button>
+
+            <button
+              type="button"
+              id="btn-bulk-delete-selected-bar"
+              onClick={() => {
+                setBulkDeleteScope('selected');
+                setShowBulkDeleteModal(true);
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 active:scale-95 cursor-pointer"
+            >
+              <Trash2 size={14} />
+              <span>ลบที่เลือกทั้งหมด ({selectedJobIds.size} รายการ)</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* CORE LOGS TABULAR LISTING */}
       <div className="bg-[#0b1222] border border-slate-800 rounded-2xl overflow-hidden shadow-xl" id="pmhistory-table-container">
@@ -894,6 +1106,21 @@ export const PMHistoryPage: React.FC = () => {
             <table id="pm-history-logs-table" className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-[#080d1a] border-b border-slate-800 text-[10.5px] uppercase font-black text-slate-400 font-mono tracking-wider select-none">
+                  <th className="p-4 w-12 text-center" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      id="checkbox-pm-table-select-all"
+                      checked={allFilteredSelected}
+                      ref={el => {
+                        if (el) {
+                          el.indeterminate = !allFilteredSelected && someFilteredSelected;
+                        }
+                      }}
+                      onChange={handleToggleSelectAllFiltered}
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-rose-500 focus:ring-rose-500 cursor-pointer accent-rose-500"
+                      title={allFilteredSelected ? "ยกเลิกเลือกทั้งหมด" : "เลือกทั้งหมดตามตัวกรอง"}
+                    />
+                  </th>
                   <th className="p-4 w-32">วันที่ปฏิบัติงาน</th>
                   <th className="p-4 w-32">รหัสเละชื่อเครื่อง</th>
                   <th className="p-4">รายการแผน PM บำรุงรักษา</th>
@@ -973,12 +1200,25 @@ export const PMHistoryPage: React.FC = () => {
                     <tr 
                       key={job.id} 
                       className={`hover:bg-slate-900/40 transition group cursor-pointer ${
+                        selectedJobIds.has(job.id) ? 'bg-rose-950/25 border-l-4 border-l-rose-500' : ''
+                      } ${
                         job.id === selectedPmDetail?.id ? 'bg-cyan-500/5' : ''
                       } ${
                         jobIsOverdue ? 'bg-rose-950/20 hover:bg-rose-950/30' : ''
                       }`}
                       onClick={() => setSelectedPmDetail(job)}
                     >
+                      {/* Checkbox column */}
+                      <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedJobIds.has(job.id)}
+                          onChange={() => handleToggleSelectJob(job.id)}
+                          className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-rose-500 focus:ring-rose-500 cursor-pointer accent-rose-500"
+                          title="เลือกรายการนี้"
+                        />
+                      </td>
+
                       {/* Date */}
                       <td className="p-4 font-mono font-bold">
                         <div className="flex flex-col">
@@ -2043,6 +2283,193 @@ export const PMHistoryPage: React.FC = () => {
           onClose={() => setRescheduleTargetJob(null)} 
         />
       )}
+
+      {/* BULK DELETE CONFIRMATION MODAL */}
+      {showBulkDeleteModal && (() => {
+        const jobsToDelete = getJobsToDelete();
+        const partsCount = jobsToDelete.reduce((acc, j) => {
+          return acc + (j.usedParts?.reduce((sum, p) => sum + p.quantity, 0) || 0);
+        }, 0);
+        const totalCostSum = jobsToDelete.reduce((acc, j) => {
+          const partsCost = j.usedParts?.reduce((sum, p) => sum + p.totalCost, 0) || 0;
+          return acc + partsCost + (j.otherCost || 0);
+        }, 0);
+
+        return (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
+            <div className="bg-slate-900 border border-rose-500/50 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+              
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-rose-950/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/40">
+                    <AlertOctagon size={22} className="animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                      <span>ยืนยันการลบข้อมูลประวัติ PM</span>
+                      <span className="text-xs bg-rose-500 text-slate-950 font-black px-2 py-0.5 rounded-full font-mono">
+                        {jobsToDelete.length} รายการ
+                      </span>
+                    </h3>
+                    <p className="text-xs text-rose-300/80">
+                      ระบบลบประวัติการบำรุงรักษาเชิงป้องกันแบบกลุ่ม (Bulk Delete)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Scope Switcher */}
+              <div className="px-6 pt-5 pb-3 space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300">
+                    เลือกระดับขอบเขตการลบข้อมูล:
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBulkDeleteScope('selected')}
+                      disabled={selectedJobIds.size === 0}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                        bulkDeleteScope === 'selected'
+                          ? 'bg-rose-500/20 border-rose-500 text-rose-300 font-bold'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:bg-slate-900'
+                      }`}
+                    >
+                      <span className="text-[11px] font-bold">1. ตามที่ติ๊กเลือก</span>
+                      <span className="text-xs font-mono font-black text-white">
+                        {selectedJobIds.size} รายการ
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBulkDeleteScope('allFiltered')}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col gap-1 cursor-pointer ${
+                        bulkDeleteScope === 'allFiltered'
+                          ? 'bg-rose-500/20 border-rose-500 text-rose-300 font-bold'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:bg-slate-900'
+                      }`}
+                    >
+                      <span className="text-[11px] font-bold">2. ตามตัวกรองปัจจุบัน</span>
+                      <span className="text-xs font-mono font-black text-white">
+                        {filteredPmJobs.length} รายการ
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBulkDeleteScope('allSystem')}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col gap-1 cursor-pointer ${
+                        bulkDeleteScope === 'allSystem'
+                          ? 'bg-rose-500/20 border-rose-500 text-rose-300 font-bold'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:bg-slate-900'
+                      }`}
+                    >
+                      <span className="text-[11px] font-bold">3. ทั้งหมดในระบบ</span>
+                      <span className="text-xs font-mono font-black text-white">
+                        {pmJobs.length} รายการ
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Details Breakdown Card */}
+                <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-850">
+                    <span className="text-slate-400">จำนวนบันทึกงาน PM ที่จะถูกลบ:</span>
+                    <span className="font-mono font-black text-rose-400 text-sm">
+                      {jobsToDelete.length} งาน
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-850">
+                    <span className="text-slate-400 flex items-center gap-1.5">
+                      <Package size={13} className="text-emerald-400" />
+                      <span>คืนสต็อกอะไหล่กลับเข้าคลังพัสดุ:</span>
+                    </span>
+                    <span className="font-mono font-bold text-emerald-400">
+                      +{partsCount} ชิ้น
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400">มูลค่าค่าใช้จ่ายบำรุงรักษาที่เกี่ยวข้อง:</span>
+                    <span className="font-mono font-bold text-slate-300">
+                      ฿{totalCostSum.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sample items preview */}
+                {jobsToDelete.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-[10.5px] font-semibold text-slate-400">
+                      ตัวอย่างรายการที่จะถูกลบ:
+                    </span>
+                    <div className="max-h-28 overflow-y-auto space-y-1 pr-1 bg-slate-950/40 p-2 rounded-lg border border-slate-800/80">
+                      {jobsToDelete.slice(0, 4).map(j => (
+                        <div key={j.id} className="text-[11px] flex items-center justify-between text-slate-300 font-mono">
+                          <span className="truncate max-w-[280px]">
+                            {j.date} • {j.machineId} (แผน {pmPlans.find(p => p.id === j.pmPlanId)?.title || j.pmPlanId || 'PM'})
+                          </span>
+                          <span className="text-[9.5px] text-slate-500">{j.technician}</span>
+                        </div>
+                      ))}
+                      {jobsToDelete.length > 4 && (
+                        <p className="text-[10px] text-slate-500 font-sans italic text-center pt-1">
+                          ... และอีก {jobsToDelete.length - 4} รายการ
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Warning box */}
+                <div className="bg-rose-950/30 border border-rose-500/30 p-3 rounded-xl flex items-start gap-2.5 text-rose-300 text-xs">
+                  <ShieldAlert size={16} className="text-rose-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-rose-200">คำเตือนความปลอดภัยของข้อมูล:</p>
+                    <p className="text-[11px] text-rose-300/80 mt-0.5">
+                      เมื่อยืนยันแล้ว ข้อมูลประวัติ PM และสถิติเวลาของรายการที่เลือกจะถูกลบออกจากฐานข้อมูลทันที โดยระบบจะคืนยอดจำนวนอะไหล่กลับเข้าสต็อกให้อัตโนมัติ
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-slate-800 bg-slate-950 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+
+                <button
+                  type="button"
+                  id="btn-confirm-execute-bulk-delete"
+                  disabled={jobsToDelete.length === 0}
+                  onClick={handleExecuteBulkDelete}
+                  className="px-5 py-2.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white rounded-xl text-xs font-black transition flex items-center gap-2 shadow-lg shadow-rose-600/30 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <Trash2 size={14} />
+                  <span>ยืนยันลบถาวร ({jobsToDelete.length} รายการ)</span>
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

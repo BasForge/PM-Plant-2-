@@ -12,6 +12,7 @@ export interface Machine {
   remark?: string; // หมายเหตุ เช่น "ยกเลิกใช้", "ใช้งบโรง 1", "สลัด"
   status?: 'ปกติ' | 'เสีย/ซ่อม' | 'ยกเลิกใช้'; // สถานะ
   plannedProductionHours?: number; // เวลาที่วางแผนให้เครื่องจักรพร้อมสำหรับการผลิต Planned Production Time (ชม./เดือน เช่น 600 ชม.)
+  ranking?: 'A' | 'B' | 'C' | string; // Rank ระดับความสำคัญของเครื่องจักร เช่น A (วิกฤต), B (สำคัญ), C (ทั่วไป)
 }
 
 export type PMFrequency = 'รายวัน' | 'รายสัปดาห์' | 'ราย 2 สัปดาห์' | 'รายเดือน' | 'ราย 3 เดือน' | 'ราย 6 เดือน' | 'รายปี';
@@ -229,9 +230,35 @@ export interface RepairLog {
   excelFile?: { name: string; content: string }; // ไฟล์ Excel แนบประกอบใบซ่อม (Base64)
   workOrderId?: string; // รหัสใบสั่งงาน Work Order ที่ผูกกับงานซ่อมนี้ (No Work Order - No Work)
   workOrderNo?: string; // เลขที่ใบสั่งงาน เช่น WO-2026-0001
+  faFile?: RepairAttachmentItem; // เอกสาร Failure Analysis
+  oplFile?: RepairAttachmentItem; // เอกสาร One Point Lesson
+  whyWhyFile?: RepairAttachmentItem; // เอกสาร Why-Why Analysis
+  kaizenFile?: RepairAttachmentItem; // เอกสารโครงการ Kaizen
+  repairAttachments?: RepairAttachmentItem[]; // ไฟล์แนบประกอบใบซ่อมทั้งหมด (FA, OPL, Why-Why, Kaizen)
 }
 
 export type KaizenCategory = 'KAIZEN' | 'OPL' | 'FA' | 'WHY_WHY' | 'MP_INFO';
+
+export interface RepairAttachmentItem {
+  id: string;
+  category: 'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN';
+  name: string;
+  content: string; // Base64 or Blob URL or file link
+  fileType?: 'pdf' | 'excel' | 'image' | 'word' | 'other';
+  size?: string;
+  uploadedAt?: string;
+  uploadedBy?: string;
+  notes?: string;
+  kaizenProjectId?: string; // ID ของโครงการ Kaizen ในแถบ Kaizen ที่เชื่อมโยง
+}
+
+export interface KaizenNavigationFilter {
+  category?: KaizenCategory;
+  machineId?: string;
+  projectId?: string;
+  searchQuery?: string;
+  sourceRepairId?: string;
+}
 
 export interface PDFFileAttachment {
   id: string;

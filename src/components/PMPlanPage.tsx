@@ -1304,10 +1304,6 @@ export const PMPlanPage: React.FC = () => {
           machines={machines}
           selectedMachineId={selectedMachineId}
           onClose={() => setShowExcelImportModal(false)}
-          onImport={(importedPlans) => {
-            setPmPlans(prev => [...prev, ...importedPlans]);
-            alert(`นำเข้าแผนงาน PM สำเร็จจำนวน ${importedPlans.length} แผน เข้าสู่เครื่องจักรที่ระบุแล้ว!`);
-          }}
         />
       )}
 

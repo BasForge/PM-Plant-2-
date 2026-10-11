@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   RepairLog, 
@@ -8,13 +8,17 @@ import {
   getRepairStoppageType,
   SparePart,
   UsedPartItem,
-  WorkOrder
+  WorkOrder,
+  RepairAttachmentItem,
+  PDFFileAttachment,
+  ImprovementProject
 } from '../types';
 import { 
   Plus, Search, SlidersHorizontal, Image as ImageIcon, 
   Trash2, AlertTriangle, CheckCircle, HelpCircle, ArrowUpDown,
   Edit, FileSpreadsheet, Upload, X, MessageSquare, Tag, Check, Sparkles,
-  CheckCircle2, Clock, Wrench, Package, PenLine, PlusCircle, CheckSquare
+  CheckCircle2, Clock, Wrench, Package, PenLine, PlusCircle, CheckSquare,
+  FileText, BookOpen, ExternalLink, Paperclip, Eye, Download
 } from 'lucide-react';
 import { notifyRepairOpened, notifyRepairClosed, sendLineNotification } from '../utils/lineNotify';
 import { compressImageFile } from '../utils/imageUtils';
@@ -23,12 +27,14 @@ import * as XLSX from 'xlsx';
 import { LineTextImportModal } from './repair/LineTextImportModal';
 import { DateTimePicker24H } from './common/DateTimePicker24H';
 import { WorkOrderDetailModal } from './workOrder/WorkOrderDetailModal';
+import { PDFViewerModal } from './kaizen/PDFViewerModal';
 
 export const RepairPage: React.FC = () => {
   const { 
     repairs, setRepairs, machines, technicians, spareParts, setSpareParts, settings, canEdit, canDelete,
     repairNavigationFilter, clearRepairNavigationFilter, setActivePage,
-    workOrders, createEmergencyBreakdownWorkOrder
+    workOrders, setWorkOrders, createEmergencyBreakdownWorkOrder,
+    navigateToKaizen, improvements, setImprovements
   } = useApp();
 
   // Search/Filters states
@@ -80,6 +86,21 @@ export const RepairPage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState<boolean>(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  // Auto-delete linked Work Order state when deleting repairs
+  const [deleteLinkedWorkOrder, setDeleteLinkedWorkOrder] = useState<boolean>(true);
+
+  // FA, OPL, Kaizen attachments states
+  const [formAttachments, setFormAttachments] = useState<RepairAttachmentItem[]>([]);
+  const [formSyncToKaizen, setFormSyncToKaizen] = useState<boolean>(true);
+  const [activeAttachmentTab, setActiveAttachmentTab] = useState<'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN'>('FA');
+  const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
+
+  // Quick Attachment Modal for any repair directly from table/row/detail
+  const [repairForQuickAttachment, setRepairForQuickAttachment] = useState<RepairLog | null>(null);
+
+  // Preview modal for attachments (PDF, Excel)
+  const [previewPDF, setPreviewPDF] = useState<PDFFileAttachment | null>(null);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -317,14 +338,27 @@ export const RepairPage: React.FC = () => {
     e.target.value = '';
   };
 
-  // Excel file attachment helper
+  // Excel file attachment helper (also auto-links to Kaizen Why-Why)
   const handleExcelAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
+        const content = reader.result as string;
         setFormExcelName(file.name);
-        setFormExcelContent(reader.result as string);
+        setFormExcelContent(content);
+
+        // Auto-register as WHY_WHY attachment so it synchronizes directly to the Kaizen Why-Why tab
+        const whyAtt: RepairAttachmentItem = {
+          id: `att-why-${Date.now()}`,
+          category: 'WHY_WHY',
+          name: file.name,
+          content,
+          fileType: 'excel',
+          size: `${(file.size / 1024).toFixed(1)} KB`,
+          uploadedAt: new Date().toISOString()
+        };
+        setFormAttachments(prev => [...prev.filter(a => a.name !== file.name), whyAtt]);
       };
       reader.readAsDataURL(file);
     }
@@ -415,10 +449,20 @@ export const RepairPage: React.FC = () => {
         otherCost: Number(formOtherCost) || 0,
         excelFile: formExcelName && formExcelContent ? { name: formExcelName, content: formExcelContent } : undefined,
         workOrderId: formWorkOrderId || undefined,
-        workOrderNo: formWorkOrderNo || formWorkOrderId || undefined
+        workOrderNo: formWorkOrderNo || formWorkOrderId || undefined,
+        faFile: formAttachments.find(a => a.category === 'FA'),
+        oplFile: formAttachments.find(a => a.category === 'OPL'),
+        whyWhyFile: formAttachments.find(a => a.category === 'WHY_WHY'),
+        kaizenFile: formAttachments.find(a => a.category === 'KAIZEN'),
+        repairAttachments: formAttachments
       };
 
       setRepairs(prev => prev.map(r => r.id === editingId ? updatedRepair : r));
+
+      // Sync attachments to Kaizen improvements tab
+      if (formSyncToKaizen && formAttachments.length > 0) {
+        formAttachments.forEach(att => syncAttachmentToKaizen(att, updatedRepair));
+      }
 
       if (isStatusChangedToClosed) {
         const machineObj = machines.find(m => m.id === formMachine);
@@ -427,8 +471,9 @@ export const RepairPage: React.FC = () => {
         notifyRepairClosed(updatedRepair, machineObj?.name || '', stdMttr).catch(console.error);
       }
     } else {
+      const newLogId = `rep-${Date.now()}`;
       const newLog: RepairLog = {
-        id: `rep-${Date.now()}`,
+        id: newLogId,
         type: 'Repair',
         technician: primaryTech,
         technicians: formTechnicians,
@@ -452,9 +497,19 @@ export const RepairPage: React.FC = () => {
         otherCost: Number(formOtherCost) || 0,
         excelFile: formExcelName && formExcelContent ? { name: formExcelName, content: formExcelContent } : undefined,
         workOrderId: formWorkOrderId || undefined,
-        workOrderNo: formWorkOrderNo || formWorkOrderId || undefined
+        workOrderNo: formWorkOrderNo || formWorkOrderId || undefined,
+        faFile: formAttachments.find(a => a.category === 'FA'),
+        oplFile: formAttachments.find(a => a.category === 'OPL'),
+        whyWhyFile: formAttachments.find(a => a.category === 'WHY_WHY'),
+        kaizenFile: formAttachments.find(a => a.category === 'KAIZEN'),
+        repairAttachments: formAttachments
       };
       setRepairs(prev => [newLog, ...prev]);
+
+      // Sync attachments to Kaizen improvements tab
+      if (formSyncToKaizen && formAttachments.length > 0) {
+        formAttachments.forEach(att => syncAttachmentToKaizen(att, newLog));
+      }
 
       // Notify LINE if enabled
       const machineObj = machines.find(m => m.id === formMachine);
@@ -498,6 +553,208 @@ export const RepairPage: React.FC = () => {
     setIsStoppageManual(false);
     setFormWorkOrderId('');
     setFormWorkOrderNo('');
+    setFormAttachments([]);
+    setFormSyncToKaizen(true);
+    setActiveAttachmentTab('FA');
+  };
+
+  // Helper to sync FA, OPL, or Kaizen attachment to Improvement projects in Kaizen tab
+  const syncAttachmentToKaizen = (att: RepairAttachmentItem, repLog: RepairLog) => {
+    const existingProj = att.kaizenProjectId ? improvements.find(i => i.id === att.kaizenProjectId) : null;
+    const projId = existingProj?.id || `${att.category}-${repLog.machineId}-${Date.now().toString().slice(-5)}`;
+    att.kaizenProjectId = projId;
+
+    const newProj: ImprovementProject = {
+      id: projId,
+      type: 'Improvement',
+      category: att.category,
+      title: att.category === 'FA'
+        ? `[FA] วิเคราะห์ความเสียหาย ${repLog.machineId}: ${repLog.symptoms.slice(0, 45)}`
+        : att.category === 'OPL'
+        ? `[OPL] บทเรียนจุดเดียว ${repLog.machineId}: ${repLog.correctiveAction ? repLog.correctiveAction.slice(0, 45) : repLog.symptoms.slice(0, 45)}`
+        : att.category === 'WHY_WHY'
+        ? `[Why-Why] วิเคราะห์รากเหง้า ${repLog.machineId}: ${repLog.symptoms.slice(0, 45)}`
+        : `[Kaizen] ปรับปรุงลดการหยุดเครื่อง ${repLog.machineId}: ${repLog.symptoms.slice(0, 45)}`,
+      description: `เอกสาร ${att.category} แนบประกอบจากบันทึกงานซ่อมเบรกดาวน์ #${repLog.id} (เครื่อง ${repLog.machineId}) วันที่ ${repLog.date}`,
+      machineId: repLog.machineId,
+      startDate: repLog.date,
+      plannedEndDate: repLog.date,
+      workLogs: [],
+      status: 'เสร็จแล้ว',
+      technician: repLog.technician || 'ช่างประจำกะ',
+      photoBefore: repLog.photo,
+      pdfFiles: [
+        {
+          id: `pdf-${att.id}`,
+          name: att.name,
+          content: att.content,
+          fileType: att.fileType === 'excel' ? 'excel' : 'pdf',
+          size: att.size,
+          uploadedAt: att.uploadedAt
+        },
+        ...(repLog.excelFile && repLog.excelFile.name !== att.name ? [{
+          id: `excel-${repLog.id}`,
+          name: repLog.excelFile.name,
+          content: repLog.excelFile.content,
+          fileType: 'excel' as const,
+          size: 'ไฟล์แนบ Excel',
+          uploadedAt: repLog.date
+        }] : []),
+        ...(repLog.whyWhyFile && repLog.whyWhyFile.name !== att.name ? [{
+          id: `why-${repLog.whyWhyFile.id}`,
+          name: repLog.whyWhyFile.name,
+          content: repLog.whyWhyFile.content,
+          fileType: (repLog.whyWhyFile.fileType === 'excel' ? 'excel' : 'pdf') as 'excel' | 'pdf',
+          size: repLog.whyWhyFile.size || 'เอกสาร Why-Why',
+          uploadedAt: repLog.whyWhyFile.uploadedAt || repLog.date
+        }] : [])
+      ],
+      faData: att.category === 'FA' ? {
+        failurePartName: repLog.symptoms.slice(0, 40),
+        failureMode: 'การแตกหัก (Fracture/Crack)',
+        rootCauseCategory: 'การบำรุงรักษา (Maintenance)',
+        mechanismDescription: repLog.why1 || 'ความเสียหายและการสึกหรอของชิ้นส่วน',
+        immediateContainment: repLog.correctiveAction || 'แก้ไขและเปลี่ยนชิ้นส่วนหน้างาน',
+        permanentAction: repLog.why5 || repLog.correctiveAction || 'กำหนดความถี่ตรวจสอบและเฝ้าระวัง'
+      } : undefined,
+      oplData: att.category === 'OPL' ? {
+        category: 'การแก้ไขปัญหา (Troubleshooting)',
+        purpose: `การป้องกันการชำรุดซ้ำ [${repLog.machineId}]`,
+        keyPoints: [repLog.correctiveAction || repLog.why1 || 'ปฏิบัติตามมาตรฐานคู่มือและตรวจสอบก่อนเดินเครื่อง'],
+        targetAudience: 'ทีมช่างซ่อมบำรุง และพนักงานเดินเครื่อง (Operator)'
+      } : undefined,
+      whyWhyData: att.category === 'WHY_WHY' ? {
+        problemStatement: repLog.symptoms,
+        phenomenon: repLog.symptoms,
+        why1: repLog.why1 || '',
+        why2: repLog.why2 || '',
+        why3: repLog.why3 || '',
+        why4: repLog.why4 || '',
+        why5: repLog.why5 || '',
+        rootCauseSummary: repLog.why5 || repLog.why4 || repLog.why3 || repLog.why2 || repLog.why1 || 'วิเคราะห์สาเหตุรากเหง้าตามลำดับ 5 Whys',
+        countermeasure: repLog.correctiveAction || 'มาตรการแก้ไขและป้องกันการเกิดซ้ำ',
+        standardizationRef: repLog.workOrderNo || repLog.workOrderId || `BD-REF-${repLog.id}`
+      } : undefined
+    };
+
+    setImprovements(prev => {
+      const exists = prev.some(p => p.id === projId);
+      if (exists) {
+        return prev.map(p => p.id === projId ? newProj : p);
+      }
+      return [newProj, ...prev];
+    });
+  };
+
+  const handleAttachmentUpload = (file: File, category: 'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN', targetRepair?: RepairLog) => {
+    const reader = new FileReader();
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
+    let fileType: 'pdf' | 'excel' | 'image' | 'word' | 'other' = 'other';
+    if (fileExt === 'pdf') fileType = 'pdf';
+    else if (['xlsx', 'xls', 'csv'].includes(fileExt || '')) fileType = 'excel';
+    else if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(fileExt || '')) fileType = 'image';
+    else if (['doc', 'docx'].includes(fileExt || '')) fileType = 'word';
+
+    // Auto-detect WHY_WHY if filename contains "why"
+    let effectiveCategory = category;
+    if (effectiveCategory !== 'WHY_WHY' && /why/i.test(file.name)) {
+      effectiveCategory = 'WHY_WHY';
+    }
+
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      const newAtt: RepairAttachmentItem = {
+        id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        category: effectiveCategory,
+        name: file.name,
+        content,
+        fileType,
+        size: `${(file.size / 1024).toFixed(1)} KB`,
+        uploadedAt: new Date().toISOString()
+      };
+
+      if (targetRepair) {
+        // Quick attachment directly for targetRepair
+        setRepairs(prevRepairs => {
+          const currentTarget = prevRepairs.find(r => r.id === targetRepair.id) || targetRepair;
+          const existingAtts = currentTarget.repairAttachments || [
+            ...(currentTarget.faFile ? [currentTarget.faFile] : []),
+            ...(currentTarget.oplFile ? [currentTarget.oplFile] : []),
+            ...(currentTarget.whyWhyFile ? [currentTarget.whyWhyFile] : []),
+            ...(currentTarget.kaizenFile ? [currentTarget.kaizenFile] : [])
+          ];
+          const updatedAtts = [...existingAtts.filter(a => a.id !== newAtt.id), newAtt];
+          const updated: RepairLog = {
+            ...currentTarget,
+            faFile: effectiveCategory === 'FA' ? newAtt : currentTarget.faFile,
+            oplFile: effectiveCategory === 'OPL' ? newAtt : currentTarget.oplFile,
+            whyWhyFile: effectiveCategory === 'WHY_WHY' ? newAtt : currentTarget.whyWhyFile,
+            kaizenFile: effectiveCategory === 'KAIZEN' ? newAtt : currentTarget.kaizenFile,
+            repairAttachments: updatedAtts
+          };
+          syncAttachmentToKaizen(newAtt, updated);
+          setRepairForQuickAttachment(updated);
+          if (selectedRepairDetail?.id === targetRepair.id) {
+            setSelectedRepairDetail(updated);
+          }
+          return prevRepairs.map(r => r.id === targetRepair.id ? updated : r);
+        });
+        showToast(`📎 แนบไฟล์ ${effectiveCategory}: ${file.name} และเชื่อมโยงไปแถบ Kaizen เรียบร้อย`);
+      } else {
+        // Inside Create / Edit Form
+        setFormAttachments(prev => [...prev.filter(a => a.category !== effectiveCategory || a.name !== file.name), newAtt]);
+        showToast(`📎 เพิ่มไฟล์ ${effectiveCategory}: ${file.name} เรียบร้อยแล้ว`);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePasteEvent = (e: React.ClipboardEvent, category: 'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN', targetRepair?: RepairLog) => {
+    if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+      e.preventDefault();
+      const file = e.clipboardData.files[0];
+      handleAttachmentUpload(file, category, targetRepair);
+    }
+  };
+
+  const handleRemoveAttachment = (id: string, targetRepair?: RepairLog) => {
+    if (targetRepair) {
+      const existingAtts = targetRepair.repairAttachments || [
+        ...(targetRepair.faFile ? [targetRepair.faFile] : []),
+        ...(targetRepair.oplFile ? [targetRepair.oplFile] : []),
+        ...(targetRepair.whyWhyFile ? [targetRepair.whyWhyFile] : []),
+        ...(targetRepair.kaizenFile ? [targetRepair.kaizenFile] : [])
+      ];
+      const updatedAtts = existingAtts.filter(a => a.id !== id);
+      const updated: RepairLog = {
+        ...targetRepair,
+        faFile: targetRepair.faFile?.id === id ? undefined : targetRepair.faFile,
+        oplFile: targetRepair.oplFile?.id === id ? undefined : targetRepair.oplFile,
+        whyWhyFile: targetRepair.whyWhyFile?.id === id ? undefined : targetRepair.whyWhyFile,
+        kaizenFile: targetRepair.kaizenFile?.id === id ? undefined : targetRepair.kaizenFile,
+        repairAttachments: updatedAtts
+      };
+      setRepairs(prev => prev.map(r => r.id === targetRepair.id ? updated : r));
+      setRepairForQuickAttachment(updated);
+      if (selectedRepairDetail?.id === targetRepair.id) {
+        setSelectedRepairDetail(updated);
+      }
+      showToast('🗑️ ลบไฟล์แนบเรียบร้อย');
+    } else {
+      setFormAttachments(prev => prev.filter(a => a.id !== id));
+      showToast('🗑️ นำไฟล์แนบออกจากรายการแล้ว');
+    }
+  };
+
+  const handleNavigateToKaizenProject = (att: RepairAttachmentItem, machineId: string) => {
+    navigateToKaizen({
+      category: att.category,
+      machineId,
+      projectId: att.kaizenProjectId,
+      searchQuery: att.name
+    });
+    setSelectedRepairDetail(null);
+    setRepairForQuickAttachment(null);
   };
 
   const handleEditClick = (log: RepairLog) => {
@@ -548,12 +805,77 @@ export const RepairPage: React.FC = () => {
     setCustomPartPrice(0);
     setCustomPartUnit('ชิ้น');
     setSaveCustomToMaster(false);
+
+    // Initialize FA/OPL/Kaizen attachments from existing log
+    const initialAtts = log.repairAttachments && log.repairAttachments.length > 0
+      ? log.repairAttachments
+      : [
+          ...(log.faFile ? [log.faFile] : []),
+          ...(log.oplFile ? [log.oplFile] : []),
+          ...(log.whyWhyFile ? [log.whyWhyFile] : []),
+          ...(log.kaizenFile ? [log.kaizenFile] : [])
+        ];
+    setFormAttachments(initialAtts);
+    setFormSyncToKaizen(true);
+    setActiveAttachmentTab(log.whyWhyFile ? 'WHY_WHY' : log.faFile ? 'FA' : log.oplFile ? 'OPL' : log.kaizenFile ? 'KAIZEN' : 'WHY_WHY');
     
     setShowFormModal(true);
   };
 
   const handleDeleteRepair = (id: string) => {
     setDeleteConfirmId(id);
+  };
+
+  // Detect breakdown repairs with deleted / orphaned work orders
+  const orphanedDeletedRepairs = useMemo(() => {
+    return repairs.filter(r => {
+      const woRef = r.workOrderNo || r.workOrderId;
+      if (!woRef) return false;
+      const exists = workOrders.some(w => 
+        w.id === woRef || 
+        (w.workOrderNo && w.workOrderNo === woRef) ||
+        (r.workOrderId && (w.id === r.workOrderId || w.workOrderNo === r.workOrderId))
+      );
+      return !exists;
+    });
+  }, [repairs, workOrders]);
+
+  const handleBatchCleanOrphanedWOs = () => {
+    const orphanedIds = new Set(orphanedDeletedRepairs.map(r => r.id));
+    setRepairs(prev => prev.map(r => {
+      if (orphanedIds.has(r.id)) {
+        return { ...r, workOrderId: undefined, workOrderNo: undefined };
+      }
+      return r;
+    }));
+    showToast(`🧹 ล้างการเชื่อมโยงใบงาน WO ที่โดนลบไปแล้ว ${orphanedIds.size} รายการ เรียบร้อยแล้ว`);
+  };
+
+  const handleBatchRecreateOrphanedWOs = () => {
+    let createdCount = 0;
+    const updatedMap = new Map<string, string>();
+
+    orphanedDeletedRepairs.forEach(r => {
+      const created = createEmergencyBreakdownWorkOrder({
+        machineId: r.machineId,
+        title: `ซ่อมฉุกเฉิน ${r.machineId}: ${r.symptoms.slice(0, 35)}`,
+        symptoms: r.symptoms,
+        leadTech: r.technician || (r.technicians && r.technicians[0]) || 'ช่างประจำกะ',
+        targetDurationMins: r.duration || 60
+      });
+      updatedMap.set(r.id, created.id);
+      createdCount++;
+    });
+
+    setRepairs(prev => prev.map(r => {
+      const newWOId = updatedMap.get(r.id);
+      if (newWOId) {
+        return { ...r, workOrderId: newWOId, workOrderNo: newWOId };
+      }
+      return r;
+    }));
+
+    showToast(`⚡ ออกใบสั่งงานฉุกเฉินใหม่ครบทั้ง ${createdCount} รายการ เรียบร้อยแล้ว`);
   };
 
   // Get machine standard MTTR by prefix or fallback
@@ -1117,12 +1439,26 @@ export const RepairPage: React.FC = () => {
       setSpareParts(tempSpareParts);
     }
 
+    // Clean up linked Work Orders if requested
+    if (deleteLinkedWorkOrder) {
+      const linkedWoIds = new Set<string>();
+      targetLogs.forEach(r => {
+        if (r.workOrderId) linkedWoIds.add(r.workOrderId);
+        if (r.workOrderNo) linkedWoIds.add(r.workOrderNo);
+      });
+      setWorkOrders(prev => prev.filter(w => {
+        if (w.sourceRefId && selectedIds.has(w.sourceRefId)) return false;
+        if (linkedWoIds.has(w.id) || (w.workOrderNo && linkedWoIds.has(w.workOrderNo))) return false;
+        return true;
+      }));
+    }
+
     // Remove selected repair records
     setRepairs(prev => prev.filter(r => !selectedIds.has(r.id)));
     setSelectedIds(new Set());
     setIsBulkDeleteModalOpen(false);
 
-    showToast(`🗑️ ลบประวัติงานซ่อมจำนวน ${count} รายการเรียบร้อยแล้ว${partsRestored > 0 ? ` (คืนอะไหล่เข้าคลัง ${partsRestored} ชิ้น)` : ''}`);
+    showToast(`🗑️ ลบประวัติงานซ่อมจำนวน ${count} รายการเรียบร้อยแล้ว${partsRestored > 0 ? ` (คืนอะไหล่เข้าคลัง ${partsRestored} ชิ้น)` : ''}${deleteLinkedWorkOrder ? ' (พร้อมลบใบงาน WO ที่เกี่ยวข้อง)' : ''}`);
   };
 
   return (
@@ -1552,6 +1888,51 @@ export const RepairPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Orphaned Deleted WO Notification & 1-Click Action Bar */}
+      {orphanedDeletedRepairs.length > 0 && (
+        <div 
+          id="banner-orphaned-wo-cleanup"
+          className="bg-amber-950/50 border border-amber-500/50 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-amber-200 shadow-lg shadow-amber-950/40 animate-in fade-in"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-bold text-white text-sm flex items-center gap-2">
+                <span>ตรวจพบงานซ่อมที่ใบสั่งงาน WO โดนลบไปแล้ว</span>
+                <span className="px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 text-xs font-mono font-bold border border-rose-800/50">
+                  {orphanedDeletedRepairs.length} รายการ
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-300/80 mt-0.5 leading-relaxed">
+                เนื่องจากใบสั่งงานถูกลบออกจากระบบ CMMS ตารางจะแสดงสถานะ <span className="text-rose-300 font-mono">(WO เดิมถูกลบ)</span> ท่านสามารถกดล้างการเชื่อมโยงเดิม หรือออก Fast-Track Emergency WO ใหม่ทันที
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0 self-end md:self-auto">
+            <button
+              type="button"
+              id="btn-clean-all-orphaned-wos"
+              onClick={handleBatchCleanOrphanedWOs}
+              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-600 text-xs font-semibold cursor-pointer transition active:scale-95 shadow-sm"
+              title="ล้างเลข WO เดิมที่ถูกลบไปแล้วทั้งหมด ให้กลับเป็นปุ่ม + ออก WO ทั่วไป"
+            >
+              🧹 ล้างการเชื่อมโยง ({orphanedDeletedRepairs.length})
+            </button>
+            <button
+              type="button"
+              id="btn-recreate-all-orphaned-wos"
+              onClick={handleBatchRecreateOrphanedWOs}
+              className="px-4 py-1.5 bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-slate-950 font-black rounded-xl text-xs cursor-pointer shadow-md shadow-rose-950/50 transition active:scale-95"
+              title="ออก Fast-Track Emergency Work Order ใหม่สำหรับทุกงานซ่อมที่ WO เดิมโดนลบ"
+            >
+              ⚡ ออก WO ใหม่ทั้งหมด ({orphanedDeletedRepairs.length})
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* BULK ACTION TOOLBAR (เมื่อเลือกรายการประวัติซ่อมอย่างน้อย 1 รายการ) */}
       {selectedIds.size > 0 && (
         <div 
@@ -1775,43 +2156,70 @@ export const RepairPage: React.FC = () => {
 
                       {/* Work Order Column (No Work Order - No Work) */}
                       <td className="py-4 px-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        {r.workOrderNo || r.workOrderId ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const wo = workOrders.find(w => w.id === r.workOrderId || w.id === r.workOrderNo);
-                              if (wo) {
-                                setSelectedDetailWO(wo);
-                                setIsDetailWOModalOpen(true);
-                              } else {
-                                showToast(`ใบสั่งงาน ${r.workOrderNo || r.workOrderId}`);
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-900 transition shadow-xs cursor-pointer"
-                            title="คลิกดูใบสั่งงาน Work Order"
-                          >
-                            <span>🎯 {r.workOrderNo || r.workOrderId}</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const created = createEmergencyBreakdownWorkOrder({
-                                machineId: r.machineId,
-                                title: `ซ่อมฉุกเฉิน ${r.machineId}: ${r.symptoms.slice(0, 35)}`,
-                                symptoms: r.symptoms,
-                                leadTech: r.technician || 'ช่างประจำกะ',
-                                targetDurationMins: r.duration || 60
-                              });
-                              setRepairs(prev => prev.map(rep => rep.id === r.id ? { ...rep, workOrderId: created.id, workOrderNo: created.id } : rep));
-                              showToast(`⚡ ออกใบสั่งงานฉุกเฉิน ${created.id} เรียบร้อยแล้ว`);
-                            }}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/40 transition cursor-pointer"
-                            title="กดเพื่อออก Fast-Track Emergency WO ทันทีให้ถูกต้องตามวินัย CMMS"
-                          >
-                            <span>+ ออก WO</span>
-                          </button>
-                        )}
+                        {(() => {
+                          const activeWO = workOrders.find(w => 
+                            w.id === r.workOrderId || 
+                            w.id === r.workOrderNo || 
+                            (w.workOrderNo && (w.workOrderNo === r.workOrderNo || w.workOrderNo === r.workOrderId))
+                          );
+
+                          if (activeWO) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDetailWO(activeWO);
+                                  setIsDetailWOModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-900 transition shadow-xs cursor-pointer"
+                                title={`คลิกดูใบสั่งงาน Work Order #${activeWO.workOrderNo || activeWO.id} (${activeWO.status})`}
+                              >
+                                <span>🎯 {activeWO.workOrderNo || activeWO.id}</span>
+                              </button>
+                            );
+                          }
+
+                          // If the repair references a workOrder that was DELETED from system
+                          const hadDeletedWO = Boolean(r.workOrderNo || r.workOrderId);
+                          const deletedId = r.workOrderNo || r.workOrderId;
+
+                          return (
+                            <div className="inline-flex flex-col items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const created = createEmergencyBreakdownWorkOrder({
+                                    machineId: r.machineId,
+                                    title: `ซ่อมฉุกเฉิน ${r.machineId}: ${r.symptoms.slice(0, 35)}`,
+                                    symptoms: r.symptoms,
+                                    leadTech: r.technician || (r.technicians && r.technicians[0]) || 'ช่างประจำกะ',
+                                    targetDurationMins: r.duration || 60
+                                  });
+                                  setRepairs(prev => prev.map(rep => rep.id === r.id ? { ...rep, workOrderId: created.id, workOrderNo: created.id } : rep));
+                                  showToast(`⚡ ออกใบสั่งงานฉุกเฉินใหม่ ${created.id} สำหรับเครื่อง [${r.machineId}] เรียบร้อยแล้ว`);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9.5px] font-bold bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/40 transition cursor-pointer shadow-xs active:scale-95"
+                                title={hadDeletedWO ? `ใบงานเดิม (${deletedId}) โดนลบไปแล้ว คลิกเพื่อออก Fast-Track Emergency WO ใหม่ทันที` : "กดเพื่อออก Fast-Track Emergency WO ทันทีให้ถูกต้องตามวินัย CMMS"}
+                              >
+                                <span>+ ออก WO</span>
+                              </button>
+                              {hadDeletedWO && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRepairs(prev => prev.map(rep => rep.id === r.id ? { ...rep, workOrderId: undefined, workOrderNo: undefined } : rep));
+                                    showToast(`🧹 ล้างการเชื่อมโยงใบสั่งงานที่โดนลบ (${deletedId}) เรียบร้อยแล้ว`);
+                                  }}
+                                  className="text-[9px] font-mono text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 cursor-pointer transition"
+                                  title={`ใบสั่งงาน ${deletedId} ถูกลบออกจากระบบแล้ว คลิกเพื่อล้างเลขเดิม`}
+                                >
+                                  <span className="line-through">{deletedId}</span>
+                                  <span className="text-[8px] bg-rose-950/80 px-1 py-0.2 rounded border border-rose-800/40 text-rose-300 font-sans">ลบแล้ว</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-4 px-3 text-center font-mono font-bold">
                         <span className={isExceed120Percent ? "text-rose-400 font-extrabold" : "text-slate-300"}>
@@ -1821,7 +2229,7 @@ export const RepairPage: React.FC = () => {
                       <td className="py-4 px-3 text-center font-mono text-slate-450 text-[11px]">
                         {std} นาที
                       </td>
-                      <td className="py-4 px-4 max-w-[160px] truncate" title={r.symptoms}>
+                      <td className="py-4 px-4 max-w-[160px]" title={r.symptoms}>
                         <div className="flex flex-col gap-1">
                           <span className="truncate">{r.symptoms}</span>
                           {r.excelFile && (
@@ -1830,10 +2238,68 @@ export const RepairPage: React.FC = () => {
                               แนบไฟล์ Excel
                             </span>
                           )}
+                          {/* FA / OPL / Why-Why / Kaizen Badges with link to Kaizen */}
+                          {(() => {
+                            const atts = r.repairAttachments || [
+                              ...(r.faFile ? [r.faFile] : []),
+                              ...(r.oplFile ? [r.oplFile] : []),
+                              ...(r.whyWhyFile ? [r.whyWhyFile] : []),
+                              ...(r.kaizenFile ? [r.kaizenFile] : [])
+                            ];
+                            if (!atts || atts.length === 0) return null;
+                            return (
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                {atts.map((att) => (
+                                  <button
+                                    key={att.id}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleNavigateToKaizenProject(att, r.machineId);
+                                    }}
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[8.5px] font-bold font-mono transition cursor-pointer border ${
+                                      att.category === 'FA'
+                                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
+                                        : att.category === 'OPL'
+                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                                        : att.category === 'WHY_WHY'
+                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                                        : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-500/30'
+                                    }`}
+                                    title={`คลิกเพื่อเปิดในหน้า Kaizen (${att.name})`}
+                                  >
+                                    <ExternalLink size={8} />
+                                    <span>{att.category === 'WHY_WHY' ? 'Why-Why' : att.category}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </td>
-                      <td className="py-4 px-4 max-w-[180px] truncate text-slate-350 italic" title={r.why1}>
-                        {r.why1 || "-"}
+                      <td className="py-4 px-4 max-w-[180px] text-slate-350 italic" title={r.why1}>
+                        <div className="flex flex-col gap-1">
+                          <span className="truncate">{r.why1 || "-"}</span>
+                          {(r.whyWhyFile || r.repairAttachments?.some(a => a.category === 'WHY_WHY') || r.excelFile || (r.why1 && r.why1.trim().length > 0)) && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigateToKaizen({
+                                  category: 'WHY_WHY',
+                                  machineId: r.machineId,
+                                  searchQuery: r.symptoms,
+                                  sourceRepairId: r.id
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 text-[9px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold font-sans hover:bg-amber-500/25 transition cursor-pointer self-start"
+                              title="คลิกเพื่อเปิดในหน้า Kaizen (Why-Why Analysis)"
+                            >
+                              <HelpCircle size={10} />
+                              <span>ไฟล์ Why-Why → Kaizen</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 px-3 text-right font-mono font-semibold text-cyan-400 whitespace-nowrap">
                         {((r.usedParts?.reduce((sum, item) => sum + item.totalCost, 0) || 0) + (r.otherCost || 0)).toLocaleString()} ฿
@@ -1848,7 +2314,20 @@ export const RepairPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-4 px-3 text-center">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {/* Quick Attach FA / OPL / Kaizen Button */}
+                          <button
+                            type="button"
+                            id={`btn-attach-rep-${r.id}`}
+                            onClick={() => setRepairForQuickAttachment(r)}
+                            className="text-slate-400 hover:text-indigo-400 p-1 rounded-md transition hover:bg-slate-900 relative"
+                            title="📎 แนบ / จัดการไฟล์ FA, OPL, Kaizen และเชื่อมต่อไปยังแถบ Kaizen"
+                          >
+                            <Paperclip size={14} />
+                            {(r.repairAttachments?.length || (r.faFile ? 1 : 0) + (r.oplFile ? 1 : 0) + (r.kaizenFile ? 1 : 0)) > 0 && (
+                              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                            )}
+                          </button>
                           {canEdit && (
                             <button
                               id={`btn-edit-rep-${r.id}`}
@@ -1984,10 +2463,35 @@ export const RepairPage: React.FC = () => {
                 </div>
 
                 {formWorkOrderId ? (
-                  <div className="flex items-center gap-2 text-[11px] text-emerald-400">
-                    <CheckCircle2 size={13} />
-                    <span>เชื่อมโยงใบสั่งงาน <strong>{formWorkOrderId}</strong> สำเร็จ (ผ่านเกณฑ์ No WO - No Work)</span>
-                  </div>
+                  (() => {
+                    const exists = workOrders.some(w => w.id === formWorkOrderId || w.workOrderNo === formWorkOrderId);
+                    if (exists) {
+                      return (
+                        <div className="flex items-center gap-2 text-[11px] text-emerald-400">
+                          <CheckCircle2 size={13} />
+                          <span>เชื่อมโยงใบสั่งงาน <strong>{formWorkOrderId}</strong> สำเร็จ (ผ่านเกณฑ์ No WO - No Work)</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-[11px] text-rose-300">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle size={13} className="text-rose-400 shrink-0" />
+                          <span>ใบสั่งงาน <strong>{formWorkOrderId}</strong> ถูกลบออกจากระบบแล้ว</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormWorkOrderId('');
+                            setFormWorkOrderNo('');
+                          }}
+                          className="px-2 py-0.5 rounded bg-rose-900/60 hover:bg-rose-800 text-rose-200 text-[10px] font-bold cursor-pointer transition"
+                        >
+                          ล้างค่า
+                        </button>
+                      </div>
+                    );
+                  })()
                 ) : (
                   <p className="text-[10px] text-amber-300/80">
                     💡 แนะนำ: กดปุ่ม "ออก Fast-Track WO ทันที" เพื่อให้งานซ่อมมีใบสั่งงาน CMMS ครบ 100%
@@ -2326,6 +2830,126 @@ export const RepairPage: React.FC = () => {
                         onChange={(e) => setWhy5(e.target.value)}
                         className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 focus:outline-none"
                       />
+                    </div>
+                  )}
+                </div>
+
+                {/* Dedicated Why-Why file uploader & Kaizen Sync indicator */}
+                <div className="pt-2.5 mt-2 border-t border-slate-750/70 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1.5">
+                      <HelpCircle size={12} />
+                      แนบไฟล์การวิเคราะห์ Why-Why (Excel / PDF / Word / รูปภาพ)
+                    </span>
+                    <span className="text-[9.5px] text-amber-300/80 font-mono">
+                      🚀 เชื่อมโยงไป Why-Why แถบ Kaizen อัตโนมัติ
+                    </span>
+                  </div>
+
+                  {/* Dropzone for Why-Why file */}
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setDragOverCategory('WHY_WHY'); }}
+                    onDragLeave={() => setDragOverCategory(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverCategory(null);
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        Array.from<File>(e.dataTransfer.files).forEach((file: File) => {
+                          handleAttachmentUpload(file, 'WHY_WHY');
+                        });
+                      }
+                    }}
+                    onPaste={(e) => handlePasteEvent(e, 'WHY_WHY')}
+                    tabIndex={0}
+                    className={`border border-dashed p-2.5 rounded-xl text-center relative group transition cursor-pointer outline-none ${
+                      dragOverCategory === 'WHY_WHY'
+                        ? 'border-amber-400 bg-amber-950/40 ring-1 ring-amber-500/50'
+                        : 'border-slate-700/80 hover:border-amber-500/60 bg-slate-950/60'
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf, .xlsx, .xls, .csv, .doc, .docx, image/*"
+                      onChange={(e) => {
+                        if (e.target.files) {
+                          Array.from<File>(e.target.files).forEach((file: File) => {
+                            handleAttachmentUpload(file, 'WHY_WHY');
+                          });
+                          e.target.value = '';
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                    <div className="flex items-center justify-center gap-2 pointer-events-none">
+                      <Upload size={14} className="text-amber-400" />
+                      <span className="text-[11px] font-medium text-slate-300">
+                        คลิก หรือ ลากวางไฟล์ Why-Why เพื่อแนบประกอบ (หรือกด Ctrl+V)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Attached Why-Why files preview list */}
+                  {formAttachments.filter(a => a.category === 'WHY_WHY').length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {formAttachments.filter(a => a.category === 'WHY_WHY').map(att => (
+                        <div
+                          key={att.id}
+                          className="bg-amber-950/20 border border-amber-900/40 p-2 rounded-lg flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            {att.fileType === 'excel' ? (
+                              <FileSpreadsheet size={15} className="text-emerald-400 shrink-0" />
+                            ) : (
+                              <FileText size={15} className="text-amber-400 shrink-0" />
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-amber-200 text-xs font-semibold truncate" title={att.name}>
+                                {att.name}
+                              </p>
+                              <span className="text-[9.5px] text-slate-400 font-mono">
+                                {att.size || 'ไฟล์แนบ'} • ซิงค์เข้า Why-Why แถบ Kaizen
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {(att.fileType === 'pdf' || att.fileType === 'excel') && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewPDF({
+                                  id: att.id,
+                                  name: att.name,
+                                  content: att.content,
+                                  fileType: att.fileType === 'excel' ? 'excel' : 'pdf',
+                                  size: att.size,
+                                  uploadedAt: att.uploadedAt
+                                })}
+                                className="p-1 text-slate-400 hover:text-cyan-400 hover:bg-slate-900 rounded transition cursor-pointer"
+                                title="เปิดดูตัวอย่างไฟล์"
+                              >
+                                <Eye size={13} />
+                              </button>
+                            )}
+                            <a
+                              href={att.content}
+                              download={att.name}
+                              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-slate-900 rounded transition cursor-pointer"
+                              title="ดาวน์โหลดไฟล์"
+                            >
+                              <Download size={13} />
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAttachment(att.id)}
+                              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-900 rounded transition cursor-pointer"
+                              title="ลบไฟล์แนบ"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2763,6 +3387,244 @@ export const RepairPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Row 7: FA, OPL, Kaizen Attachments & Link to Kaizen Tab */}
+              <div className="space-y-3 bg-gradient-to-br from-slate-900/90 via-slate-900/60 to-indigo-950/40 p-4 rounded-xl border border-indigo-500/30 shadow-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shrink-0">
+                      <Paperclip size={16} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-100 flex items-center gap-2">
+                        <span>แนบเอกสาร FA / OPL / Why-Why / Kaizen & เชื่อมโยงไปยังแถบ Kaizen</span>
+                        {formAttachments.length > 0 && (
+                          <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.2 rounded-full font-mono font-bold">
+                            {formAttachments.length} ไฟล์
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-[10.5px] text-slate-400">
+                        วางไฟล์ PDF, Excel, Word หรือรูปภาพ เพื่อวิเคราะห์สาเหตุและสร้างบทเรียนส่งต่อฝ่ายผลิต
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer bg-slate-950/70 border border-slate-800 hover:border-indigo-500/50 px-2.5 py-1.5 rounded-lg text-[11px] text-slate-300 transition shrink-0 select-none">
+                    <input
+                      type="checkbox"
+                      checked={formSyncToKaizen}
+                      onChange={(e) => setFormSyncToKaizen(e.target.checked)}
+                      className="rounded border-slate-700 text-indigo-500 focus:ring-0 cursor-pointer accent-indigo-500 w-3.5 h-3.5"
+                    />
+                    <span className="font-semibold text-indigo-300">ซิงค์ไปยังแถบ Kaizen อัตโนมัติ</span>
+                  </label>
+                </div>
+
+                {/* Category Selection Tabs */}
+                <div className="flex gap-2 p-1 bg-slate-950/90 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setActiveAttachmentTab('FA')}
+                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      activeAttachmentTab === 'FA'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <span>🔍 FA (Failure Analysis)</span>
+                    {formAttachments.filter(a => a.category === 'FA').length > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] flex items-center justify-center font-mono">
+                        {formAttachments.filter(a => a.category === 'FA').length}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveAttachmentTab('OPL')}
+                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      activeAttachmentTab === 'OPL'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <span>💡 OPL (One Point Lesson)</span>
+                    {formAttachments.filter(a => a.category === 'OPL').length > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[9px] flex items-center justify-center font-mono font-bold">
+                        {formAttachments.filter(a => a.category === 'OPL').length}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveAttachmentTab('WHY_WHY')}
+                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      activeAttachmentTab === 'WHY_WHY'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <span>❓ Why-Why Analysis</span>
+                    {formAttachments.filter(a => a.category === 'WHY_WHY').length > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[9px] flex items-center justify-center font-mono font-bold">
+                        {formAttachments.filter(a => a.category === 'WHY_WHY').length}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveAttachmentTab('KAIZEN')}
+                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      activeAttachmentTab === 'KAIZEN'
+                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <span>🚀 Kaizen (โครงการปรับปรุง)</span>
+                    {formAttachments.filter(a => a.category === 'KAIZEN').length > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] flex items-center justify-center font-mono font-bold">
+                        {formAttachments.filter(a => a.category === 'KAIZEN').length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                {/* Upload & Dropzone & Clipboard Paste Area */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragOverCategory(activeAttachmentTab); }}
+                  onDragLeave={() => setDragOverCategory(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOverCategory(null);
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      Array.from(e.dataTransfer.files).forEach((file: File) => {
+                        handleAttachmentUpload(file, activeAttachmentTab);
+                      });
+                    }
+                  }}
+                  onPaste={(e) => handlePasteEvent(e, activeAttachmentTab)}
+                  tabIndex={0}
+                  className={`border-2 border-dashed p-4 rounded-xl text-center relative group transition cursor-pointer outline-none ${
+                    dragOverCategory === activeAttachmentTab
+                      ? 'border-indigo-400 bg-indigo-950/50 ring-2 ring-indigo-500/50'
+                      : 'border-slate-700/80 hover:border-indigo-500/60 bg-slate-950/60 hover:bg-slate-950/90'
+                  }`}
+                >
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf, .xlsx, .xls, .csv, .doc, .docx, image/*"
+                    onChange={(e) => {
+                      if (e.target.files) {
+                        Array.from(e.target.files).forEach((file: File) => {
+                          handleAttachmentUpload(file, activeAttachmentTab);
+                        });
+                        e.target.value = '';
+                      }
+                    }}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                  <div className="flex flex-col items-center justify-center gap-1.5 pointer-events-none">
+                    <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-750 flex items-center justify-center text-slate-300 group-hover:text-indigo-400 group-hover:border-indigo-500/40 transition">
+                      <Upload size={20} />
+                    </div>
+                    <p className="text-xs font-semibold text-slate-200">
+                      คลิก หรือ ลากวางไฟล์สำหรับ <strong className="text-indigo-300 underline underline-offset-2">{activeAttachmentTab === 'FA' ? 'FA (วิเคราะห์ความเสียหาย)' : activeAttachmentTab === 'OPL' ? 'OPL (บทเรียนจุดเดียว)' : 'Kaizen (โครงการปรับปรุง)'}</strong>
+                    </p>
+                    <p className="text-[10px] text-slate-400 flex items-center gap-1.5 flex-wrap justify-center">
+                      <span>รองรับ PDF, Excel, Word, ภาพถ่าย</span>
+                      <span>•</span>
+                      <span className="text-amber-400 font-medium">📋 วางไฟล์/รูปจาก Clipboard (Ctrl+V) ได้ทันที</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* List of Attached Documents */}
+                {formAttachments.length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+                      <span>รายการไฟล์แนบ ({formAttachments.length} ไฟล์):</span>
+                      <span className="text-[10px] text-slate-400 font-normal">กดปุ่ม "ไป Kaizen" เพื่อเปิดในหน้า Kaizen</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+                      {formAttachments.map((att) => (
+                        <div
+                          key={att.id}
+                          className="bg-slate-950/90 border border-slate-800 hover:border-slate-700 p-2.5 rounded-xl flex items-center justify-between gap-2 text-xs transition"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`px-2 py-0.5 rounded text-[9.5px] font-bold font-mono shrink-0 border ${
+                              att.category === 'FA'
+                                ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                : att.category === 'OPL'
+                                ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                            }`}>
+                              {att.category}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-slate-200 font-medium truncate text-[11px]" title={att.name}>
+                                {att.name}
+                              </p>
+                              <p className="text-[9.5px] text-slate-400 font-mono">
+                                {att.fileType.toUpperCase()} • {att.size || ''}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {(att.fileType === 'pdf' || att.fileType === 'excel') && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewPDF({
+                                  id: att.id,
+                                  name: att.name,
+                                  content: att.content,
+                                  fileType: att.fileType === 'excel' ? 'excel' : 'pdf',
+                                  size: att.size,
+                                  uploadedAt: att.uploadedAt
+                                })}
+                                className="p-1 text-slate-400 hover:text-cyan-400 hover:bg-slate-900 rounded transition cursor-pointer"
+                                title="เปิดดูตัวอย่างไฟล์"
+                              >
+                                <Eye size={13} />
+                              </button>
+                            )}
+                            <a
+                              href={att.content}
+                              download={att.name}
+                              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-slate-900 rounded transition cursor-pointer"
+                              title="ดาวน์โหลดไฟล์"
+                            >
+                              <Download size={13} />
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleNavigateToKaizenProject(att, formMachine)}
+                              className="px-2 py-0.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-indigo-200 border border-indigo-500/40 rounded text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                              title="เชื่อมโยงและเปิดดูในแถบ Kaizen"
+                            >
+                              <ExternalLink size={10} />
+                              <span>ไป Kaizen</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAttachment(att.id)}
+                              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-900 rounded transition cursor-pointer"
+                              title="ลบไฟล์แนบนี้"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Controls */}
               <div className="pt-4 border-t border-slate-700 flex items-center justify-end gap-3 shrink-0">
                 <button
@@ -2928,9 +3790,28 @@ export const RepairPage: React.FC = () => {
 
               {/* Why Why Analysis */}
               <div className="bg-slate-900/40 p-4 rounded-xl border border-slate-750 space-y-3">
-                <h4 className="text-[11px] font-bold text-slate-300 tracking-wide uppercase flex items-center gap-1.5 border-b border-slate-700/60 pb-2">
-                  ❓ ลำดับการวิเคราะห์หาสาเหตุรากเหง้าแฝง (Why-Why Analysis)
-                </h4>
+                <div className="flex items-center justify-between border-b border-slate-700/60 pb-2 flex-wrap gap-2">
+                  <h4 className="text-[11px] font-bold text-slate-300 tracking-wide uppercase flex items-center gap-1.5">
+                    ❓ ลำดับการวิเคราะห์หาสาเหตุรากเหง้าแฝง (Why-Why Analysis)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigateToKaizen({
+                        category: 'WHY_WHY',
+                        machineId: selectedRepairDetail.machineId,
+                        searchQuery: selectedRepairDetail.symptoms,
+                        sourceRepairId: selectedRepairDetail.id
+                      });
+                      setSelectedRepairDetail(null);
+                    }}
+                    className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-[10.5px] px-3 py-1.5 rounded-lg transition shadow-md cursor-pointer active:scale-95"
+                    title="เปิดข้อมูลวิเคราะห์ Why-Why นี้ในแถบ Why-Why Analysis ของหน้า Kaizen"
+                  >
+                    <ExternalLink size={12} />
+                    <span>🚀 เปิดใน Why-Why (แถบ Kaizen)</span>
+                  </button>
+                </div>
                 
                 <div className="space-y-2.5 pl-2 font-mono">
                   {selectedRepairDetail.why1 ? (
@@ -3072,26 +3953,174 @@ export const RepairPage: React.FC = () => {
               </div>
 
               {selectedRepairDetail.excelFile && (
-                <div className="bg-emerald-950/20 border border-emerald-900/40 p-4 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
+                <div className="bg-emerald-950/20 border border-emerald-900/40 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <FileSpreadsheet className="text-emerald-400 shrink-0" size={24} />
-                    <div className="text-left">
-                      <p className="text-[11px] font-bold text-emerald-300">ไฟล์แนบประกอบใบงาน</p>
+                    <div className="text-left min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-[11px] font-bold text-emerald-300">ไฟล์แนบประกอบใบงาน</p>
+                        {/why/i.test(selectedRepairDetail.excelFile.name) && (
+                          <span className="px-2 py-0.5 rounded text-[9.5px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
+                            ❓ Why-Why Analysis
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-slate-400 font-mono truncate max-w-[280px]" title={selectedRepairDetail.excelFile.name}>
                         {selectedRepairDetail.excelFile.name}
                       </p>
                     </div>
                   </div>
-                  <a
-                    href={selectedRepairDetail.excelFile.content}
-                    download={selectedRepairDetail.excelFile.name}
-                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] px-3.5 py-2 rounded-lg transition shadow-md whitespace-nowrap cursor-pointer"
-                  >
-                    <Upload size={14} className="rotate-180" />
-                    ดาวน์โหลดไฟล์แนบ
-                  </a>
+                  <div className="flex items-center gap-2 flex-wrap shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPDF({
+                        id: `preview-excel-${selectedRepairDetail.id}`,
+                        name: selectedRepairDetail.excelFile!.name,
+                        content: selectedRepairDetail.excelFile!.content,
+                        fileType: 'excel',
+                        size: 'ไฟล์แนบ Excel',
+                        uploadedAt: selectedRepairDetail.date
+                      })}
+                      className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-[11px] px-3 py-2 rounded-lg transition border border-cyan-500/30 cursor-pointer"
+                      title="ดูตัวอย่างเอกสาร Excel"
+                    >
+                      <Eye size={13} />
+                      <span>ดูตัวอย่าง</span>
+                    </button>
+                    <a
+                      href={selectedRepairDetail.excelFile.content}
+                      download={selectedRepairDetail.excelFile.name}
+                      className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] px-3.5 py-2 rounded-lg transition shadow-md whitespace-nowrap cursor-pointer"
+                    >
+                      <Upload size={14} className="rotate-180" />
+                      ดาวน์โหลดไฟล์แนบ
+                    </a>
+                    {/* Link Why-Why directly to Kaizen Tab! */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigateToKaizen({
+                          category: 'WHY_WHY',
+                          machineId: selectedRepairDetail.machineId,
+                          searchQuery: selectedRepairDetail.excelFile?.name || selectedRepairDetail.symptoms,
+                          sourceRepairId: selectedRepairDetail.id
+                        });
+                        setSelectedRepairDetail(null);
+                      }}
+                      className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-[11px] px-3.5 py-2 rounded-lg transition shadow-md whitespace-nowrap cursor-pointer active:scale-95"
+                      title="เปิดเอกสาร Why-Why นี้ในแถบ Why-Why Analysis ของหน้า Kaizen"
+                    >
+                      <ExternalLink size={13} />
+                      <span>🚀 เปิดใน Why-Why (แถบ Kaizen)</span>
+                    </button>
+                  </div>
                 </div>
               )}
+
+              {/* FA / OPL / Kaizen Attachments & Kaizen Links Card */}
+              {(() => {
+                const atts = selectedRepairDetail.repairAttachments || [
+                  ...(selectedRepairDetail.faFile ? [selectedRepairDetail.faFile] : []),
+                  ...(selectedRepairDetail.oplFile ? [selectedRepairDetail.oplFile] : []),
+                  ...(selectedRepairDetail.whyWhyFile ? [selectedRepairDetail.whyWhyFile] : []),
+                  ...(selectedRepairDetail.kaizenFile ? [selectedRepairDetail.kaizenFile] : [])
+                ];
+                return (
+                  <div className="bg-gradient-to-br from-slate-900/90 to-indigo-950/40 border border-indigo-500/30 p-4 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Paperclip className="text-indigo-400" size={18} />
+                        <div>
+                          <p className="text-[11px] font-bold text-slate-200">
+                            เอกสารวิเคราะห์และปรับปรุง (FA / OPL / Why-Why / Kaizen)
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {atts.length > 0 ? `แนบไว้ทั้งหมด ${atts.length} ไฟล์ พร้อมเชื่อมต่อไปยังหน้า Kaizen` : 'ยังไม่มีไฟล์แนบ สามารถกดเพิ่มได้ทันที'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRepairForQuickAttachment(selectedRepairDetail)}
+                        className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition shadow-sm cursor-pointer"
+                      >
+                        <Plus size={13} />
+                        <span>แนบไฟล์เพิ่ม</span>
+                      </button>
+                    </div>
+
+                    {atts.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {atts.map((att) => (
+                          <div
+                            key={att.id}
+                            className="bg-slate-950/80 border border-slate-800 p-2.5 rounded-xl flex items-center justify-between gap-2"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`px-2 py-0.5 rounded text-[9.5px] font-bold font-mono shrink-0 border ${
+                                att.category === 'FA'
+                                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                                  : att.category === 'OPL'
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                  : att.category === 'WHY_WHY'
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                              }`}>
+                                {att.category === 'WHY_WHY' ? 'Why-Why' : att.category}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-slate-200 font-medium truncate text-[11px]" title={att.name}>
+                                  {att.name}
+                                </p>
+                                <p className="text-[9.5px] text-slate-400 font-mono">
+                                  {att.fileType.toUpperCase()} • {att.size || ''}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {(att.fileType === 'pdf' || att.fileType === 'excel') && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewPDF({
+                                    id: att.id,
+                                    name: att.name,
+                                    content: att.content,
+                                    fileType: att.fileType === 'excel' ? 'excel' : 'pdf',
+                                    size: att.size,
+                                    uploadedAt: att.uploadedAt
+                                  })}
+                                  className="p-1 text-slate-400 hover:text-cyan-400 hover:bg-slate-900 rounded transition cursor-pointer"
+                                  title="เปิดดูตัวอย่างไฟล์"
+                                >
+                                  <Eye size={13} />
+                                </button>
+                              )}
+                              <a
+                                href={att.content}
+                                download={att.name}
+                                className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-slate-900 rounded transition cursor-pointer"
+                                title="ดาวน์โหลดไฟล์"
+                              >
+                                <Download size={13} />
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleNavigateToKaizenProject(att, selectedRepairDetail.machineId)}
+                                className="px-2 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-indigo-200 border border-indigo-500/40 rounded text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                                title="เชื่อมโยงและเปิดดูในแถบ Kaizen"
+                              >
+                                <ExternalLink size={10} />
+                                <span>ไป Kaizen</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
 
             </div>
 
@@ -3387,11 +4416,28 @@ export const RepairPage: React.FC = () => {
             <p className="text-xs text-slate-300 leading-relaxed font-sans">
               คุณต้องการลบบันทึกวิเคราะห์งานซ่อมด่วนนี้ ใช่หรือไม่? ประวัติอาการเกิดเหตุและวิเคราะห์ Why-Why ทั้งหมดจะสูญหายอย่างถาวร
             </p>
+
+            {/* Checkbox to delete linked Work Order */}
+            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={deleteLinkedWorkOrder}
+                onChange={(e) => setDeleteLinkedWorkOrder(e.target.checked)}
+                className="w-4 h-4 rounded text-rose-500 bg-slate-900 border-slate-700 cursor-pointer accent-rose-500 mt-0.5"
+              />
+              <div>
+                <span className="font-bold text-white">ลบใบสั่งงาน Work Order ที่ผูกกับงานซ่อมนี้ด้วย</span>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  ป้องกันใบงานตกค้างในระบบ CMMS (ล้างทั้งใบงานฉุกเฉินและคิวนัดหมายที่ยังไม่เสร็จ)
+                </p>
+              </div>
+            </label>
+
             <div className="flex gap-2.5 justify-end pt-2">
               <button
                 type="button"
                 onClick={() => setDeleteConfirmId(null)}
-                className="border border-slate-700 hover:bg-slate-850 text-slate-300 text-xs px-4 py-2 rounded-lg transition"
+                className="border border-slate-700 hover:bg-slate-850 text-slate-300 text-xs px-4 py-2 rounded-lg transition cursor-pointer"
               >
                 ยกเลิก
               </button>
@@ -3412,10 +4458,21 @@ export const RepairPage: React.FC = () => {
                     }
                     setSpareParts(tempSpareParts);
                   }
+
+                  if (deleteLinkedWorkOrder && logToDelete) {
+                    const woId = logToDelete.workOrderId || logToDelete.workOrderNo;
+                    setWorkOrders(prev => prev.filter(w => {
+                      if (w.sourceRefId && w.sourceRefId === logToDelete.id) return false;
+                      if (woId && (w.id === woId || w.workOrderNo === woId)) return false;
+                      return true;
+                    }));
+                  }
+
                   setRepairs(prev => prev.filter(r => r.id !== deleteConfirmId));
                   setDeleteConfirmId(null);
+                  showToast(`🗑️ ลบประวัติงานซ่อมเรียบร้อยแล้ว${deleteLinkedWorkOrder ? ' (พร้อมลบใบสั่งงาน WO ที่ผูกอยู่)' : ''}`);
                 }}
-                className="bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs px-4.5 py-2 rounded-lg transition"
+                className="bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs px-4.5 py-2 rounded-lg transition cursor-pointer active:scale-95"
               >
                 ยืนยันลบเด็ดขาด
               </button>
@@ -3473,6 +4530,22 @@ export const RepairPage: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Checkbox to delete linked Work Orders */}
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300 cursor-pointer select-none mt-2">
+                <input
+                  type="checkbox"
+                  checked={deleteLinkedWorkOrder}
+                  onChange={(e) => setDeleteLinkedWorkOrder(e.target.checked)}
+                  className="w-4 h-4 rounded text-rose-500 bg-slate-900 border-slate-700 cursor-pointer accent-rose-500 mt-0.5"
+                />
+                <div>
+                  <span className="font-bold text-white">ลบใบสั่งงาน Work Order ที่ผูกกับงานซ่อมเหล่านี้ด้วย</span>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    ป้องกันใบงานฉุกเฉินตกค้างในระบบ CMMS เมื่อประวัติงานซ่อมถูกลบ
+                  </p>
+                </div>
+              </label>
             </div>
 
             <div className="flex gap-2.5 justify-end pt-3 border-t border-slate-800">
@@ -3504,6 +4577,239 @@ export const RepairPage: React.FC = () => {
           <Check className="w-4 h-4 text-emerald-400" />
           <span className="text-xs font-medium">{toastMsg}</span>
         </div>
+      )}
+
+      {/* Quick Attachment Modal (แนบและจัดการไฟล์ FA / OPL / Kaizen และเชื่อมต่อไปยังแถบ Kaizen) */}
+      {repairForQuickAttachment && (
+        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-100">
+          <div className="bg-slate-900 border border-indigo-500/40 p-6 rounded-2xl max-w-xl w-full space-y-4 shadow-2xl animate-in zoom-in-95 duration-100">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                  <Paperclip size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-100 flex items-center gap-2">
+                    <span>จัดการไฟล์แนบ FA / OPL / Why-Why / Kaizen</span>
+                    <span className="font-mono text-cyan-400 bg-slate-800 px-2 py-0.5 rounded text-xs border border-slate-700">
+                      {repairForQuickAttachment.machineId}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400 truncate max-w-sm" title={repairForQuickAttachment.symptoms}>
+                    {repairForQuickAttachment.symptoms} ({repairForQuickAttachment.date})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRepairForQuickAttachment(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Category tabs */}
+            <div className="flex gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800">
+              {(['FA', 'OPL', 'WHY_WHY', 'KAIZEN'] as const).map(cat => {
+                const count = (repairForQuickAttachment.repairAttachments || [
+                  ...(repairForQuickAttachment.faFile ? [repairForQuickAttachment.faFile] : []),
+                  ...(repairForQuickAttachment.oplFile ? [repairForQuickAttachment.oplFile] : []),
+                  ...(repairForQuickAttachment.whyWhyFile ? [repairForQuickAttachment.whyWhyFile] : []),
+                  ...(repairForQuickAttachment.kaizenFile ? [repairForQuickAttachment.kaizenFile] : [])
+                ]).filter(a => a.category === cat).length;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setActiveAttachmentTab(cat)}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      activeAttachmentTab === cat
+                        ? cat === 'FA'
+                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm'
+                          : cat === 'OPL'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                          : cat === 'WHY_WHY'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm font-extrabold'
+                          : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>{cat === 'FA' ? '🔍 FA' : cat === 'OPL' ? '💡 OPL' : cat === 'WHY_WHY' ? '❓ Why-Why' : '🚀 Kaizen'}</span>
+                    {count > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-slate-800 text-slate-200 text-[9px] flex items-center justify-center font-mono font-bold border border-slate-700">
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Dropzone & Clipboard Paste */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOverCategory(activeAttachmentTab); }}
+              onDragLeave={() => setDragOverCategory(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverCategory(null);
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  Array.from<File>(e.dataTransfer.files).forEach((file: File) => {
+                    handleAttachmentUpload(file, activeAttachmentTab, repairForQuickAttachment);
+                  });
+                }
+              }}
+              onPaste={(e) => handlePasteEvent(e, activeAttachmentTab, repairForQuickAttachment)}
+              tabIndex={0}
+              className={`border-2 border-dashed p-4 rounded-xl text-center relative group transition cursor-pointer outline-none ${
+                dragOverCategory === activeAttachmentTab
+                  ? 'border-indigo-400 bg-indigo-950/50 ring-2 ring-indigo-500/50'
+                  : 'border-slate-700 hover:border-indigo-500/60 bg-slate-950/60'
+              }`}
+            >
+              <input
+                type="file"
+                multiple
+                accept=".pdf, .xlsx, .xls, .csv, .doc, .docx, image/*"
+                onChange={(e) => {
+                  if (e.target.files) {
+                    Array.from<File>(e.target.files).forEach((file: File) => {
+                      handleAttachmentUpload(file, activeAttachmentTab, repairForQuickAttachment);
+                    });
+                    e.target.value = '';
+                  }
+                }}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+              />
+              <div className="flex flex-col items-center justify-center gap-1 pointer-events-none">
+                <Upload size={20} className="text-indigo-400 mb-0.5" />
+                <p className="text-xs font-semibold text-slate-200">
+                  คลิก หรือ ลากวางไฟล์สำหรับ <strong className="text-indigo-300">{activeAttachmentTab === 'WHY_WHY' ? 'Why-Why Analysis' : activeAttachmentTab}</strong>
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  รองรับ PDF, Excel, Word, รูปภาพ หรือกดคลิกแล้วกด <span className="text-amber-400 font-mono">Ctrl+V</span> เพื่อวางไฟล์
+                </p>
+              </div>
+            </div>
+
+            {/* Current Attachments List */}
+            {(() => {
+              const currentAtts = repairForQuickAttachment.repairAttachments || [
+                ...(repairForQuickAttachment.faFile ? [repairForQuickAttachment.faFile] : []),
+                ...(repairForQuickAttachment.oplFile ? [repairForQuickAttachment.oplFile] : []),
+                ...(repairForQuickAttachment.whyWhyFile ? [repairForQuickAttachment.whyWhyFile] : []),
+                ...(repairForQuickAttachment.kaizenFile ? [repairForQuickAttachment.kaizenFile] : [])
+              ];
+              return (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <span>ไฟล์ที่แนบไว้ ({currentAtts.length} ไฟล์):</span>
+                    <span className="text-[10.5px] text-indigo-400">ซิงค์ไปยังหน้า Kaizen เรียบร้อย</span>
+                  </div>
+                  {currentAtts.length > 0 ? (
+                    <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                      {currentAtts.map(att => (
+                        <div
+                          key={att.id}
+                          className="bg-slate-950/80 border border-slate-800 p-2.5 rounded-xl flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono border ${
+                              att.category === 'FA'
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                                : att.category === 'OPL'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                : att.category === 'WHY_WHY'
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                            }`}>
+                              {att.category === 'WHY_WHY' ? 'Why-Why' : att.category}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-slate-200 font-medium truncate text-[11px]" title={att.name}>
+                                {att.name}
+                              </p>
+                              <p className="text-[9.5px] text-slate-400 font-mono">
+                                {att.fileType.toUpperCase()} • {att.size || ''}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {(att.fileType === 'pdf' || att.fileType === 'excel') && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewPDF({
+                                  id: att.id,
+                                  name: att.name,
+                                  content: att.content,
+                                  fileType: att.fileType === 'excel' ? 'excel' : 'pdf',
+                                  size: att.size,
+                                  uploadedAt: att.uploadedAt
+                                })}
+                                className="p-1 text-slate-400 hover:text-cyan-400 rounded transition"
+                                title="เปิดดูตัวอย่างไฟล์"
+                              >
+                                <Eye size={13} />
+                              </button>
+                            )}
+                            <a
+                              href={att.content}
+                              download={att.name}
+                              className="p-1 text-slate-400 hover:text-emerald-400 rounded transition"
+                              title="ดาวน์โหลดไฟล์"
+                            >
+                              <Download size={13} />
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleNavigateToKaizenProject(att, repairForQuickAttachment.machineId)}
+                              className="px-2 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 rounded text-[10px] font-bold flex items-center gap-1 transition"
+                              title="เชื่อมโยงและเปิดดูในแถบ Kaizen"
+                            >
+                              <ExternalLink size={10} />
+                              <span>ไป Kaizen</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAttachment(att.id, repairForQuickAttachment)}
+                              className="p-1 text-slate-400 hover:text-rose-400 rounded transition"
+                              title="ลบไฟล์แนบนี้"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-400 italic text-center py-4 bg-slate-950/40 rounded-xl border border-slate-800">
+                      ยังไม่มีไฟล์แนบในประวัติงานซ่อมนี้
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="flex justify-end pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setRepairForQuickAttachment(null)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-4 py-2 rounded-lg transition"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PDF & Excel Attachment Preview Modal */}
+      {previewPDF && (
+        <PDFViewerModal
+          pdf={previewPDF}
+          onClose={() => setPreviewPDF(null)}
+        />
       )}
 
       {/* CMMS Work Order Detail Modal */}

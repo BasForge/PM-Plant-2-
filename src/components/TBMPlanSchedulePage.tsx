@@ -7,7 +7,7 @@ import {
   ChevronRight, ArrowRight, ShieldCheck, Tag, Building2, User,
   FileSpreadsheet, X, Check, ArrowUpDown, ChevronDown, ListChecks, Info,
   Printer, PlayCircle, Clock3, AlertCircle, Edit3, Trash2,
-  CheckSquare, Square
+  CheckSquare, Square, CalendarDays, Users, Send
 } from 'lucide-react';
 import { 
   FREQUENCY_INTERVAL_MAP, 
@@ -21,6 +21,7 @@ import {
   MachineCriticality
 } from '../utils/tbmHelper';
 import { getTodayDateString, isPMOverdue, getPMOverdueDays } from '../utils/pmAlerts';
+import { PMExcelImportModal } from './PMExcelImportModal';
 
 interface TBMPlanSchedulePageProps {
   initialMachineId?: string;
@@ -45,6 +46,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
     canEdit, 
     canDelete,
     workOrders,
+    setWorkOrders,
     addWorkOrder,
     currentUser
   } = useApp();
@@ -107,8 +109,27 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
   // Bulk Selection and Delete State (เลือกทั้งหมด & ลบแบบกลุ่ม)
   const [selectedPlanIds, setSelectedPlanIds] = useState<Set<string>>(new Set());
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
+  const [showExcelImportModal, setShowExcelImportModal] = useState<boolean>(false);
   const [bulkDeleteLinkedSchedules, setBulkDeleteLinkedSchedules] = useState<boolean>(true);
   const [showDeleteAllModal, setShowDeleteAllModal] = useState<boolean>(false);
+
+  // Bulk PM Date Scheduling State (กำหนดวันในแผนการทำ PM หลายเครื่อง / ทั้งหมดในครั้งเดียว)
+  const [showBulkScheduleModal, setShowBulkScheduleModal] = useState<boolean>(false);
+  const [bulkScheduleDate, setBulkScheduleDate] = useState<string>(todayStr);
+  const [bulkScheduleTime, setBulkScheduleTime] = useState<string>('08:30');
+  const [bulkScheduleMode, setBulkScheduleMode] = useState<'same_date' | 'staggered' | 'monthly_day'>('same_date');
+  const [bulkStaggerStartDate, setBulkStaggerStartDate] = useState<string>(todayStr);
+  const [bulkStaggerMachinesPerDay, setBulkStaggerMachinesPerDay] = useState<number>(2);
+  const [bulkSkipWeekends, setBulkSkipWeekends] = useState<boolean>(true);
+  const [bulkScheduleMonth, setBulkScheduleMonth] = useState<number>(selectedMonth || 10);
+  const [bulkScheduleDayOfMonth, setBulkScheduleDayOfMonth] = useState<number>(15);
+  const [bulkScheduleTech, setBulkScheduleTech] = useState<string>(technicians[0] || 'ช่างอุ้ย');
+  const [bulkTechAssignMode, setBulkTechAssignMode] = useState<'single' | 'round_robin'>('single');
+  const [bulkAutoCreateWO, setBulkAutoCreateWO] = useState<boolean>(true);
+  const [bulkScheduleNotes, setBulkScheduleNotes] = useState<string>('แผนบำรุงรักษาเชิงป้องกันตามรอบ TBM ประจำโรงงาน');
+  const [bulkModalSearch, setBulkModalSearch] = useState<string>('');
+  const [bulkModalLineFilter, setBulkModalLineFilter] = useState<string>('ALL');
+  const [bulkModalRankFilter, setBulkModalRankFilter] = useState<string>('ALL');
 
   // Task Checklist & Work Order Modal (Image 4)
   const [checklistPlan, setChecklistPlan] = useState<PMPlan | null>(null);
@@ -892,11 +913,19 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
     // 1. Remove from pmPlans
     setPmPlans(prev => prev.filter(p => !idsToDelete.has(p.id)));
 
-    // 2. Remove linked uncompleted schedules if requested
+    // 2. Remove linked uncompleted schedules and Work Orders if requested
     if (bulkDeleteLinkedSchedules) {
       setSchedules(prev => prev.filter(s => {
         const isLinked = s.type === 'PM' && s.pmPlanId && idsToDelete.has(s.pmPlanId);
         if (isLinked && s.status !== 'เสร็จสิ้น') {
+          return false;
+        }
+        return true;
+      }));
+
+      setWorkOrders(prev => prev.filter(wo => {
+        const isLinked = wo.sourceType === 'PM' && wo.sourceRefId && idsToDelete.has(wo.sourceRefId);
+        if (isLinked && wo.status !== 'CLOSED') {
           return false;
         }
         return true;
@@ -920,6 +949,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
     setPmPlans([]);
     if (bulkDeleteLinkedSchedules) {
       setSchedules(prev => prev.filter(s => !(s.type === 'PM' && s.status !== 'เสร็จสิ้น')));
+      setWorkOrders(prev => prev.filter(wo => !(wo.sourceType === 'PM' && wo.status !== 'CLOSED')));
     }
     if (checklistPlan) {
       setChecklistPlan(null);
@@ -937,6 +967,229 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
   const affectedMachinesCount = useMemo(() => {
     return new Set(selectedPlansList.map(p => p.machineId)).size;
   }, [selectedPlansList]);
+
+  // ---------------------------------------------------------------------------
+  // BULK PM DATE SCHEDULING LOGIC (ระบบกำหนดวันในแผนการทำ PM หลายเครื่อง / ทั้งหมด)
+  // ---------------------------------------------------------------------------
+  const handleOpenBulkScheduleModal = () => {
+    // If no plan is selected yet, default to selecting all filtered plans or all plans in system
+    if (selectedPlanIds.size === 0) {
+      if (filteredPlans.length > 0) {
+        setSelectedPlanIds(new Set(filteredPlans.map(p => p.id)));
+      } else if (pmPlans.length > 0) {
+        setSelectedPlanIds(new Set(pmPlans.map(p => p.id)));
+      }
+    }
+    setShowBulkScheduleModal(true);
+  };
+
+  const handleSelectByLine = (line: string) => {
+    const plansInLine = pmPlans.filter(p => {
+      const mach = machines.find(m => m.id === p.machineId);
+      const loc = mach?.location || mach?.lineGroup || '';
+      return loc === line;
+    });
+    setSelectedPlanIds(prev => {
+      const next = new Set(prev);
+      plansInLine.forEach(p => next.add(p.id));
+      return next;
+    });
+    showToast(`☑️ เลือกเครื่องจักรในกลุ่ม "${line}" เรียบร้อยแล้ว (${plansInLine.length} แผน)`);
+  };
+
+  const handleSelectByRank = (rankLetter: string) => {
+    const plansInRank = pmPlans.filter(p => {
+      const mach = machines.find(m => m.id === p.machineId);
+      const crit = getMachineCriticality(mach);
+      return crit.shortLabel === rankLetter;
+    });
+    setSelectedPlanIds(prev => {
+      const next = new Set(prev);
+      plansInRank.forEach(p => next.add(p.id));
+      return next;
+    });
+    showToast(`☑️ เลือกเครื่องจักรกลุ่ม Rank ${rankLetter} เรียบร้อยแล้ว (${plansInRank.length} แผน)`);
+  };
+
+  const bulkModalFilteredPlans = useMemo(() => {
+    return pmPlans.filter(p => {
+      const mach = machines.find(m => m.id === p.machineId);
+      const crit = getMachineCriticality(mach);
+      const loc = mach?.location || mach?.lineGroup || '';
+      
+      const matchSearch = !bulkModalSearch || 
+        p.machineId.toLowerCase().includes(bulkModalSearch.toLowerCase()) ||
+        p.title.toLowerCase().includes(bulkModalSearch.toLowerCase()) ||
+        (mach?.name && mach.name.toLowerCase().includes(bulkModalSearch.toLowerCase())) ||
+        loc.toLowerCase().includes(bulkModalSearch.toLowerCase());
+
+      const matchLine = bulkModalLineFilter === 'ALL' || loc === bulkModalLineFilter;
+      const matchRank = bulkModalRankFilter === 'ALL' || crit.shortLabel === bulkModalRankFilter;
+
+      return matchSearch && matchLine && matchRank;
+    });
+  }, [pmPlans, machines, bulkModalSearch, bulkModalLineFilter, bulkModalRankFilter]);
+
+  const staggeredSummary = useMemo(() => {
+    const total = selectedPlanIds.size;
+    if (total === 0) return null;
+    const perDay = Math.max(1, bulkStaggerMachinesPerDay);
+    const totalWorkingDays = Math.ceil(total / perDay);
+    
+    const d = new Date(bulkStaggerStartDate || todayStr);
+    let daysAdded = 0;
+    while (daysAdded < totalWorkingDays - 1) {
+      d.setDate(d.getDate() + 1);
+      if (bulkSkipWeekends) {
+        const day = d.getDay();
+        if (day === 0 || day === 6) continue;
+      }
+      daysAdded++;
+    }
+    const endDateStr = d.toISOString().split('T')[0];
+    return {
+      totalWorkingDays,
+      startDate: bulkStaggerStartDate || todayStr,
+      endDate: endDateStr,
+      perDay
+    };
+  }, [selectedPlanIds.size, bulkStaggerMachinesPerDay, bulkStaggerStartDate, bulkSkipWeekends, todayStr]);
+
+  const handleConfirmBulkSchedule = () => {
+    if (selectedPlanIds.size === 0) {
+      showToast('⚠️ กรุณาเลือกเครื่องจักรหรือแผน PM อย่างน้อย 1 รายการเพื่อกำหนดวัน');
+      return;
+    }
+
+    const targetPlans = pmPlans.filter(p => selectedPlanIds.has(p.id));
+    if (targetPlans.length === 0) return;
+
+    const newSchedules: PMScheduleItem[] = [];
+    const updatedPlanDates = new Map<string, string>();
+    let createdWOCount = 0;
+
+    targetPlans.forEach((plan, idx) => {
+      let assignedDate = bulkScheduleDate;
+
+      if (bulkScheduleMode === 'staggered') {
+        const offsetGroup = Math.floor(idx / Math.max(1, bulkStaggerMachinesPerDay));
+        const d = new Date(bulkStaggerStartDate || todayStr);
+        let addedDays = 0;
+        while (addedDays < offsetGroup) {
+          d.setDate(d.getDate() + 1);
+          if (bulkSkipWeekends) {
+            const dayOfWeek = d.getDay();
+            if (dayOfWeek === 0 || dayOfWeek === 6) continue; // skip Sat/Sun
+          }
+          addedDays++;
+        }
+        assignedDate = d.toISOString().split('T')[0];
+      } else if (bulkScheduleMode === 'monthly_day') {
+        const mStr = String(bulkScheduleMonth).padStart(2, '0');
+        const dStr = String(bulkScheduleDayOfMonth).padStart(2, '0');
+        assignedDate = `${currentYear}-${mStr}-${dStr}`;
+      }
+
+      updatedPlanDates.set(plan.id, assignedDate);
+
+      // Select technician
+      let assignedTech = bulkScheduleTech;
+      if (bulkTechAssignMode === 'round_robin' && technicians.length > 0) {
+        assignedTech = technicians[idx % technicians.length];
+      }
+
+      const m = parseInt(assignedDate.split('-')[1], 10);
+      const monthStr = String(m).padStart(2, '0');
+
+      // Check existing schedule item in that month
+      const existingIdx = schedules.findIndex(
+        s => s.type === 'PM' && 
+             s.machineId === plan.machineId && 
+             (s.pmPlanId === plan.id || s.title?.includes(plan.title)) && 
+             s.date.startsWith(`${currentYear}-${monthStr}`)
+      );
+
+      // Create CMMS Work Order if enabled
+      if (bulkAutoCreateWO) {
+        const mach = machines.find(m => m.id === plan.machineId);
+        addWorkOrder({
+          workOrderNo: '',
+          title: `PM ตามรอบ TBM (${plan.frequency}): ${mach?.name || plan.machineId} - ${plan.title}`,
+          description: `งานบำรุงรักษาเชิงป้องกันตามรอบเวลา (TBM Datamatrix)\n- รหัสเครื่อง: ${plan.machineId}\n- แผนงาน: ${plan.title}\n- ความถี่: ${plan.frequency}\n${bulkScheduleNotes ? `- หมายเหตุ: ${bulkScheduleNotes}` : ''}`,
+          sourceType: 'PM',
+          workCategory: 'PLANNED',
+          priority: 'ตามแผนนัดหมาย',
+          status: 'READY_TO_RELEASE',
+          machineId: plan.machineId,
+          machineName: mach?.name || plan.machineId,
+          lineGroup: mach?.lineGroup || '-',
+          scheduledDate: assignedDate,
+          scheduledStartTime: bulkScheduleTime || '08:30',
+          estimatedDurationMins: plan.ttm || 45,
+          assignedTechnicians: [assignedTech],
+          leadTechnician: assignedTech,
+          requiresParts: Boolean(plan.spareParts),
+          requiredParts: [],
+          lotoRequired: true,
+          lotoTag: `LOTO-${plan.machineId}`,
+          sourceRefId: plan.id,
+          createdBy: currentUser?.name || 'หัวหน้างาน CMMS'
+        });
+        createdWOCount++;
+      }
+
+      if (existingIdx >= 0) {
+        setSchedules(prev => {
+          const next = [...prev];
+          next[existingIdx] = {
+            ...next[existingIdx],
+            technician: assignedTech,
+            technicians: [assignedTech],
+            date: assignedDate,
+            notes: bulkScheduleNotes || next[existingIdx].notes
+          };
+          return next;
+        });
+      } else {
+        newSchedules.push({
+          id: `sched-bulk-${Date.now()}-${plan.machineId}-${idx}`,
+          type: 'PM',
+          technician: assignedTech,
+          technicians: [assignedTech],
+          date: assignedDate,
+          machineId: plan.machineId,
+          pmPlanId: plan.id,
+          status: 'รอดำเนินการ',
+          duration: plan.ttm || 30,
+          title: plan.title,
+          notes: bulkScheduleNotes || `กำหนดวันทำ PM เป็นชุด (${plan.frequency}) เครื่อง ${plan.machineId}`
+        });
+      }
+    });
+
+    if (newSchedules.length > 0) {
+      setSchedules(prev => [...newSchedules, ...prev]);
+    }
+
+    // Update PM Plan nextDueDate and targetMonths
+    setPmPlans(prev => prev.map(p => {
+      const assigned = updatedPlanDates.get(p.id);
+      if (assigned) {
+        const assignedMonth = parseInt(assigned.split('-')[1], 10);
+        const existingMonths = p.targetMonths || [];
+        const nextMonths = existingMonths.includes(assignedMonth) ? existingMonths : [...existingMonths, assignedMonth].sort((a,b)=>a-b);
+        return {
+          ...p,
+          nextDueDate: assigned,
+          targetMonths: nextMonths
+        };
+      }
+      return p;
+    }));
+
+    setShowBulkScheduleModal(false);
+    showToast(`✅ บันทึกกำหนดวันทำ PM ให้กับเครื่องจักร ${targetPlans.length} รายการ เรียบร้อยแล้ว!${createdWOCount > 0 ? ` (สร้างใบสั่งงาน CMMS ${createdWOCount} ใบ)` : ''}`);
+  };
 
   // Export Table to CSV
   const handleExportCSV = () => {
@@ -1059,6 +1312,19 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
                   </button>
                 )}
 
+                {canEdit && (
+                  <button
+                    type="button"
+                    id="btn-tbm-bulk-schedule-open"
+                    onClick={handleOpenBulkScheduleModal}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl shadow-md shadow-emerald-950/50 transition-all active:scale-95 cursor-pointer"
+                    title="กำหนดวันทำ PM ให้เครื่องจักรที่เลือก หรือเลือกทุกเครื่องจักรในระบบพร้อมกัน"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>📅 กำหนดวันแผน PM {selectedPlanIds.size > 0 ? `(${selectedPlanIds.size} แผน)` : 'หลายเครื่อง/ทั้งหมด'}</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   id="btn-tbm-delete-all-in-system"
@@ -1094,6 +1360,15 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
                 </button>
               </>
             )}
+
+            <button
+              onClick={() => setShowExcelImportModal(true)}
+              className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl transition-all shadow-sm active:scale-95"
+              title="นำเข้าแผนงาน PM จากไฟล์ Excel (Master Table & F-QMS-011/12)"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              นำเข้าแผนจาก Excel
+            </button>
 
             <button
               onClick={handleExportCSV}
@@ -1486,6 +1761,18 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
                 className="px-3 py-1.5 text-xs font-semibold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 rounded-xl border border-indigo-500/40 transition-colors cursor-pointer"
               >
                 เลือกทุกเครื่องในระบบ ({pmPlans.length})
+              </button>
+            )}
+
+            {canEdit && (
+              <button
+                type="button"
+                id="btn-confirm-bulk-schedule-bar"
+                onClick={handleOpenBulkScheduleModal}
+                className="px-4 py-1.5 text-xs font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl shadow-lg shadow-emerald-950/60 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+              >
+                <Calendar className="w-4 h-4" />
+                <span>📅 กำหนดวันทำ PM ({selectedPlanIds.size} แผน)</span>
               </button>
             )}
 
@@ -2309,7 +2596,7 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
                         <div className="flex items-center gap-2">
                           <span className="text-base font-bold text-white tracking-wide font-mono">{machine.id}</span>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${crit.badgeClass}`}>
-                            Class {crit.shortLabel}
+                            Rank {crit.rankNum || (crit.shortLabel === 'A' ? 1 : crit.shortLabel === 'B' ? 2 : 3)} ({crit.shortLabel})
                           </span>
                         </div>
                         <h4 className="text-xs text-slate-400 mt-0.5">{machine.name}</h4>
@@ -3578,6 +3865,561 @@ export const TBMPlanSchedulePage: React.FC<TBMPlanSchedulePageProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 8: BULK SCHEDULE PM DATE MODAL (กำหนดวันในแผนการทำ PM หลายเครื่อง/ทั้งหมด) */}
+      {/* ========================================================================= */}
+      {showBulkScheduleModal && (
+        <div 
+          id="tbm-bulk-schedule-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto"
+        >
+          <div className="bg-slate-900 border-2 border-emerald-500/60 rounded-3xl max-w-5xl w-full p-5 sm:p-6 shadow-2xl flex flex-col max-h-[92vh] text-slate-200 overflow-hidden">
+            
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-800 shrink-0">
+              <div className="flex items-center gap-3.5">
+                <div className="p-3 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 text-emerald-400 border border-emerald-500/30 shrink-0 shadow-lg shadow-emerald-950/50">
+                  <CalendarRange className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2 flex-wrap">
+                    <span>กำหนดวันในแผนการทำ PM</span>
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono border border-emerald-500/30">
+                      หลายเครื่อง / ทั้งหมดในครั้งเดียว
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    เลือกเครื่องจักรที่ต้องการกำหนดวัน กำหนดวันลงตารางงานช่าง และสามารถเลือกสร้างใบสั่งงาน Work Order (CMMS) พร้อมกันได้ทันที
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBulkScheduleModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+                title="ปิดหน้าต่าง"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: Split into Selection & Configuration */}
+            <div className="flex-1 overflow-y-auto py-4 space-y-5 pr-1 custom-scrollbar">
+              
+              {/* SECTION 1: SELECTION SUMMARY & QUICK SELECTORS */}
+              <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-slate-200">
+                      🎯 เครื่องจักรและแผนที่เลือก:
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-mono font-bold text-xs">
+                      {selectedPlanIds.size} แผน
+                    </span>
+                    <span className="text-slate-500 text-xs">|</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 font-mono text-xs">
+                      {affectedMachinesCount} เครื่อง
+                    </span>
+                    <span className="text-slate-500 text-xs">/ ทั้งหมด {pmPlans.length} แผน</span>
+                  </div>
+
+                  {/* Quick Select Buttons */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPlanIds(new Set(pmPlans.map(p => p.id)));
+                        showToast(`☑️ เลือกทุกเครื่องในระบบแล้ว (${pmPlans.length} แผน)`);
+                      }}
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 rounded-lg transition-colors cursor-pointer"
+                    >
+                      ☑️ เลือกทุกเครื่อง ({pmPlans.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPlanIds(new Set(filteredPlans.map(p => p.id)));
+                        showToast(`☑️ เลือกทั้งหมดที่แสดงแล้ว (${filteredPlans.length} แผน)`);
+                      }}
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition-colors cursor-pointer"
+                    >
+                      เลือกที่แสดง ({filteredPlans.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPlanIds(new Set());
+                        showToast('🧹 ยกเลิกการเลือกทั้งหมดแล้ว');
+                      }}
+                      className="px-2.5 py-1 text-[11px] font-semibold bg-slate-900 hover:bg-slate-850 text-slate-400 hover:text-slate-200 border border-slate-800 rounded-lg transition-colors cursor-pointer"
+                    >
+                      ล้างการเลือก
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter / Quick Selection by Room / Line & Rank */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80 text-xs">
+                  <span className="text-slate-400 text-[11px]">เลือกตามไลน์/ห้อง:</span>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {lineGroups.map(line => {
+                      const countInLine = pmPlans.filter(p => {
+                        const m = machines.find(mach => mach.id === p.machineId);
+                        return (m?.location || m?.lineGroup) === line;
+                      }).length;
+                      return (
+                        <button
+                          key={line}
+                          type="button"
+                          onClick={() => handleSelectByLine(line)}
+                          className="px-2 py-0.5 text-[10px] bg-slate-900 hover:bg-cyan-950/60 text-slate-300 hover:text-cyan-300 border border-slate-800 hover:border-cyan-500/40 rounded-md transition-colors cursor-pointer"
+                          title={`กดเพื่อเลือกเครื่องจักรทั้งหมดใน ${line}`}
+                        >
+                          {line} ({countInLine})
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <span className="text-slate-600">|</span>
+
+                  <span className="text-slate-400 text-[11px]">เลือกตาม Rank:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectByRank('A')}
+                    className="px-2 py-0.5 text-[10px] bg-rose-950/40 hover:bg-rose-950/70 text-rose-300 border border-rose-500/30 rounded-md transition-colors cursor-pointer font-bold"
+                  >
+                    Rank 1 (A)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectByRank('B')}
+                    className="px-2 py-0.5 text-[10px] bg-amber-950/40 hover:bg-amber-950/70 text-amber-300 border border-amber-500/30 rounded-md transition-colors cursor-pointer font-bold"
+                  >
+                    Rank 2 (B)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectByRank('C')}
+                    className="px-2 py-0.5 text-[10px] bg-sky-950/40 hover:bg-sky-950/70 text-sky-300 border border-sky-500/30 rounded-md transition-colors cursor-pointer font-bold"
+                  >
+                    Rank 3 (C)
+                  </button>
+                </div>
+
+                {/* Search & List of machines in modal */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
+                      <input
+                        type="text"
+                        placeholder="ค้นหารหัสเครื่องจักร, ชื่อเครื่อง, แผนงาน..."
+                        value={bulkModalSearch}
+                        onChange={(e) => setBulkModalSearch(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      แสดง {bulkModalFilteredPlans.length} รายการ
+                    </span>
+                  </div>
+
+                  {/* Scrollable Mini Table */}
+                  <div className="border border-slate-800 rounded-xl overflow-hidden max-h-48 overflow-y-auto bg-slate-900/60 custom-scrollbar">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="sticky top-0 bg-slate-950 border-b border-slate-800 text-[11px] font-bold text-slate-300 z-10">
+                        <tr>
+                          <th className="p-2 text-center w-10">
+                            <input
+                              type="checkbox"
+                              checked={bulkModalFilteredPlans.length > 0 && bulkModalFilteredPlans.every(p => selectedPlanIds.has(p.id))}
+                              onChange={() => {
+                                const allInModalSelected = bulkModalFilteredPlans.every(p => selectedPlanIds.has(p.id));
+                                setSelectedPlanIds(prev => {
+                                  const next = new Set(prev);
+                                  if (allInModalSelected) {
+                                    bulkModalFilteredPlans.forEach(p => next.delete(p.id));
+                                  } else {
+                                    bulkModalFilteredPlans.forEach(p => next.add(p.id));
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="rounded text-emerald-500 bg-slate-900 border-slate-700 cursor-pointer accent-emerald-500"
+                            />
+                          </th>
+                          <th className="p-2 w-28">รหัสเครื่องจักร</th>
+                          <th className="p-2 w-44">ชื่อเครื่องจักร</th>
+                          <th className="p-2 w-32">ไลน์ / ห้อง</th>
+                          <th className="p-2 min-w-[200px]">หัวข้องาน PM</th>
+                          <th className="p-2 w-24 text-center">ความถี่</th>
+                          <th className="p-2 w-28 text-center">วันตามแผนปัจจุบัน</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-850 text-[11px]">
+                        {bulkModalFilteredPlans.map(plan => {
+                          const isChecked = selectedPlanIds.has(plan.id);
+                          const mach = machines.find(m => m.id === plan.machineId);
+                          const crit = getMachineCriticality(mach);
+
+                          return (
+                            <tr
+                              key={plan.id}
+                              onClick={() => handleToggleSelectPlan(plan.id)}
+                              className={`transition cursor-pointer ${
+                                isChecked ? 'bg-emerald-950/30 hover:bg-emerald-950/50' : 'opacity-60 hover:opacity-100 hover:bg-slate-850'
+                              }`}
+                            >
+                              <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => handleToggleSelectPlan(plan.id)}
+                                  className="rounded text-emerald-500 bg-slate-900 border-slate-700 cursor-pointer accent-emerald-500"
+                                />
+                              </td>
+                              <td className="p-2 font-mono font-bold text-cyan-400">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{plan.machineId}</span>
+                                  <span className={`text-[9px] px-1 py-0.2 rounded border font-mono font-bold ${crit.badgeClass}`}>
+                                    {crit.shortLabel}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="p-2 text-slate-200 truncate max-w-[160px]">
+                                {mach?.name || plan.machineName || plan.machineId}
+                              </td>
+                              <td className="p-2 text-slate-400 truncate max-w-[130px]">
+                                {mach?.location || mach?.lineGroup || '-'}
+                              </td>
+                              <td className="p-2 text-slate-300 font-medium truncate max-w-[220px]">
+                                {plan.title}
+                              </td>
+                              <td className="p-2 text-center">
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                                  {plan.frequency}
+                                </span>
+                              </td>
+                              <td className="p-2 text-center font-mono text-slate-400">
+                                {plan.nextDueDate || '-'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 2: SCHEDULING MODE & DATE SETTINGS */}
+              <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-emerald-400" />
+                    <span>วิธีกำหนดวันและรูปแบบการจัดตาราง</span>
+                  </h4>
+                  <span className="text-[11px] text-slate-400">
+                    เลือกว่าจะทำวันเดียวกัน หรือกระจายวันทำงานอัตโนมัติ
+                  </span>
+                </div>
+
+                {/* Mode Selector Tabs */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBulkScheduleMode('same_date')}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col gap-1 ${
+                      bulkScheduleMode === 'same_date'
+                        ? 'bg-emerald-950/40 border-emerald-500/80 text-emerald-300 shadow-md ring-1 ring-emerald-500/30'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                    }`}
+                  >
+                    <span className="font-bold text-xs flex items-center gap-1.5">
+                      <span>📌 กำหนดวันเดียวกันทั้งหมด</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 leading-relaxed">
+                      ทุกเครื่องที่เลือกจะลงวันทำ PM วันเดียวกัน เหมาะสำหรับ Big Cleaning หรือวันหยุดไลน์
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setBulkScheduleMode('staggered')}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col gap-1 ${
+                      bulkScheduleMode === 'staggered'
+                        ? 'bg-teal-950/40 border-teal-500/80 text-teal-300 shadow-md ring-1 ring-teal-500/30'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                    }`}
+                  >
+                    <span className="font-bold text-xs flex items-center gap-1.5">
+                      <span>⚡ กระจายวันทำงานอัตโนมัติ</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 leading-relaxed">
+                      เฉลี่ยทำวันละ [X] เครื่อง เพื่อกระจายโหลดงาน ช่างทำทัน ไม่สะดุดไลน์ผลิต
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setBulkScheduleMode('monthly_day')}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col gap-1 ${
+                      bulkScheduleMode === 'monthly_day'
+                        ? 'bg-indigo-950/40 border-indigo-500/80 text-indigo-300 shadow-md ring-1 ring-indigo-500/30'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                    }`}
+                  >
+                    <span className="font-bold text-xs flex items-center gap-1.5">
+                      <span>🗓️ กำหนดประจำรอบเดือน (Matrix)</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 leading-relaxed">
+                      เลือกรอบเดือนใน 12-Month Matrix และระบุวันที่ (เช่น ทุกวันที่ 15 ของเดือน)
+                    </span>
+                  </button>
+                </div>
+
+                {/* Sub-form based on selected mode */}
+                {bulkScheduleMode === 'same_date' && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div className="space-y-1.5">
+                      <label className="font-bold text-slate-200 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>วันที่นัดหมายทำ PM *</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={bulkScheduleDate}
+                        onChange={(e) => setBulkScheduleDate(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="font-bold text-slate-200 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>เวลาเริ่มทำ PM</span>
+                      </label>
+                      <input
+                        type="time"
+                        value={bulkScheduleTime}
+                        onChange={(e) => setBulkScheduleTime(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {bulkScheduleMode === 'staggered' && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-3 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="font-bold text-slate-200 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-teal-400" />
+                          <span>วันที่เริ่มต้นกระจายงาน *</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={bulkStaggerStartDate}
+                          onChange={(e) => setBulkStaggerStartDate(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-teal-500"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="font-bold text-slate-200">
+                          จำนวนเครื่องที่ทำต่อวัน
+                        </label>
+                        <select
+                          value={bulkStaggerMachinesPerDay}
+                          onChange={(e) => setBulkStaggerMachinesPerDay(Number(e.target.value))}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-teal-500"
+                        >
+                          <option value={1}>วันละ 1 เครื่อง</option>
+                          <option value={2}>วันละ 2 เครื่อง (แนะนำ)</option>
+                          <option value={3}>วันละ 3 เครื่อง</option>
+                          <option value={4}>วันละ 4 เครื่อง</option>
+                          <option value={5}>วันละ 5 เครื่อง</option>
+                          <option value={10}>วันละ 10 เครื่อง</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center pt-5">
+                        <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={bulkSkipWeekends}
+                            onChange={(e) => setBulkSkipWeekends(e.target.checked)}
+                            className="rounded text-teal-500 bg-slate-950 border-slate-700 cursor-pointer accent-teal-500"
+                          />
+                          <span>เว้นวันหยุดเสาร์-อาทิตย์</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Staggered summary preview */}
+                    {staggeredSummary && (
+                      <div className="p-2.5 rounded-lg bg-teal-950/30 border border-teal-500/30 text-teal-300 text-xs flex items-center gap-2">
+                        <Info className="w-4 h-4 shrink-0" />
+                        <span>
+                          🗓️ ระบบจะกระจายทำ PM ให้ <strong className="font-bold">{selectedPlanIds.size} เครื่อง</strong> ตั้งแต่วันที่ <strong className="font-mono">{staggeredSummary.startDate}</strong> ถึง <strong className="font-mono">{staggeredSummary.endDate}</strong> (รวม {staggeredSummary.totalWorkingDays} วันทำการ เฉลี่ยวันละ {bulkStaggerMachinesPerDay} เครื่อง)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {bulkScheduleMode === 'monthly_day' && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div className="space-y-1.5">
+                      <label className="font-bold text-slate-200">
+                        เลือกรอบเดือนที่กำหนด (ปี {currentYear})
+                      </label>
+                      <select
+                        value={bulkScheduleMonth}
+                        onChange={(e) => setBulkScheduleMonth(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                      >
+                        {monthNamesFullThai.map((mName, idx) => (
+                          <option key={idx} value={idx + 1}>
+                            เดือนที่ {idx + 1}: {mName} ({currentYear})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="font-bold text-slate-200">
+                        วันที่ในเดือน (1 - 28)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={28}
+                        value={bulkScheduleDayOfMonth}
+                        onChange={(e) => setBulkScheduleDayOfMonth(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Technician & CMMS Work Order Options */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/80 text-xs">
+                  
+                  {/* Left: Technician Allocation */}
+                  <div className="space-y-2">
+                    <label className="font-bold text-slate-200 flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>ช่างผู้รับผิดชอบงาน PM</span>
+                    </label>
+                    <select
+                      value={bulkScheduleTech}
+                      onChange={(e) => setBulkScheduleTech(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
+                    >
+                      {technicians.map(t => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+
+                    <div className="flex items-center gap-4 text-[11px] text-slate-400 pt-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="techAssignMode"
+                          checked={bulkTechAssignMode === 'single'}
+                          onChange={() => setBulkTechAssignMode('single')}
+                          className="accent-cyan-500"
+                        />
+                        <span>มอบหมายช่างคนนี้ทุกเครื่อง</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="techAssignMode"
+                          checked={bulkTechAssignMode === 'round_robin'}
+                          onChange={() => setBulkTechAssignMode('round_robin')}
+                          className="accent-cyan-500"
+                        />
+                        <span>หมุนเวียนแบ่งงานช่างทุกคนเท่าๆ กัน</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Right: Work Order & Notes */}
+                  <div className="space-y-2">
+                    <label className="font-bold text-slate-200">
+                      หมายเหตุงาน PM (Notes)
+                    </label>
+                    <input
+                      type="text"
+                      value={bulkScheduleNotes}
+                      onChange={(e) => setBulkScheduleNotes(e.target.value)}
+                      placeholder="ระบุหมายเหตุ เช่น แผนบำรุงรักษาประจำเดือน"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-emerald-500"
+                    />
+
+                    <div className="pt-1">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={bulkAutoCreateWO}
+                          onChange={(e) => setBulkAutoCreateWO(e.target.checked)}
+                          className="rounded text-emerald-500 bg-slate-950 border-slate-700 cursor-pointer accent-emerald-500"
+                        />
+                        <span className="font-semibold text-emerald-300">
+                          🏷️ สร้างใบสั่งงาน Work Order (CMMS) พร้อมเลขที่ WO อัตโนมัติ
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4 border-t border-slate-800 shrink-0 text-xs">
+              <div className="text-slate-400">
+                พร้อมบันทึกกำหนดวันให้ <strong className="text-emerald-400 font-bold font-mono text-sm">{selectedPlanIds.size} แผนงาน</strong> ({affectedMachinesCount} เครื่องจักร)
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkScheduleModal(false)}
+                  className="px-4 py-2 font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  id="btn-confirm-execute-bulk-schedule"
+                  onClick={handleConfirmBulkSchedule}
+                  disabled={selectedPlanIds.size === 0}
+                  className="px-5 py-2 font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white rounded-xl shadow-lg shadow-emerald-950/60 transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+                >
+                  <Calendar className="w-4 h-4" />
+                  <span>บันทึกกำหนดวัน PM ({selectedPlanIds.size} แผน)</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Excel PM Import Modal */}
+      {showExcelImportModal && (
+        <PMExcelImportModal
+          machines={machines}
+          selectedMachineId={selectedMachineId !== 'ALL' ? selectedMachineId : machines[0]?.id}
+          onClose={() => setShowExcelImportModal(false)}
+        />
       )}
     </div>
   );

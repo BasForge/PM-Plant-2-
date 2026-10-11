@@ -151,6 +151,7 @@ export const SetupPage: React.FC = () => {
   const [mName, setMName] = useState('');
   const [mLineGroup, setMLineGroup] = useState('LINE A');
   const [mStatus, setMStatus] = useState<'ปกติ' | 'เสีย/ซ่อม'>('ปกติ');
+  const [mRanking, setMRanking] = useState<'A' | 'B' | 'C'>('B');
 
   // Sync machine form states when editingMachineObj changes
   React.useEffect(() => {
@@ -159,11 +160,13 @@ export const SetupPage: React.FC = () => {
       setMName(editingMachineObj.name);
       setMLineGroup(editingMachineObj.lineGroup || 'LINE A');
       setMStatus(editingMachineObj.status || 'ปกติ');
+      setMRanking((editingMachineObj.ranking as any) || 'B');
     } else {
       setMId('');
       setMName('');
       setMLineGroup('LINE A');
       setMStatus('ปกติ');
+      setMRanking('B');
     }
   }, [editingMachineObj]);
 
@@ -174,17 +177,45 @@ export const SetupPage: React.FC = () => {
       return;
     }
 
+    let finalId = mId.trim().toUpperCase();
+    let finalName = mName.trim();
+    let detectedRank = mRanking;
+
+    // Detect rank from parentheses in ID: e.g. "RIM01 (1)" or "RIM01 (A)"
+    const idParenMatch = finalId.match(/[\(\[\{]\s*([0-9]+|[A-Za-z]+)\s*[\)\]\}]/);
+    if (idParenMatch) {
+      const r = idParenMatch[1].trim().toUpperCase();
+      if (r === '1' || r === 'A' || r === 'วิกฤต') detectedRank = 'A';
+      else if (r === '2' || r === 'B' || r === 'สำคัญ') detectedRank = 'B';
+      else if (r === '3' || r === 'C' || r === 'ทั่วไป') detectedRank = 'C';
+      finalId = finalId.replace(/[\(\[\{]\s*([0-9]+|[A-Za-z]+)\s*[\)\]\}]/g, '').trim();
+    }
+
+    // Detect rank from parentheses in Name
+    const nameParenMatch = finalName.match(/[\(\[\{]\s*([0-9]+|[A-Za-z]+)\s*[\)\]\}]/);
+    if (nameParenMatch) {
+      const r = nameParenMatch[1].trim().toUpperCase();
+      if (!idParenMatch) {
+        if (r === '1' || r === 'A' || r === 'วิกฤต') detectedRank = 'A';
+        else if (r === '2' || r === 'B' || r === 'สำคัญ') detectedRank = 'B';
+        else if (r === '3' || r === 'C' || r === 'ทั่วไป') detectedRank = 'C';
+      }
+      finalName = finalName.replace(/[\(\[\{]\s*([0-9]+|[A-Za-z]+)\s*[\)\]\}]/g, '').trim();
+    }
+
     const machineData: Machine = {
-      id: mId.trim().toUpperCase(),
-      name: mName.trim(),
+      ...(editingMachineObj || {}),
+      id: finalId,
+      name: finalName,
       lineGroup: mLineGroup.trim(),
-      status: mStatus
+      status: mStatus,
+      ranking: detectedRank
     };
 
     if (editingMachineObj) {
       // Edit existing machine
       setMachines(prev => prev.map(m => m.id === editingMachineObj.id ? machineData : m));
-      showAlert('success', `✏️ แก้ไขข้อมูลเครื่องจักร ${machineData.name} สำเร็จ!`);
+      showAlert('success', `✏️ แก้ไขข้อมูลเครื่องจักร ${machineData.name} (Rank ${detectedRank}) สำเร็จ!`);
     } else {
       // Check duplicate ID
       if (machines.some(m => m.id.toUpperCase() === machineData.id)) {
@@ -193,7 +224,7 @@ export const SetupPage: React.FC = () => {
       }
       setMachines(prev => [...prev, machineData]);
       setMachineId(machineData.id); // select the newly added machine
-      showAlert('success', `✨ เพิ่มเครื่องจักรใหม่ ${machineData.name} สำเร็จ!`);
+      showAlert('success', `✨ เพิ่มเครื่องจักรใหม่ ${machineData.name} (Rank ${detectedRank}) สำเร็จ!`);
     }
 
     setMachineModalOpen(false);
@@ -791,11 +822,15 @@ export const SetupPage: React.FC = () => {
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
                   >
                     <option value="" disabled>-- เลือกเครื่องจักร --</option>
-                    {machines.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} [{m.id}] - {m.lineGroup}
-                      </option>
-                    ))}
+                    {machines.map(m => {
+                      const r = m.ranking === 'A' || m.ranking === '1' ? 'Rank 1 (A)' :
+                                m.ranking === 'C' || m.ranking === '3' ? 'Rank 3 (C)' : 'Rank 2 (B)';
+                      return (
+                        <option key={m.id} value={m.id}>
+                          {m.name} [{m.id}] ({r}) - {m.lineGroup}
+                        </option>
+                      );
+                    })}
                   </select>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
@@ -1863,6 +1898,22 @@ export const SetupPage: React.FC = () => {
                     <option value="เสีย/ซ่อม">🔴 เสีย / อยู่ระหว่างซ่อม</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-extrabold text-rose-350 flex items-center justify-between">
+                  <span>🏷️ Rank เครื่องจักร (ตัวเลขในวงเล็บ เช่น (1), (2), (3))*</span>
+                  <span className="text-[10px] text-slate-400 font-normal">ระดับความสำคัญ</span>
+                </label>
+                <select
+                  value={mRanking}
+                  onChange={(e) => setMRanking(e.target.value as 'A' | 'B' | 'C')}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 font-semibold"
+                >
+                  <option value="A" className="text-rose-300 bg-slate-950">Rank 1 (A - วิกฤต: หยุดทำงานกระทบทั้งโรงงาน)</option>
+                  <option value="B" className="text-amber-300 bg-slate-950">Rank 2 (B - สำคัญ: เครื่องจักรหลักประจำไลน์)</option>
+                  <option value="C" className="text-sky-300 bg-slate-950">Rank 3 (C - ทั่วไป: เครื่องจักรรอง/ไม่กระทบไลน์ทันที)</option>
+                </select>
               </div>
 
               <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-800/80">

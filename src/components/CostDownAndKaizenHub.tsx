@@ -9,8 +9,18 @@ interface CostDownAndKaizenHubProps {
 }
 
 export const CostDownAndKaizenHub: React.FC<CostDownAndKaizenHubProps> = ({ defaultTab = 'costdown' }) => {
-  const { cd5Projects, improvements } = useApp();
-  const [activeSubTab, setActiveSubTab] = useState<'costdown' | 'kaizen'>(defaultTab);
+  const { cd5Projects, improvements, kaizenNavigationFilter } = useApp();
+  const [activeSubTab, setActiveSubTab] = useState<'costdown' | 'kaizen'>(
+    kaizenNavigationFilter ? 'kaizen' : defaultTab
+  );
+
+  React.useEffect(() => {
+    if (kaizenNavigationFilter) {
+      setActiveSubTab('kaizen');
+    } else {
+      setActiveSubTab(defaultTab);
+    }
+  }, [kaizenNavigationFilter, defaultTab]);
 
   // Calculate live summary for badges
   const totalAnnualSavings = cd5Projects.reduce((sum, p) => sum + (p.annualSavings || 0), 0);
