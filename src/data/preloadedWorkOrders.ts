@@ -208,9 +208,31 @@ export const PRELOADED_WORK_ORDERS: WorkOrder[] = [
     createdAt: "2026-10-06T11:15:00.000Z",
     createdBy: "ระบบแจ้งเตือนฉุกเฉิน (Auto-WO Fast-Track)",
     releasedAt: "2026-10-06T11:18:00.000Z",
-    releasedBy: "ช่างเกื้อ",
     closedAt: "2026-10-06T12:05:00.000Z",
-    closedBy: "นายสมชาย (วิศวกรซ่อมบำรุง)"
+    closedBy: "นายสมชาย (วิศวกรซ่อมบำรุง)",
+    failureCode: {
+      subsystem: 'MECHANICAL',
+      subsystemLabel: 'เครื่องกล & ระบบส่งกำลัง (Mechanical)',
+      symptomCode: 'FS-M02',
+      symptomLabel: 'สายพาน/โซ่ หย่อน รูด หรือขาด',
+      causeCode: 'FC-03',
+      causeLabel: 'ฝุ่นผง / แป้ง / เศษวัตถุดิบสะสมขัดกลไก',
+      actionCode: 'AC-02',
+      actionLabel: 'เบิกเปลี่ยนอะไหล่ใหม่จากคลัง (Replace with New Part)',
+      severity: 'HIGH'
+    },
+    actualPartsUsed: [
+      {
+        partId: "sp-chain-pin",
+        partName: "สลักข้อต่อโซ่ขับลำเลียงสเตนเลส SUS304",
+        quantity: 1,
+        pricePerUnit: 150,
+        totalCost: 150,
+        unit: "ชิ้น"
+      }
+    ],
+    totalPartsCost: 150,
+    savedToKnowledge: true,
   },
   {
     id: "WO-2026-0005",
@@ -295,9 +317,21 @@ export const PRELOADED_WORK_ORDERS: WorkOrder[] = [
     createdAt: "2026-10-05T17:00:00.000Z",
     createdBy: "นายสมชาย (วิศวกรซ่อมบำรุง)",
     releasedAt: "2026-10-06T07:25:00.000Z",
-    releasedBy: "นายสมชาย (วิศวกรซ่อมบำรุง)",
     closedAt: "2026-10-06T08:30:00.000Z",
-    closedBy: "นายสมชาย (วิศวกรซ่อมบำรุง)"
+    closedBy: "นายสมชาย (วิศวกรซ่อมบำรุง)",
+    failureCode: {
+      subsystem: 'OTHER',
+      subsystemLabel: 'โครงสร้าง & อื่นๆ (Structure/Other)',
+      symptomCode: 'FS-O99',
+      symptomLabel: 'ตรวจเช็คสภาพเครื่องจักรประจำวันและระบบความปลอดภัย',
+      causeCode: 'FC-01',
+      causeLabel: 'การสึกหรอตามอายุการใช้งานปกติ (Normal Wear & Tear)',
+      actionCode: 'AC-01',
+      actionLabel: 'ปรับตั้ง / ทำความสะอาด / ขันแน่น (Adjust, Clean & Tighten)',
+      severity: 'LOW'
+    },
+    actualPartsUsed: [],
+    totalPartsCost: 0
   },
   {
     id: "WO-2026-0007",

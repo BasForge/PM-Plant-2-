@@ -24,6 +24,7 @@ import { UserManagementModal } from './components/UserManagementModal';
 import { MtbfMttrDashboardPage } from './components/mtbf/MtbfMttrDashboardPage';
 import { WorkOrderHub } from './components/workOrder/WorkOrderHub';
 import { ActiveKnowledgeHub } from './components/knowledge/ActiveKnowledgeHub';
+import { ActiveCMMSUnifiedHub } from './components/ActiveCMMSUnifiedHub';
 import { getOverdueAndRescheduledSummary, getTodayDateString } from './utils/pmAlerts';
 
 import { 
@@ -177,8 +178,9 @@ function AppContent() {
       case 3: return <SchedulePage />;
       case 4: return <MaintenanceHistoryHub defaultTab="repair" />;
       case 11: return <MaintenanceHistoryHub defaultTab="pm" />;
-      case 5: return <CostDownAndKaizenHub defaultTab="kaizen" />;
-      case 13: return <CostDownAndKaizenHub defaultTab="costdown" />;
+      case 5: return <ActiveCMMSUnifiedHub defaultTab="kaizen" />;
+      case 13: return <ActiveCMMSUnifiedHub defaultTab="costdown" />;
+      case 18: return <ActiveCMMSUnifiedHub defaultTab="knowledge" />;
       case 8: return <SetupAndDispatchHub defaultTab="setup" />;
       case 7: return <SetupAndDispatchHub defaultTab="dispatch" />;
       case 10: return <InventoryPage />;
@@ -186,7 +188,6 @@ function AppContent() {
       case 6:
       case 9:
       case 16: return <MtbfMttrDashboardPage />;
-      case 18: return <ActiveKnowledgeHub />;
       case 12: return <TechnicianPortfolioPage />;
       default: return <SchedulePage />;
     }
@@ -200,8 +201,7 @@ function AppContent() {
     { id: 1, label: "🏭 เครื่องจักร & แผน PM", icon: Activity, desc: "ทะเบียน, แผนงาน PM & TBM Matrix" },
     { id: 4, label: "🔧 ประวัติซ่อม & ประวัติ PM", icon: Wrench, desc: "บันทึกซ่อม Why-Why & งาน PM" },
     { id: 16, label: "📈 MTBF/MTTR & Bad Actor", icon: BarChart3, desc: "Pareto 80/20 & วิเคราะห์เครื่องวิกฤต" },
-    { id: 18, label: "📚 ศูนย์คลังความรู้ Active CMMS", icon: BookOpen, desc: "Manual, WI, Troubleshoot & Why-Why" },
-    { id: 13, label: "💰 Cost Down 5 & Kaizen", icon: TrendingDown, desc: "ลดต้นทุนอะไหล่ & งานพัฒนา Kaizen" },
+    { id: 18, label: "📚 ศูนย์คลังความรู้ Active CMMS", icon: BookOpen, desc: "Manual, WI, Troubleshoot, Why-Why & Kaizen" },
     { id: 7, label: "📋 ระบบจ่ายงาน & Setup เครื่อง", icon: Send, desc: "ศูนย์สั่งจ่ายงาน & บันทึก Setup" },
     { id: 10, label: "📦 คลังอะไหล่สำรอง", icon: Package, desc: "ควบคุมความปลอดภัยสต็อก" },
     { id: 12, label: "🏆 Portfolio ช่าง", icon: Award, desc: "ประวัติผลงาน Kaizen & ปรับปรุง" }
@@ -274,7 +274,7 @@ function AppContent() {
               const IconComp = item.icon;
               const isSelected = activePage === item.id 
                 || (item.id === 1 && (activePage === 2 || activePage === 15)) 
-                || (item.id === 13 && activePage === 5)
+                || (item.id === 18 && (activePage === 5 || activePage === 13))
                 || (item.id === 4 && activePage === 11)
                 || (item.id === 7 && activePage === 8);
               const hasOverdueBadge = (item.id === 4 || item.id === 11 || item.id === 3) && totalOverdueCount > 0;
@@ -400,7 +400,7 @@ function AppContent() {
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
                   {navigationItems.find(n => n.id === activePage 
                     || (n.id === 1 && activePage === 2) 
-                    || (n.id === 13 && activePage === 5)
+                    || (n.id === 18 && (activePage === 5 || activePage === 13))
                     || (n.id === 4 && activePage === 11)
                     || (n.id === 7 && activePage === 8)
                   )?.label} / พื้นที่สถิติและการทำงานหลัก

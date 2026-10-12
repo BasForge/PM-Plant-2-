@@ -4,7 +4,8 @@ import {
   RepairLog, ImprovementProject, SystemSettings, ScheduleItem, SetupLog, Employee,
   TechnicianLeave, SparePart, CD5Project, UserAccount, UserRole,
   WorkRequest, EngineeringResponse, WorkRequestStatus,
-  WorkOrder, KaizenNavigationFilter
+  WorkOrder, KaizenNavigationFilter, WorkOrderFailureCode, UsedPartItem,
+  detectStoppageType
 } from '../types';
 import { 
   PRELOADED_MACHINES, PRELOADED_TECHNICIANS, PRELOADED_PM_PLANS, 
@@ -15,7 +16,7 @@ import { PRELOADED_WORK_REQUESTS } from '../data/preloadedRequests';
 import { PRELOADED_WORK_ORDERS } from '../data/preloadedWorkOrders';
 import { evaluateWorkOrderReadiness, generateWorkOrderNo } from '../utils/workOrderUtils';
 import { DEFAULT_USER_ACCOUNTS } from '../data/preloadedUsers';
-import { KnowledgeItem } from '../types/knowledge';
+import { KnowledgeItem, KnowledgeType } from '../types/knowledge';
 import { PRELOADED_KNOWLEDGE_ITEMS } from '../data/preloadedKnowledge';
 import { 
   loadDatabaseFromFirebase, 
@@ -99,6 +100,11 @@ export interface AppContextType {
     acceptedBy: string;
     satisfactionRating?: number;
     handoverNotes?: string;
+    failureCode?: WorkOrderFailureCode;
+    actualPartsUsed?: UsedPartItem[];
+    syncToRepairLog?: boolean;
+    saveToKnowledge?: boolean;
+    knowledgeType?: KnowledgeType;
   }) => void;
   createEmergencyBreakdownWorkOrder: (params: {
     machineId: string;
@@ -509,6 +515,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setCd5Projects(cloudData.cd5Projects && cloudData.cd5Projects.length > 0 ? cloudData.cd5Projects : PRELOADED_CD5_PROJECTS);
             setWorkRequests(sanitizeWorkRequests(cloudData.workRequests && cloudData.workRequests.length > 0 ? cloudData.workRequests : PRELOADED_WORK_REQUESTS));
             setWorkOrders(cloudData.workOrders && cloudData.workOrders.length > 0 ? cloudData.workOrders : PRELOADED_WORK_ORDERS);
+            if (cloudData.knowledgeItems && cloudData.knowledgeItems.length > 0) {
+              setKnowledgeItems(cloudData.knowledgeItems);
+            }
             const userList = ensureAllDefaultUsers(cloudData.users);
             setUsers(userList);
             
@@ -578,6 +587,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setCd5Projects(cd5);
             setWorkRequests(reqs);
             setWorkOrders(wos);
+            if (serverData.knowledgeItems && serverData.knowledgeItems.length > 0) {
+              setKnowledgeItems(serverData.knowledgeItems);
+            }
             setUsers(userList);
             setSettings(stt);
 
@@ -601,6 +613,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               cd5Projects: cd5,
               workRequests: reqs,
               workOrders: wos,
+              knowledgeItems: serverData.knowledgeItems || knowledgeItems,
               users: userList,
               settings: stt
             };
@@ -628,6 +641,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const storedWorkRequests = localStorage.getItem('maint_work_requests');
           const storedWorkOrders = localStorage.getItem('maint_work_orders');
           const storedUsers = localStorage.getItem('maint_users');
+          const storedKnowledge = localStorage.getItem('app_cmms_knowledge_items');
 
           const machs = storedMachines
             ? sanitizeMachines(JSON.parse(storedMachines))
@@ -693,6 +707,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             cd5Projects: cd5,
             workRequests: reqs,
             workOrders: wos,
+            knowledgeItems: storedKnowledge ? JSON.parse(storedKnowledge) : knowledgeItems,
             users: userList,
             settings: stt
           };
@@ -780,6 +795,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cd5Projects,
       workRequests,
       workOrders,
+      knowledgeItems,
       settings,
       users
     };
@@ -857,7 +873,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timerId);
   }, [
     machines, technicians, employees, pmPlans, schedules,
-    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, settings, users, isLoaded
+    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, knowledgeItems, settings, users, isLoaded
   ]);
 
   // Real-time listener for multi-user collaboration via Cloud Firestore
@@ -895,6 +911,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           if (cloudData.workOrders && cloudData.workOrders.length > 0) {
             setWorkOrders(cloudData.workOrders);
+          }
+          if (cloudData.knowledgeItems && cloudData.knowledgeItems.length > 0) {
+            setKnowledgeItems(cloudData.knowledgeItems);
           }
           if (cloudData.users && cloudData.users.length > 0) {
             setUsers(ensureAllDefaultUsers(cloudData.users));
@@ -947,6 +966,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (cloudData.workOrders && cloudData.workOrders.length > 0) {
           setWorkOrders(cloudData.workOrders);
         }
+        if (cloudData.knowledgeItems && cloudData.knowledgeItems.length > 0) {
+          setKnowledgeItems(cloudData.knowledgeItems);
+        }
         if (cloudData.users && cloudData.users.length > 0) {
           setUsers(cloudData.users);
         }
@@ -957,7 +979,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         const payload = {
           machines, technicians, employees, pmPlans, schedules,
-          repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, settings, users
+          repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, knowledgeItems, settings, users
         };
         await saveDatabaseToFirebase(payload);
         lastSavedJsonRef.current = JSON.stringify(payload);
@@ -1493,6 +1515,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     acceptedBy: string;
     satisfactionRating?: number;
     handoverNotes?: string;
+    failureCode?: WorkOrderFailureCode;
+    actualPartsUsed?: UsedPartItem[];
+    syncToRepairLog?: boolean;
+    saveToKnowledge?: boolean;
+    knowledgeType?: KnowledgeType;
   }) => {
     const target = workOrders.find(w => w.id === id);
     if (!target) return;
@@ -1501,14 +1528,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const nowIso = now.toISOString();
     const nowTimeStr = now.toTimeString().slice(0, 5);
 
-    // Deduct required spare parts from stock if not already deducted
-    if (target.requiresParts && target.requiredParts && target.requiredParts.length > 0) {
+    // 1. DEDUCT ACTUAL SPARE PARTS FROM INVENTORY (การตัดอะไหล่สมบูรณ์แบบ)
+    const effectiveUsedParts: UsedPartItem[] = completionData.actualPartsUsed && completionData.actualPartsUsed.length > 0
+      ? completionData.actualPartsUsed
+      : (target.requiresParts && target.requiredParts
+          ? target.requiredParts.map(rp => ({
+              partId: rp.partId,
+              partName: rp.partName,
+              quantity: rp.quantityRequired,
+              pricePerUnit: rp.unitCost || 0,
+              totalCost: rp.quantityRequired * (rp.unitCost || 0),
+              unit: 'ชิ้น'
+            }))
+          : []);
+
+    const totalPartsCost = effectiveUsedParts.reduce(
+      (sum, p) => sum + (p.totalCost || (p.quantity * (p.pricePerUnit || 0))),
+      0
+    );
+
+    if (effectiveUsedParts.length > 0) {
       setSpareParts(prevParts => prevParts.map(sp => {
-        const req = target.requiredParts.find(rp => rp.partId === sp.id);
-        if (req && req.quantityRequired > 0) {
+        const consumed = effectiveUsedParts.find(rp => rp.partId === sp.id);
+        if (consumed && consumed.quantity > 0) {
+          const currentQty = typeof sp.quantity === 'number' ? sp.quantity : Number((sp as any).stock || 0);
+          const newQty = Math.max(0, currentQty - consumed.quantity);
           return {
             ...sp,
-            stock: Math.max(0, sp.stock - req.quantityRequired),
+            quantity: newQty,
+            stock: newQty,
             lastUsedDate: nowIso.slice(0, 10),
             lastWorkRequestNo: target.workRequestNo || target.id
           };
@@ -1517,7 +1565,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }));
     }
 
-    // Two-way synchronization: If this Work Order was from a PM plan/schedule, mark PM Schedule as completed ('เสร็จสิ้น')
+    // 2. TWO-WAY SYNCHRONIZATION WITH PM SCHEDULE
     if (target.sourceType === 'PM') {
       const targetDateMonth = (target.scheduledDate || nowIso).slice(0, 7); // YYYY-MM
       setSchedules(prevScheds => prevScheds.map(sch => {
@@ -1536,12 +1584,139 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }));
     }
 
+    // 3. SYNCHRONIZE WITH REPAIR LOG & MTBF / BAD ACTOR REPORT
+    const actualDuration = completionData.actualDurationMins || target.estimatedDurationMins || 30;
+    const hasParts = effectiveUsedParts.length > 0;
+    const stoppageType = detectStoppageType(hasParts, actualDuration);
+
+    let linkedRepairFound = false;
+    setRepairs(prevRepairs => prevRepairs.map(rep => {
+      const isMatch = rep.workOrderId === target.id ||
+                      rep.id === target.sourceRefId ||
+                      (target.workRequestNo && rep.id === target.workRequestNo);
+      if (isMatch) {
+        linkedRepairFound = true;
+        return {
+          ...rep,
+          status: 'ปิดงาน',
+          repairDoneTime: rep.repairDoneTime || `${nowIso.slice(0, 10)}T${nowTimeStr}`,
+          duration: actualDuration,
+          symptoms: completionData.failureCode
+            ? `[${completionData.failureCode.symptomCode}] ${completionData.failureCode.symptomLabel}`
+            : (rep.symptoms || target.title),
+          why1: completionData.rootCauseWhy1 || completionData.failureCode?.causeLabel || rep.why1 || '',
+          correctiveAction: completionData.correctiveAction || completionData.failureCode?.actionLabel || rep.correctiveAction || '',
+          usedParts: effectiveUsedParts,
+          hasPartsReplaced: hasParts,
+          stoppageType,
+          workOrderId: target.id,
+          workOrderNo: target.id
+        };
+      }
+      return rep;
+    }));
+
+    // If no existing repair was linked, but user opted to sync or it's a BREAKDOWN work order, create RepairLog
+    if (!linkedRepairFound && (completionData.syncToRepairLog || target.sourceType === 'BREAKDOWN')) {
+      const newRepair: RepairLog = {
+        id: `REP-${target.id}`,
+        type: 'Repair',
+        technician: target.leadTechnician || (target.assignedTechnicians[0] || currentUser?.name || 'ช่างซ่อมบำรุง'),
+        technicians: target.assignedTechnicians,
+        date: target.scheduledDate || nowIso.slice(0, 10),
+        machineId: target.machineId,
+        breakdownTime: `${target.scheduledDate || nowIso.slice(0, 10)}T${target.scheduledStartTime || '08:00'}`,
+        repairDoneTime: `${nowIso.slice(0, 10)}T${nowTimeStr}`,
+        symptoms: completionData.failureCode
+          ? `[${completionData.failureCode.symptomCode}] ${completionData.failureCode.symptomLabel} - ${target.title}`
+          : target.title,
+        why1: completionData.rootCauseWhy1 || completionData.failureCode?.causeLabel || target.description,
+        why2: '',
+        why3: '',
+        why4: '',
+        why5: '',
+        correctiveAction: completionData.correctiveAction || completionData.failureCode?.actionLabel || completionData.workSummaryNotes || '',
+        duration: actualDuration,
+        status: 'ปิดงาน',
+        usedParts: effectiveUsedParts,
+        hasPartsReplaced: hasParts,
+        stoppageType,
+        workOrderId: target.id,
+        workOrderNo: target.id
+      };
+      setRepairs(prev => [newRepair, ...prev]);
+    }
+
+    // 4. CAPTURE TO ACTIVE KNOWLEDGE CENTER (IF SELECTED)
+    let generatedKnowledgeId: string | undefined;
+    if (completionData.saveToKnowledge) {
+      const kType: KnowledgeType = completionData.knowledgeType || (target.sourceType === 'BREAKDOWN' ? 'WHY_WHY' : 'TROUBLESHOOTING');
+      const fc = completionData.failureCode;
+      const titlePrefix = kType === 'WHY_WHY' ? 'กรณีศึกษา Why-Why' : 'คู่มือแก้ปัญหา Troubleshooting';
+      const itemTitle = `${titlePrefix}: ${fc?.symptomLabel || target.title} (${target.machineId})`;
+
+      const newKnowledge = addKnowledgeItem({
+        type: kType,
+        title: itemTitle,
+        machineId: target.machineId,
+        machineName: target.machineName || target.machineId,
+        lineGroup: target.lineGroup,
+        tags: [
+          target.machineId,
+          fc?.subsystemLabel || 'งานซ่อมบำรุง',
+          fc?.symptomCode || 'Breakdown',
+          'ปิดใบงาน Work Order',
+          target.sourceType
+        ],
+        author: currentUser?.name || 'วิศวกรซ่อมบำรุง',
+        isVerified: true,
+        whyWhyData: kType === 'WHY_WHY' ? {
+          problemStatement: `${target.title} - ${fc?.symptomLabel || ''}`,
+          phenomenon: completionData.workSummaryNotes || target.description,
+          why1: completionData.rootCauseWhy1 || fc?.causeLabel || 'เกิดการชำรุดขัดข้องขณะเดินเครื่อง',
+          why2: 'ชิ้นส่วนรับแรงเค้นต่อเนื่อง หรือการสึกหรอตามอายุการใช้งาน',
+          why3: 'ขาดการตรวจเช็คตามรอบ หรือไม่มีการทำความสะอาดสะสม',
+          why4: '',
+          why5: '',
+          rootCauseSummary: fc ? `[${fc.causeCode}] ${fc.causeLabel}` : (completionData.rootCauseWhy1 || 'สาเหตุรากเหง้าจากการใช้งาน'),
+          countermeasure: completionData.correctiveAction || fc?.actionLabel || 'ดำเนินการแก้ไขและปรับรอบบำรุงรักษา',
+          sourceWorkOrderId: target.id
+        } : undefined,
+        troubleshootingData: kType === 'TROUBLESHOOTING' ? {
+          symptom: fc?.symptomLabel || target.title,
+          subsystem: (fc?.subsystem === 'ELECTRICAL' ? 'ระบบไฟฟ้า (Electrical)' :
+                      fc?.subsystem === 'PNEUMATIC' ? 'ระบบลม (Pneumatic)' :
+                      fc?.subsystem === 'SENSOR_CONTROL' ? 'เซนเซอร์ & คอนโทรล (Control/Sensor)' :
+                      fc?.subsystem === 'THERMAL' ? 'ความร้อน & ซีล (Thermal/Sealing)' :
+                      fc?.subsystem === 'HYDRAULIC_VACUUM' ? 'ระบบสุญญากาศ (Vacuum)' :
+                      'เครื่องกล (Mechanical)'),
+          urgency: target.priority === 'ฉุกเฉินไลน์หยุด' ? 'วิกฤตไลน์หยุด (Critical)' : 'เร่งด่วน (Urgent)',
+          probableCauses: [
+            {
+              id: 'cause-1',
+              cause: completionData.rootCauseWhy1 || fc?.causeLabel || 'การสึกหรอหรือสิ่งแปลกปลอมขัดขวาง',
+              probability: 'สูง (High)',
+              checkMethod: 'ตรวจดูสภาพภายนอก รอยแตกร้าว การสั่นสะเทือน หรือความร้อน',
+              solution: completionData.correctiveAction || fc?.actionLabel || 'เปลี่ยนชิ้นส่วนใหม่และปรับตั้งค่า',
+              sparePartNeeded: effectiveUsedParts[0]?.partName,
+              estimatedFixTimeMins: actualDuration
+            }
+          ],
+          requiredTools: ['ชุดประแจหกเหลี่ยม', 'มัลติมิเตอร์', 'ผ้าเช็ดทำความสะอาด'],
+          safetyNotes: target.lotoRequired ? 'ต้องทำ LOTO ตัดแยกพลังงานก่อนเปิดฝาเครื่อง' : 'หยุดเครื่องจักรและแขวนป้ายเตือน',
+          quickChecklist: ['ตัดพลังงาน LOTO', 'ตรวจสอบชิ้นส่วนชำรุด', 'เปลี่ยนอะไหล่และปรับตั้ง', 'ทดสอบเดินเครื่องเปล่า']
+        } : undefined
+      });
+      generatedKnowledgeId = newKnowledge.id;
+    }
+
+    // 5. UPDATE WORK ORDER STATUS TO CLOSED WITH COMPLETE METRICS
     setWorkOrders(prev => prev.map(wo => {
       if (wo.id === id) {
         return {
           ...wo,
           status: 'CLOSED',
-          actualDurationMins: completionData.actualDurationMins || wo.estimatedDurationMins,
+          actualDurationMins: actualDuration,
           actualEndTime: nowTimeStr,
           workSummaryNotes: completionData.workSummaryNotes || wo.workSummaryNotes,
           rootCauseWhy1: completionData.rootCauseWhy1 || wo.rootCauseWhy1,
@@ -1551,7 +1726,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           productionHandoverNotes: completionData.handoverNotes,
           satisfactionRating: completionData.satisfactionRating || 5,
           closedAt: nowIso,
-          closedBy: currentUser?.name || 'หัวหน้างานซ่อมบำรุง'
+          closedBy: currentUser?.name || 'หัวหน้างานซ่อมบำรุง',
+          // Phase 3 attributes
+          failureCode: completionData.failureCode || wo.failureCode,
+          actualPartsUsed: effectiveUsedParts,
+          totalPartsCost,
+          savedToKnowledge: Boolean(completionData.saveToKnowledge),
+          knowledgeItemId: generatedKnowledgeId || wo.knowledgeItemId
         };
       }
       return wo;

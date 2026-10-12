@@ -6,28 +6,54 @@ import {
   Plus, Eye, Download, CheckCircle2, AlertTriangle, ShieldCheck, 
   Zap, Layers, ChevronRight, X, ExternalLink, Calendar, 
   User, Tag, Clock, HelpCircle, Flame, ArrowUpRight, Copy, Check,
-  BookMarked, HelpCircle as QuestionIcon, ShieldAlert, FileSpreadsheet
+  BookMarked, HelpCircle as QuestionIcon, ShieldAlert, FileSpreadsheet,
+  Edit2, Trash2, UploadCloud, Paperclip, TrendingDown
 } from 'lucide-react';
 import { PDFViewerModal } from '../kaizen/PDFViewerModal';
+import { WhyWhyAnalysisView } from '../kaizen/WhyWhyAnalysisView';
+import { CreateEditKaizenModal } from '../kaizen/CreateEditKaizenModal';
+import { KaizenDetailModal } from '../kaizen/KaizenDetailModal';
+import { PhotoLightboxModal } from '../kaizen/PhotoLightboxModal';
+import { ImprovementProject, PDFFileAttachment, RepairAttachmentItem } from '../../types';
 
-export const ActiveKnowledgeHub: React.FC = () => {
+export interface ActiveKnowledgeHubProps {
+  initialFilterType?: KnowledgeType | 'ALL';
+  onNavigateToKaizenTab?: (tab: 'kaizen' | 'opl' | 'fa' | 'why_why' | 'mp_info' | 'costdown') => void;
+}
+
+export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialFilterType, onNavigateToKaizenTab }) => {
   const { 
     knowledgeItems, 
     addKnowledgeItem, 
     deleteKnowledgeItem, 
     updateKnowledgeItem,
     machines, 
+    technicians,
     currentUser, 
     canEdit, 
     canDelete,
     improvements,
+    setImprovements,
     repairs,
+    setRepairs,
+    cd5Projects,
     setActivePage
   } = useApp();
 
   // Search and Filter states
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [activeTypeTab, setActiveTypeTab] = useState<'ALL' | KnowledgeType>('ALL');
+  const [activeTypeTab, setActiveTypeTab] = useState<'ALL' | KnowledgeType>(initialFilterType || 'ALL');
+
+  // Kaizen Why-Why System Integration States
+  const [isKaizenCreateModalOpen, setIsKaizenCreateModalOpen] = useState(false);
+  const [editingKaizenProject, setEditingKaizenProject] = useState<ImprovementProject | null>(null);
+  const [selectedKaizenProject, setSelectedKaizenProject] = useState<ImprovementProject | null>(null);
+  const [activePhoto, setActivePhoto] = useState<{
+    url: string;
+    title?: string;
+    subtitle?: string;
+    badge?: string;
+  } | null>(null);
   const [selectedMachineId, setSelectedMachineId] = useState<string>('ALL');
   const [selectedSubsystem, setSelectedSubsystem] = useState<string>('ALL');
 
@@ -49,6 +75,50 @@ export const ActiveKnowledgeHub: React.FC = () => {
   const [manualCategory, setManualCategory] = useState<any>('Maintenance Manual');
   const [manualSummary, setManualSummary] = useState<string>('');
   const [manualFileName, setManualFileName] = useState<string>('Document.pdf');
+  const [manualFileSize, setManualFileSize] = useState<string>('PDF Format');
+  const [manualFileContent, setManualFileContent] = useState<string>('sample_pdf');
+
+  // Edit Knowledge State
+  const [editingItem, setEditingItem] = useState<KnowledgeItem | null>(null);
+  const [editTitle, setEditTitle] = useState<string>('');
+  const [editMachineId, setEditMachineId] = useState<string>('');
+  const [editTags, setEditTags] = useState<string>('');
+
+  // Edit Manual fields
+  const [editManualDocCode, setEditManualDocCode] = useState<string>('');
+  const [editManualCategory, setEditManualCategory] = useState<any>('Maintenance Manual');
+  const [editManualSummary, setEditManualSummary] = useState<string>('');
+  const [editManualFileName, setEditManualFileName] = useState<string>('');
+  const [editManualFileSize, setEditManualFileSize] = useState<string>('');
+  const [editManualFileContent, setEditManualFileContent] = useState<string>('');
+
+  // Edit WI fields
+  const [editWiDocCode, setEditWiDocCode] = useState<string>('');
+  const [editWiTools, setEditWiTools] = useState<string>('');
+  const [editWiSafetyAlerts, setEditWiSafetyAlerts] = useState<string>('');
+  const [editWiStep1Title, setEditWiStep1Title] = useState<string>('');
+  const [editWiStep1Desc, setEditWiStep1Desc] = useState<string>('');
+  const [editWiStep2Title, setEditWiStep2Title] = useState<string>('');
+  const [editWiStep2Desc, setEditWiStep2Desc] = useState<string>('');
+
+  // Edit TB fields
+  const [editTbSymptom, setEditTbSymptom] = useState<string>('');
+  const [editTbSubsystem, setEditTbSubsystem] = useState<any>('เครื่องกล (Mechanical)');
+  const [editTbUrgency, setEditTbUrgency] = useState<any>('เร่งด่วน (Urgent)');
+  const [editTbCause1, setEditTbCause1] = useState<string>('');
+  const [editTbSolution1, setEditTbSolution1] = useState<string>('');
+  const [editTbPartNeeded1, setEditTbPartNeeded1] = useState<string>('');
+
+  // Edit Why-Why fields
+  const [editWhyProblem, setEditWhyProblem] = useState<string>('');
+  const [editWhy1, setEditWhy1] = useState<string>('');
+  const [editWhy2, setEditWhy2] = useState<string>('');
+  const [editWhy3, setEditWhy3] = useState<string>('');
+  const [editWhy5, setEditWhy5] = useState<string>('');
+  const [editWhyCountermeasure, setEditWhyCountermeasure] = useState<string>('');
+
+  // Delete Confirmation State
+  const [itemToDelete, setItemToDelete] = useState<KnowledgeItem | null>(null);
 
   // WI
   const [wiDocCode, setWiDocCode] = useState<string>('');
@@ -75,28 +145,35 @@ export const ActiveKnowledgeHub: React.FC = () => {
   const [why5, setWhy5] = useState<string>('');
   const [whyCountermeasure, setWhyCountermeasure] = useState<string>('');
 
-  // Aggregate Knowledge Items (Preloaded + dynamic from why-why improvements)
+  // Aggregate Knowledge Items (Preloaded + Real-time Bi-directional Synced from Kaizen, OPL, FA, Why-Why & Cost Down 5)
   const combinedItems = useMemo(() => {
     const list: KnowledgeItem[] = [...knowledgeItems];
 
-    // Also pull why-why cases from improvements that might not be in knowledgeItems yet
+    // 1. Sync All Why-Why Cases from Improvements & Breakdown repairs
     improvements
-      .filter(imp => imp.category === 'WHY_WHY' && imp.whyWhyData)
+      .filter(imp => imp.category === 'WHY_WHY')
       .forEach(imp => {
-        if (!list.some(k => k.id === `imp-why-${imp.id}`)) {
+        const syncId = `imp-why-${imp.id}`;
+        if (!list.some(k => k.id === syncId || k.id === imp.id)) {
           const mach = machines.find(m => m.id === imp.machineId);
           list.push({
-            id: `imp-why-${imp.id}`,
+            id: syncId,
             type: 'WHY_WHY',
             title: imp.title,
-            machineId: imp.machineId || 'N/A',
+            machineId: imp.machineId || 'ALL',
             machineName: mach?.name || imp.machineId || 'เครื่องจักรโรงงาน',
             lineGroup: mach?.lineGroup || 'ฝ่ายผลิต',
-            tags: ['Why-Why', 'Kaizen', 'Root Cause'],
+            tags: ['Why-Why', 'Kaizen', 'Root Cause', ...(imp.machineId ? [imp.machineId] : [])],
             author: imp.technician || 'วิศวกรซ่อมบำรุง',
             createdAt: imp.startDate || '2026-06-01',
-            updatedAt: imp.plannedEndDate || '2026-06-01',
+            updatedAt: imp.plannedEndDate || imp.startDate || '2026-06-01',
             isVerified: true,
+            sourceCategory: 'WHY_WHY',
+            sourceImprovementId: imp.id,
+            description: imp.description,
+            photoBefore: imp.photoBefore,
+            photoAfter: imp.photoAfter,
+            pdfFilesCount: imp.pdfFiles?.length || 0,
             whyWhyData: {
               problemStatement: imp.whyWhyData?.problemStatement || imp.description || imp.title,
               phenomenon: imp.whyWhyData?.phenomenon || imp.description || '',
@@ -113,8 +190,160 @@ export const ActiveKnowledgeHub: React.FC = () => {
         }
       });
 
+    // 2. Sync Kaizen Projects (โครงการ Kaizen หน้างาน)
+    improvements
+      .filter(imp => !imp.category || imp.category === 'KAIZEN')
+      .forEach(imp => {
+        const syncId = `imp-kz-${imp.id}`;
+        if (!list.some(k => k.id === syncId || k.id === imp.id)) {
+          const mach = machines.find(m => m.id === imp.machineId);
+          list.push({
+            id: syncId,
+            type: 'KAIZEN',
+            title: imp.title,
+            machineId: imp.machineId || 'ALL',
+            machineName: mach?.name || imp.machineId || 'งานพัฒนา Kaizen',
+            lineGroup: mach?.lineGroup || 'ฝ่ายปรับปรุงวิศวกรรม',
+            tags: ['Kaizen', 'ปรับปรุงหน้างาน', ...(imp.machineId ? [imp.machineId] : [])],
+            author: imp.technician || 'ทีมวิศวกรรมบำรุงรักษา',
+            createdAt: imp.startDate || '2026-06-01',
+            updatedAt: imp.plannedEndDate || imp.startDate || '2026-06-01',
+            isVerified: true,
+            sourceCategory: 'KAIZEN',
+            sourceImprovementId: imp.id,
+            description: imp.description,
+            photoBefore: imp.photoBefore,
+            photoAfter: imp.photoAfter,
+            pdfFilesCount: imp.pdfFiles?.length || 0
+          });
+        }
+      });
+
+    // 3. Sync One Point Lessons (OPL) -> Map as OPL Knowledge
+    improvements
+      .filter(imp => imp.category === 'OPL')
+      .forEach(imp => {
+        const syncId = `imp-opl-${imp.id}`;
+        if (!list.some(k => k.id === syncId || k.id === imp.id)) {
+          const mach = machines.find(m => m.id === imp.machineId);
+          const oplSteps = (imp.oplData?.keyPoints || []).map((kp, idx) => ({
+            stepNo: idx + 1,
+            title: kp,
+            description: imp.oplData?.reasons?.[idx] || kp,
+            standard: 'มาตรฐานการปฏิบัติงาน OPL',
+            caution: imp.oplData?.cautionPoints
+          }));
+          list.push({
+            id: syncId,
+            type: 'OPL',
+            title: imp.title,
+            machineId: imp.machineId || 'ALL',
+            machineName: mach?.name || imp.machineId || 'บทเรียนจุดเดียว OPL',
+            lineGroup: mach?.lineGroup || 'ฝ่ายผลิต',
+            tags: ['OPL', 'One Point Lesson', 'มาตรฐานงาน', ...(imp.machineId ? [imp.machineId] : [])],
+            author: imp.technician || 'วิศวกรจัดทำ OPL',
+            createdAt: imp.startDate || '2026-06-01',
+            updatedAt: imp.plannedEndDate || imp.startDate || '2026-06-01',
+            isVerified: true,
+            sourceCategory: 'OPL',
+            sourceImprovementId: imp.id,
+            description: imp.description || imp.oplData?.purpose,
+            photoBefore: imp.photoBefore,
+            photoAfter: imp.photoAfter,
+            pdfFilesCount: imp.pdfFiles?.length || 0,
+            wiData: {
+              docCode: imp.oplData?.sopDocumentRef || `OPL-${imp.id}`,
+              revision: '01',
+              effectiveDate: imp.startDate || '2026-06-01',
+              department: 'ฝ่ายวิศวกรรมบำรุงรักษา',
+              targetAudience: 'ช่างเทคนิคและพนักงานไลน์ผลิต',
+              safetyAlerts: imp.oplData?.cautionPoints ? [imp.oplData.cautionPoints] : ['ปฏิบัติตามมาตรฐานความปลอดภัย'],
+              toolsRequired: ['เครื่องมือช่างและเอกสารมาตรฐาน'],
+              ppeRequired: ['หมวกนิรภัย', 'ถุงมือ', 'รองเท้าเซฟตี้'],
+              precautions: imp.oplData?.cautionPoints || 'ระมัดระวังตามมาตรฐาน OPL',
+              steps: oplSteps.length > 0 ? oplSteps : [{ stepNo: 1, title: imp.title, description: imp.description }]
+            }
+          });
+        }
+      });
+
+    // 4. Sync Failure Analysis (FA) -> Map as FA Knowledge & Troubleshooting
+    improvements
+      .filter(imp => imp.category === 'FA')
+      .forEach(imp => {
+        const syncId = `imp-fa-${imp.id}`;
+        if (!list.some(k => k.id === syncId || k.id === imp.id)) {
+          const mach = machines.find(m => m.id === imp.machineId);
+          list.push({
+            id: syncId,
+            type: 'FA',
+            title: imp.title,
+            machineId: imp.machineId || 'ALL',
+            machineName: mach?.name || imp.machineId || 'วิเคราะห์ชิ้นส่วนชำรุด',
+            lineGroup: mach?.lineGroup || 'ฝ่ายผลิต',
+            tags: ['FA', 'Failure Analysis', imp.faData?.failurePartName || 'ชิ้นส่วนชำรุด', ...(imp.machineId ? [imp.machineId] : [])],
+            author: imp.technician || 'วิศวกรวิเคราะห์ความเสียหาย',
+            createdAt: imp.startDate || '2026-06-01',
+            updatedAt: imp.plannedEndDate || imp.startDate || '2026-06-01',
+            isVerified: true,
+            sourceCategory: 'FA',
+            sourceImprovementId: imp.id,
+            description: imp.description,
+            photoBefore: imp.photoBefore,
+            photoAfter: imp.photoAfter,
+            pdfFilesCount: imp.pdfFiles?.length || 0,
+            troubleshootingData: {
+              symptom: imp.faData?.failurePartName ? `${imp.faData.failurePartName} - ชำรุด (${imp.faData.failureMode || 'เสียหาย'})` : imp.title,
+              subsystem: 'เครื่องกล (Mechanical)',
+              urgency: 'เร่งด่วน (Urgent)',
+              probableCauses: [
+                {
+                  id: `fa-cause-${imp.id}`,
+                  cause: imp.faData?.mechanismDescription || imp.description || 'เกิดความเสียหายจากการใช้งานหรือการล้าตัว',
+                  probability: 'สูง (High)',
+                  checkMethod: 'ตรวจสอบผิวสัมผัสและชิ้นส่วนด้วยสายตา/เครื่องมือวัด',
+                  solution: imp.faData?.preventiveAction || 'เปลี่ยนชิ้นส่วนใหม่และปรับตั้งตามมาตรฐาน',
+                  sparePartNeeded: imp.faData?.failurePartCode || imp.faData?.failurePartName
+                }
+              ],
+              requiredTools: ['เครื่องมือวิเคราะห์ชิ้นส่วน', 'เวอร์เนียร์คาลิปเปอร์'],
+              safetyNotes: 'สวมใส่อุปกรณ์คุ้มครองความปลอดภัยส่วนบุคคล',
+              quickChecklist: ['1. ตรวจสอบชิ้นส่วนที่ชำรุด', '2. บันทึกและปฏิบัติตามมาตรการป้องกัน']
+            }
+          });
+        }
+      });
+
+    // 5. Sync Cost Down 5 (CD5 Projects) -> Map as CD5 Knowledge
+    (cd5Projects || []).forEach(cd => {
+      const syncId = `cd5-${cd.id}`;
+      if (!list.some(k => k.id === syncId || k.id === cd.id)) {
+        const mach = machines.find(m => m.id === cd.machineId);
+        list.push({
+          id: syncId,
+          type: 'CD5',
+          title: `[CD5] ${cd.title}`,
+          machineId: cd.machineId || 'ALL',
+          machineName: mach?.name || cd.machineId || 'โครงการลดต้นทุนอะไหล่',
+          lineGroup: mach?.lineGroup || 'ฝ่ายวิศวกรรมบำรุงรักษา',
+          tags: ['Cost Down', 'CD5', cd.partName, cd.category, ...(cd.machineId ? [cd.machineId] : [])],
+          author: cd.proposerTechnician || 'ช่างผู้เสนอโครงการ',
+          createdAt: cd.startDate || '2026-06-01',
+          updatedAt: cd.approvedDate || cd.startDate || '2026-06-01',
+          isVerified: cd.status === 'อนุมัติใช้งานจริง' || cd.status === 'กำลังทดสอบ',
+          sourceCategory: 'CD5',
+          sourceCd5Id: cd.id,
+          costSavings: cd.annualSavings || 0,
+          description: `โครงการ Cost Down 5: ${cd.partName} (${cd.partCode || 'รหัสอะไหล่'}) ประหยัดได้ ฿${(cd.annualSavings || 0).toLocaleString()}/ปี สถานะ: ${cd.status}`,
+          photoBefore: cd.drawingUrl,
+          photoAfter: cd.evidencePhotoUrl,
+          pdfFilesCount: cd.specPdfUrl ? 1 : 0
+        });
+      }
+    });
+
     return list;
-  }, [knowledgeItems, improvements, machines]);
+  }, [knowledgeItems, improvements, machines, cd5Projects]);
 
   // Filtered Items
   const filteredItems = useMemo(() => {
@@ -152,20 +381,422 @@ export const ActiveKnowledgeHub: React.FC = () => {
     });
   }, [combinedItems, activeTypeTab, selectedMachineId, selectedSubsystem, searchTerm]);
 
-  // Statistics
+  // Statistics across all integrated pillars (Manual, WI, TB, Why-Why, Kaizen, OPL, FA, CD5)
   const stats = useMemo(() => {
     const total = combinedItems.length;
     const manualCount = combinedItems.filter(k => k.type === 'MANUAL').length;
     const wiCount = combinedItems.filter(k => k.type === 'WI').length;
     const tbCount = combinedItems.filter(k => k.type === 'TROUBLESHOOTING').length;
     const whyCount = combinedItems.filter(k => k.type === 'WHY_WHY').length;
-    return { total, manualCount, wiCount, tbCount, whyCount };
+    const kaizenCount = combinedItems.filter(k => k.type === 'KAIZEN').length;
+    const oplCount = combinedItems.filter(k => k.type === 'OPL').length;
+    const faCount = combinedItems.filter(k => k.type === 'FA').length;
+    const cd5Count = combinedItems.filter(k => k.type === 'CD5').length;
+    const totalSavings = combinedItems.reduce((sum, k) => sum + (k.costSavings || 0), 0);
+    return { total, manualCount, wiCount, tbCount, whyCount, kaizenCount, oplCount, faCount, cd5Count, totalSavings };
   }, [combinedItems]);
 
   const handleCopyLink = (item: KnowledgeItem) => {
     navigator.clipboard?.writeText?.(`${window.location.origin}/knowledge/${item.id}`);
     setCopiedId(item.id);
     setTimeout(() => setCopiedId(null), 2500);
+  };
+
+  // File upload reader for Manual PDF
+  const handlePdfFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const sizeFormatted = file.size > 1024 * 1024 
+      ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
+      : `${Math.round(file.size / 1024)} KB`;
+
+    const reader = new FileReader();
+    reader.onload = (loadEvent) => {
+      const base64 = loadEvent.target?.result as string;
+      if (isEdit) {
+        setEditManualFileName(file.name);
+        setEditManualFileSize(sizeFormatted);
+        setEditManualFileContent(base64);
+      } else {
+        setManualFileName(file.name);
+        setManualFileSize(sizeFormatted);
+        setManualFileContent(base64);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Open Edit Modal and pre-fill form
+  const handleOpenEdit = (item: KnowledgeItem) => {
+    setEditingItem(item);
+    setEditTitle(item.title);
+    setEditMachineId(item.machineId);
+    setEditTags(item.tags.join(', '));
+
+    if (item.type === 'MANUAL' && item.manualData) {
+      setEditManualDocCode(item.manualData.docCode || '');
+      setEditManualCategory(item.manualData.category || 'Maintenance Manual');
+      setEditManualSummary(item.manualData.summary || '');
+      setEditManualFileName(item.manualData.fileName || 'Manual.pdf');
+      setEditManualFileSize(item.manualData.fileSize || 'PDF Format');
+      setEditManualFileContent(item.manualData.fileContent || 'sample_pdf');
+    } else if (item.type === 'WI' && item.wiData) {
+      setEditWiDocCode(item.wiData.docCode || '');
+      setEditWiTools(item.wiData.toolsRequired?.join(', ') || '');
+      setEditWiSafetyAlerts(item.wiData.safetyAlerts?.join(', ') || '');
+      setEditWiStep1Title(item.wiData.steps?.[0]?.title || '');
+      setEditWiStep1Desc(item.wiData.steps?.[0]?.description || '');
+      setEditWiStep2Title(item.wiData.steps?.[1]?.title || '');
+      setEditWiStep2Desc(item.wiData.steps?.[1]?.description || '');
+    } else if (item.type === 'TROUBLESHOOTING' && item.troubleshootingData) {
+      setEditTbSymptom(item.troubleshootingData.symptom || '');
+      setEditTbSubsystem(item.troubleshootingData.subsystem || 'เครื่องกล (Mechanical)');
+      setEditTbUrgency(item.troubleshootingData.urgency || 'เร่งด่วน (Urgent)');
+      setEditTbCause1(item.troubleshootingData.probableCauses?.[0]?.cause || '');
+      setEditTbSolution1(item.troubleshootingData.probableCauses?.[0]?.solution || '');
+      setEditTbPartNeeded1(item.troubleshootingData.probableCauses?.[0]?.sparePartNeeded || '');
+    } else if (item.type === 'WHY_WHY' && item.whyWhyData) {
+      setEditWhyProblem(item.whyWhyData.problemStatement || '');
+      setEditWhy1(item.whyWhyData.why1 || '');
+      setEditWhy2(item.whyWhyData.why2 || '');
+      setEditWhy3(item.whyWhyData.why3 || '');
+      setEditWhy5(item.whyWhyData.why5 || '');
+      setEditWhyCountermeasure(item.whyWhyData.countermeasure || '');
+    }
+  };
+
+  // Submit Edit updates
+  const handleUpdateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem || !editTitle.trim() || !editMachineId.trim()) return;
+
+    const mach = machines.find(m => m.id === editMachineId);
+    const tagsArray = editTags.split(',').map(t => t.trim()).filter(Boolean);
+
+    let specificUpdates: Partial<KnowledgeItem> = {};
+
+    if (editingItem.type === 'MANUAL') {
+      specificUpdates.manualData = {
+        ...editingItem.manualData,
+        docCode: editManualDocCode || editingItem.manualData?.docCode || `MAN-${editMachineId}-001`,
+        revision: editingItem.manualData?.revision || '01',
+        category: editManualCategory,
+        fileName: editManualFileName || editingItem.manualData?.fileName || 'Manual.pdf',
+        fileSize: editManualFileSize || editingItem.manualData?.fileSize || 'PDF Format',
+        fileType: 'pdf',
+        fileContent: editManualFileContent || editingItem.manualData?.fileContent || 'sample_pdf',
+        summary: editManualSummary || editTitle
+      };
+    } else if (editingItem.type === 'WI') {
+      const steps = [];
+      if (editWiStep1Title) {
+        steps.push({
+          stepNo: 1,
+          title: editWiStep1Title,
+          description: editWiStep1Desc || editWiStep1Title,
+          standard: 'ปฏิบัติตามมาตรฐานงาน',
+          estimatedMins: 15
+        });
+      }
+      if (editWiStep2Title) {
+        steps.push({
+          stepNo: 2,
+          title: editWiStep2Title,
+          description: editWiStep2Desc || editWiStep2Title,
+          standard: 'ตรวจสอบความเรียบร้อย',
+          estimatedMins: 10
+        });
+      }
+      specificUpdates.wiData = {
+        ...editingItem.wiData,
+        docCode: editWiDocCode || editingItem.wiData?.docCode || `WI-MNT-${editMachineId}-001`,
+        revision: editingItem.wiData?.revision || '01',
+        effectiveDate: editingItem.wiData?.effectiveDate || new Date().toISOString().split('T')[0],
+        department: editingItem.wiData?.department || 'ฝ่ายวิศวกรรมบำรุงรักษา',
+        targetAudience: editingItem.wiData?.targetAudience || 'ช่างเทคนิคซ่อมบำรุง',
+        safetyAlerts: editWiSafetyAlerts ? editWiSafetyAlerts.split(',').map(s => s.trim()) : (editingItem.wiData?.safetyAlerts || ['สวมใส่อุปกรณ์ PPE ครบถ้วน']),
+        toolsRequired: editWiTools ? editWiTools.split(',').map(t => t.trim()) : (editingItem.wiData?.toolsRequired || ['เครื่องมือช่างพื้นฐาน']),
+        ppeRequired: editingItem.wiData?.ppeRequired || ['แว่นตานิรภัย', 'ถุงมือกันบาด', 'รองเท้าเซฟตี้'],
+        precautions: editingItem.wiData?.precautions || 'ตัดไฟ LOTO ก่อนเริ่มปฏิบัติงานทุกครั้ง',
+        steps: steps.length > 0 ? steps : (editingItem.wiData?.steps || [{ stepNo: 1, title: 'ปฏิบัติงานตามคู่มือ', description: editTitle }])
+      };
+    } else if (editingItem.type === 'TROUBLESHOOTING') {
+      specificUpdates.troubleshootingData = {
+        ...editingItem.troubleshootingData,
+        symptom: editTbSymptom || editTitle,
+        subsystem: editTbSubsystem,
+        urgency: editTbUrgency,
+        requiredTools: editingItem.troubleshootingData?.requiredTools || ['เครื่องมือตรวจวัดไฟฟ้า/ลม', 'เครื่องมือช่างพื้นฐาน'],
+        safetyNotes: editingItem.troubleshootingData?.safetyNotes || 'สับสวิตช์ความปลอดภัยก่อนสัมผัสชิ้นส่วนเคลื่อนที่',
+        quickChecklist: editingItem.troubleshootingData?.quickChecklist || ['1. ตรวจสอบไฟสัญญาณเตือน', '2. ตรวจสอบแรงดันลม/ไฟฟ้า'],
+        probableCauses: [
+          {
+            id: editingItem.troubleshootingData?.probableCauses?.[0]?.id || `pc-${Date.now()}`,
+            cause: editTbCause1 || 'ชิ้นส่วนเสื่อมสภาพหรือสึกหรอ',
+            probability: 'สูง (High)',
+            checkMethod: 'ตรวจสอบด้วยสายตาและเครื่องมือวัด',
+            solution: editTbSolution1 || 'ทำความสะอาด ปรับตั้ง หรือเปลี่ยนชิ้นส่วนใหม่',
+            sparePartNeeded: editTbPartNeeded1 || undefined,
+            estimatedFixTimeMins: 30
+          }
+        ]
+      };
+    } else if (editingItem.type === 'WHY_WHY') {
+      specificUpdates.whyWhyData = {
+        ...editingItem.whyWhyData,
+        problemStatement: editWhyProblem || editTitle,
+        phenomenon: editWhyProblem || editTitle,
+        why1: editWhy1 || '',
+        why2: editWhy2 || '',
+        why3: editWhy3 || '',
+        why4: editingItem.whyWhyData?.why4 || '',
+        why5: editWhy5 || '',
+        rootCauseSummary: editWhy5 || editWhy1 || '',
+        countermeasure: editWhyCountermeasure || '',
+        effectivenessVerification: editingItem.whyWhyData?.effectivenessVerification || 'ติดตามผล 30 วัน ไม่พบปัญหาเกิดซ้ำ'
+      };
+    }
+
+    const updatedItem: KnowledgeItem = {
+      ...editingItem,
+      title: editTitle,
+      machineId: editMachineId,
+      machineName: mach?.name || editMachineId,
+      lineGroup: mach?.lineGroup || editingItem.lineGroup || 'ฝ่ายผลิต',
+      tags: tagsArray.length > 0 ? tagsArray : editingItem.tags,
+      ...specificUpdates
+    };
+
+    updateKnowledgeItem(editingItem.id, updatedItem);
+
+    // If currently viewing this item in view modal, update it in real-time
+    if (selectedItemForView?.id === editingItem.id) {
+      setSelectedItemForView(updatedItem);
+    }
+
+    setEditingItem(null);
+  };
+
+  // Linked breakdown repair records into Kaizen Why-Why projects (identical to Kaizen system)
+  const linkedBreakdownWhyProjects = useMemo<ImprovementProject[]>(() => {
+    const existingWhyIds = new Set(
+      improvements.filter(i => i.category === 'WHY_WHY').map(i => i.id)
+    );
+
+    return repairs
+      .filter(r => {
+        const hasWhys = Boolean(r.why1 && r.why1.trim().length > 0);
+        const hasWhyExcel = Boolean(r.excelFile);
+        const hasWhyAtt = Boolean(r.repairAttachments?.some(a => a.category === 'WHY_WHY' || /why/i.test(a.name)));
+        const hasWhyFile = Boolean(r.whyWhyFile);
+        return hasWhys || hasWhyExcel || hasWhyAtt || hasWhyFile;
+      })
+      .map(r => {
+        const projId = `why-breakdown-${r.id}`;
+        if (existingWhyIds.has(projId) || existingWhyIds.has(r.id)) {
+          return null;
+        }
+
+        const files: PDFFileAttachment[] = [];
+        if (r.whyWhyFile) {
+          files.push({
+            id: r.whyWhyFile.id,
+            name: r.whyWhyFile.name,
+            size: r.whyWhyFile.size || 'เอกสาร Why-Why',
+            uploadedAt: r.whyWhyFile.uploadedAt || r.date,
+            content: r.whyWhyFile.content,
+            fileType: r.whyWhyFile.fileType === 'excel' ? 'excel' : 'pdf'
+          });
+        }
+        if (r.excelFile && !files.some(f => f.name === r.excelFile!.name)) {
+          files.push({
+            id: `excel-${r.id}`,
+            name: r.excelFile.name,
+            size: 'ไฟล์แนบ Excel',
+            uploadedAt: r.date,
+            content: r.excelFile.content,
+            fileType: 'excel'
+          });
+        }
+
+        const mach = machines.find(m => m.id === r.machineId);
+
+        return {
+          id: projId,
+          type: 'Improvement' as const,
+          category: 'WHY_WHY' as const,
+          title: `[ใบงานซ่อม ${r.id}] ${r.cause || r.action || 'วิเคราะห์สาเหตุอาการเสีย'}`,
+          description: `งานซ่อมเครื่องจักร ${mach?.name || r.machineId} วันที่ ${r.date} โดย ${r.technician}: ${r.action || ''}`,
+          machineId: r.machineId,
+          startDate: r.date,
+          plannedEndDate: r.date,
+          status: 'เสร็จแล้ว' as const,
+          technician: r.technician,
+          technicians: [r.technician],
+          pdfFiles: files,
+          photoBefore: r.photo,
+          photos: r.photo ? [{
+            id: `photo-repair-${r.id}`,
+            url: r.photo,
+            caption: 'ภาพหน้างานซ่อม',
+            uploadedAt: r.date,
+            type: 'before' as const
+          }] : [],
+          workLogs: [
+            {
+              id: `wl-repair-${r.id}`,
+              date: r.date,
+              hours: (r.actualDowntimeMinutes || 60) / 60,
+              note: `ช่าง ${r.technician} ดำเนินการวิเคราะห์ Why-Why และซ่อมเสร็จสิ้น`
+            }
+          ],
+          whyWhyData: {
+            problemStatement: r.cause || `ปัญหาหน้างานเครื่องจักร ${r.machineId}`,
+            phenomenon: r.cause || '',
+            why1: r.why1 || '',
+            why2: r.why2 || '',
+            why3: r.why3 || '',
+            why4: r.why4 || '',
+            why5: r.why5 || r.cause || '',
+            rootCauseSummary: r.why5 || r.cause || 'สาเหตุรากเหง้าจากการวิเคราะห์งานซ่อม',
+            countermeasure: r.action || 'ดำเนินการแก้ไขและฟื้นฟูสภาพเครื่องจักร',
+            targetCompletionDate: r.date,
+            effectivenessVerification: 'ตรวจสอบหลังซ่อม ไม่พบปัญหาเกิดซ้ำ'
+          }
+        };
+      })
+      .filter(Boolean) as ImprovementProject[];
+  }, [repairs, improvements, machines]);
+
+  // Combined full Why-Why list for WhyWhyAnalysisView
+  const allKaizenWhyWhyList = useMemo<ImprovementProject[]>(() => {
+    const directWhyList = improvements.filter(i => i.category === 'WHY_WHY');
+    const combined = [...directWhyList, ...linkedBreakdownWhyProjects];
+    
+    // Apply search filter if any
+    if (!searchTerm.trim() && selectedMachineId === 'ALL') {
+      return combined;
+    }
+
+    return combined.filter(item => {
+      if (selectedMachineId !== 'ALL' && item.machineId !== selectedMachineId) {
+        return false;
+      }
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const matchTitle = item.title?.toLowerCase().includes(q);
+        const matchDesc = item.description?.toLowerCase().includes(q);
+        const matchMach = item.machineId?.toLowerCase().includes(q);
+        const matchTech = item.technician?.toLowerCase().includes(q);
+        const matchWhy = item.whyWhyData?.problemStatement?.toLowerCase().includes(q) 
+          || item.whyWhyData?.rootCauseSummary?.toLowerCase().includes(q);
+        return matchTitle || matchDesc || matchMach || matchTech || matchWhy;
+      }
+      return true;
+    });
+  }, [improvements, linkedBreakdownWhyProjects, searchTerm, selectedMachineId]);
+
+  // Kaizen handlers for Save/Edit/Delete
+  const handleSaveKaizenProject = (projData: Partial<ImprovementProject>) => {
+    if (editingKaizenProject) {
+      const updated = {
+        ...editingKaizenProject,
+        ...projData,
+        id: editingKaizenProject.id
+      } as ImprovementProject;
+
+      setImprovements(prev => prev.map(p => p.id === editingKaizenProject.id ? updated : p));
+      setEditingKaizenProject(null);
+      if (selectedKaizenProject?.id === editingKaizenProject.id) {
+        setSelectedKaizenProject(updated);
+      }
+    } else {
+      const newId = `why-${Date.now()}`;
+      const newProj: ImprovementProject = {
+        id: newId,
+        type: 'Improvement',
+        category: 'WHY_WHY',
+        title: projData.title || 'การวิเคราะห์ Why-Why ใหม่',
+        description: projData.description || '',
+        startDate: projData.startDate || new Date().toISOString().split('T')[0],
+        plannedEndDate: projData.plannedEndDate || new Date().toISOString().split('T')[0],
+        technician: projData.technician || currentUser?.name || (technicians?.[0] || 'ช่างเทคนิค'),
+        technicians: projData.technicians || [projData.technician || currentUser?.name || 'ช่างเทคนิค'],
+        status: projData.status || 'กำลังดำเนินการ',
+        pdfFiles: projData.pdfFiles || [],
+        photos: projData.photos || [],
+        workLogs: [
+          {
+            id: `wl-${Date.now()}`,
+            date: projData.startDate || new Date().toISOString().split('T')[0],
+            hours: 2,
+            note: 'จัดทำผังการวิเคราะห์หาสาเหตุรากเหง้า (Why-Why Analysis)'
+          }
+        ],
+        ...(projData.machineId ? { machineId: projData.machineId } : {}),
+        ...(projData.whyWhyData ? { whyWhyData: projData.whyWhyData } : {})
+      };
+      setImprovements(prev => [newProj, ...prev]);
+    }
+    setIsKaizenCreateModalOpen(false);
+  };
+
+  const handleDeleteKaizenProject = (id: string) => {
+    if (confirm('คุณแน่ใจว่าต้องการลบรายการ Why-Why นี้ใช่หรือไม่?')) {
+      setImprovements(prev => prev.filter(p => p.id !== id));
+      if (selectedKaizenProject?.id === id) {
+        setSelectedKaizenProject(null);
+      }
+    }
+  };
+
+  const handleUpdateKaizenProject = (updated: ImprovementProject) => {
+    setImprovements(prev => {
+      const exists = prev.some(p => p.id === updated.id);
+      if (exists) {
+        return prev.map(p => p.id === updated.id ? updated : p);
+      }
+      return [updated, ...prev];
+    });
+    if (selectedKaizenProject?.id === updated.id) {
+      setSelectedKaizenProject(updated);
+    }
+    // Sync back to repair record if linked from breakdown
+    if (updated.id.startsWith('why-breakdown-')) {
+      const repairId = updated.id.replace('why-breakdown-', '');
+      setRepairs(prev => prev.map(r => {
+        if (r.id !== repairId) return r;
+        const newAttachments: RepairAttachmentItem[] = (updated.pdfFiles || []).map(f => ({
+          id: f.id,
+          category: 'WHY_WHY',
+          name: f.name,
+          content: f.content,
+          fileType: f.fileType === 'excel' ? 'excel' : 'pdf',
+          size: f.size,
+          uploadedAt: f.uploadedAt
+        }));
+        return {
+          ...r,
+          photo: updated.photoBefore || r.photo,
+          whyWhyFile: newAttachments.find(a => a.category === 'WHY_WHY') || r.whyWhyFile,
+          repairAttachments: [
+            ...(r.repairAttachments?.filter(a => !newAttachments.some(na => na.name === a.name)) || []),
+            ...newAttachments
+          ]
+        };
+      }));
+    }
+  };
+
+  // Delete knowledge item permanently
+  const handleConfirmDelete = () => {
+    if (!itemToDelete) return;
+    deleteKnowledgeItem(itemToDelete.id);
+    if (selectedItemForView?.id === itemToDelete.id) {
+      setSelectedItemForView(null);
+    }
+    setItemToDelete(null);
   };
 
   const handleCreateKnowledge = (e: React.FormEvent) => {
@@ -182,9 +813,10 @@ export const ActiveKnowledgeHub: React.FC = () => {
         docCode: manualDocCode || `MAN-${newMachineId}-${Date.now().toString().slice(-4)}`,
         revision: '01',
         category: manualCategory,
-        fileName: manualFileName,
+        fileName: manualFileName || 'Manual.pdf',
+        fileSize: manualFileSize || 'PDF Format',
         fileType: 'pdf',
-        fileContent: 'sample_pdf',
+        fileContent: manualFileContent || 'sample_pdf',
         summary: manualSummary || newTitle
       };
     } else if (newType === 'WI') {
@@ -270,11 +902,26 @@ export const ActiveKnowledgeHub: React.FC = () => {
     setNewTitle('');
     setNewMachineId('');
     setNewTags('');
+    setManualDocCode('');
+    setManualSummary('');
+    setManualFileName('Document.pdf');
+    setManualFileSize('PDF Format');
+    setManualFileContent('sample_pdf');
+    setWiDocCode('');
+    setWiTools('');
+    setWiSafetyAlerts('');
+    setWiStep1Title('');
+    setWiStep1Desc('');
+    setWiStep2Title('');
+    setWiStep2Desc('');
     setTbSymptom('');
     setTbCause1('');
     setTbSolution1('');
+    setTbPartNeeded1('');
     setWhyProblem('');
     setWhy1('');
+    setWhy2('');
+    setWhy3('');
     setWhy5('');
     setWhyCountermeasure('');
   };
@@ -539,7 +1186,63 @@ export const ActiveKnowledgeHub: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. KNOWLEDGE CARDS GRID */}
+      {/* 3. WHY-WHY FULL SYSTEM VIEW OR KNOWLEDGE CARDS GRID */}
+      {activeTypeTab === 'WHY_WHY' ? (
+        <div className="space-y-4" id="kaizen-why-why-full-suite">
+          {/* Header Banner for Why-Why Full System */}
+          <div className="bg-gradient-to-r from-purple-950/70 via-slate-900 to-indigo-950/70 border border-purple-500/40 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                <HelpCircle size={22} />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                  <span>ผังการวิเคราะห์หาสาเหตุรากเหง้า (Why-Why Analysis Full Suite)</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-900/60 text-purple-300 border border-purple-500/40">
+                    {allKaizenWhyWhyList.length} เคสวิเคราะห์
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  ระบบวิเคราะห์ 5 Whys พร้อมผังไดอะแกรม (Cause & Effect Tree), แนบเอกสาร Excel/PDF, รูปภาพหน้างาน และเชื่อมโยงงานซ่อมเบรกดาวน์อัตโนมัติ
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              id="btn-create-kaizen-why-why"
+              onClick={() => {
+                setEditingKaizenProject(null);
+                setIsKaizenCreateModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs rounded-xl shadow-lg transition cursor-pointer shrink-0"
+            >
+              <Plus size={16} />
+              <span>สร้าง Why-Why ใหม่</span>
+            </button>
+          </div>
+
+          {/* Mount the complete WhyWhyAnalysisView from Kaizen suite */}
+          <WhyWhyAnalysisView
+            whyList={allKaizenWhyWhyList}
+            machines={machines}
+            onSelectProject={(proj) => setSelectedKaizenProject(proj)}
+            onOpenPDF={(pdf) => setViewPdfModal(pdf)}
+            onOpenPhoto={(photo) => setActivePhoto(photo)}
+            onOpenCreateModal={() => {
+              setEditingKaizenProject(null);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onDeleteProject={handleDeleteKaizenProject}
+            onEditProject={(proj) => {
+              setSelectedKaizenProject(null);
+              setEditingKaizenProject(proj);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onUpdateProject={handleUpdateKaizenProject}
+          />
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="knowledge-cards-grid">
         {filteredItems.length === 0 ? (
           <div className="col-span-full py-12 text-center bg-slate-900/40 border border-slate-800 rounded-3xl p-6">
@@ -572,13 +1275,33 @@ export const ActiveKnowledgeHub: React.FC = () => {
                         ? 'bg-emerald-950 text-emerald-300 border-emerald-800/60'
                         : isTB
                         ? 'bg-amber-950 text-amber-300 border-amber-800/60'
-                        : 'bg-purple-950 text-purple-300 border-purple-800/60'
+                        : isWhy
+                        ? 'bg-purple-950 text-purple-300 border-purple-800/60'
+                        : item.type === 'KAIZEN'
+                        ? 'bg-cyan-950 text-cyan-300 border-cyan-800/60'
+                        : item.type === 'OPL'
+                        ? 'bg-indigo-950 text-indigo-300 border-indigo-800/60'
+                        : item.type === 'FA'
+                        ? 'bg-rose-950 text-rose-300 border-rose-800/60'
+                        : 'bg-teal-950 text-teal-300 border-teal-800/60'
                     }`}>
                       {isManual && <BookMarked size={11} />}
                       {isWI && <CheckCircle2 size={11} />}
                       {isTB && <Zap size={11} />}
                       {isWhy && <Sparkles size={11} />}
-                      <span>{isManual ? 'MANUAL' : isWI ? 'WI / SOP' : isTB ? 'TROUBLESHOOT' : 'WHY-WHY'}</span>
+                      {item.type === 'KAIZEN' && <Wrench size={11} />}
+                      {item.type === 'OPL' && <BookOpen size={11} />}
+                      {item.type === 'FA' && <ShieldAlert size={11} />}
+                      {item.type === 'CD5' && <TrendingDown size={11} />}
+                      <span>{
+                        isManual ? 'MANUAL' : 
+                        isWI ? 'WI / SOP' : 
+                        isTB ? 'TROUBLESHOOT' : 
+                        isWhy ? 'WHY-WHY' :
+                        item.type === 'KAIZEN' ? 'KAIZEN' :
+                        item.type === 'OPL' ? 'OPL' :
+                        item.type === 'FA' ? 'FA ANALYSIS' : 'COST DOWN 5'
+                      }</span>
                     </span>
 
                     {/* Machine Badge */}
@@ -669,12 +1392,47 @@ export const ActiveKnowledgeHub: React.FC = () => {
                     <button
                       type="button"
                       id={`btn-view-knowledge-${item.id}`}
-                      onClick={() => setSelectedItemForView(item)}
+                      onClick={() => {
+                        if (item.type === 'WHY_WHY' && item.sourceImprovementId) {
+                          const matchedKaizen = allKaizenWhyWhyList.find(w => w.id === item.sourceImprovementId || w.id === item.id);
+                          if (matchedKaizen) {
+                            setSelectedKaizenProject(matchedKaizen);
+                            return;
+                          }
+                        }
+                        setSelectedItemForView(item);
+                      }}
                       className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center gap-1 transition cursor-pointer text-xs shadow-md"
                     >
                       <Eye size={13} className="text-cyan-400" />
-                      <span>เปิดอ่านคู่มือ</span>
+                      <span>{item.type === 'WHY_WHY' ? 'เปิดผัง 5 Whys' : 'เปิดอ่านคู่มือ'}</span>
                     </button>
+
+                    {/* Edit Button */}
+                    {canEdit && (
+                      <button
+                        type="button"
+                        id={`btn-edit-knowledge-${item.id}`}
+                        onClick={() => handleOpenEdit(item)}
+                        className="p-1.5 rounded-xl bg-slate-800 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 border border-transparent hover:border-amber-500/40 transition cursor-pointer"
+                        title="แก้ไขเนื้อหาองค์ความรู้"
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                    )}
+
+                    {/* Delete Button */}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        id={`btn-delete-knowledge-${item.id}`}
+                        onClick={() => setItemToDelete(item)}
+                        className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-transparent hover:border-rose-500/40 transition cursor-pointer"
+                        title="ลบองค์ความรู้นี้ออกจากคลัง"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -682,6 +1440,7 @@ export const ActiveKnowledgeHub: React.FC = () => {
           })
         )}
       </div>
+      )}
 
       {/* 4. DETAIL VIEWER MODAL */}
       {selectedItemForView && (
@@ -792,7 +1551,7 @@ export const ActiveKnowledgeHub: React.FC = () => {
                       onClick={() => {
                         setViewPdfModal({
                           name: selectedItemForView.manualData?.fileName || 'Manual.pdf',
-                          content: 'sample_pdf',
+                          content: selectedItemForView.manualData?.fileContent || 'sample_pdf',
                           fileType: 'pdf'
                         });
                       }}
@@ -1058,18 +1817,169 @@ export const ActiveKnowledgeHub: React.FC = () => {
                   </div>
                 </div>
               )}
-            </div>
+            
+
+              {/* Type 5: KAIZEN PROJECT DETAILS (Synced) */}
+              {selectedItemForView.type === 'KAIZEN' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-cyan-950/20 border border-cyan-800/40 rounded-2xl space-y-2">
+                    <h4 className="font-bold text-cyan-300 flex items-center gap-1.5 text-xs sm:text-sm">
+                      <Wrench size={16} />
+                      รายละเอียดผลงานการปรับปรุง Kaizen หน้างาน:
+                    </h4>
+                    <p className="text-xs sm:text-sm text-slate-200 leading-relaxed whitespace-pre-line">
+                      {selectedItemForView.description || selectedItemForView.title}
+                    </p>
+                  </div>
+
+                  {/* Before / After Photos if available */}
+                  {(selectedItemForView.photoBefore || selectedItemForView.photoAfter) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {selectedItemForView.photoBefore && (
+                        <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800 space-y-1.5">
+                          <span className="text-[11px] font-bold text-rose-400 block">ภาพก่อนปรับปรุง (Before)</span>
+                          <img 
+                            src={selectedItemForView.photoBefore} 
+                            alt="Before Kaizen" 
+                            className="w-full h-44 object-cover rounded-xl border border-slate-800"
+                          />
+                        </div>
+                      )}
+                      {selectedItemForView.photoAfter && (
+                        <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800 space-y-1.5">
+                          <span className="text-[11px] font-bold text-emerald-400 block">ภาพหลังปรับปรุง (After)</span>
+                          <img 
+                            src={selectedItemForView.photoAfter} 
+                            alt="After Kaizen" 
+                            className="w-full h-44 object-cover rounded-xl border border-slate-800"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+                    <span className="text-slate-400">เชื่อมโยงจากโมดูล: โครงการ Kaizen หน้างาน</span>
+                    {onNavigateToKaizenTab && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedItemForView(null);
+                          onNavigateToKaizenTab('kaizen');
+                        }}
+                        className="text-cyan-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
+                      >
+                        เปิดดูในห้อง Kaizen Suite <ArrowUpRight size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Type 6: COST DOWN 5 PROJECT DETAILS (Synced) */}
+              {selectedItemForView.type === 'CD5' && (
+                <div className="space-y-4">
+                  {selectedItemForView.costSavings ? (
+                    <div className="p-4 bg-teal-950/30 border border-teal-500/50 rounded-2xl flex items-center justify-between flex-wrap gap-3">
+                      <div>
+                        <span className="text-teal-400 text-xs font-bold block flex items-center gap-1.5">
+                          <TrendingDown size={16} /> ยอดประหยัดต้นทุนอะไหล่ต่อปี (Annual Cost Reduction)
+                        </span>
+                        <strong className="text-2xl font-black text-white font-mono mt-0.5 block">
+                          ฿{selectedItemForView.costSavings.toLocaleString()} / ปี
+                        </strong>
+                      </div>
+                      <span className="px-3 py-1 rounded-xl bg-teal-500 text-slate-950 font-black text-xs">
+                        CD5 Certified
+                      </span>
+                    </div>
+                  ) : null}
+
+                  <div className="p-4 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-2 text-xs sm:text-sm">
+                    <h4 className="font-bold text-white">รายละเอียดโครงการทดแทน/ปรับปรุงอะไหล่:</h4>
+                    <p className="text-slate-300 leading-relaxed whitespace-pre-line">
+                      {selectedItemForView.description}
+                    </p>
+                  </div>
+
+                  {(selectedItemForView.photoBefore || selectedItemForView.photoAfter) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {selectedItemForView.photoBefore && (
+                        <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800 space-y-1.5">
+                          <span className="text-[11px] font-bold text-teal-400 block">แบบวิศวกรรม / ดรอว์อิ้ง (Drawing/Spec)</span>
+                          <img 
+                            src={selectedItemForView.photoBefore} 
+                            alt="Drawing" 
+                            className="w-full h-44 object-contain bg-slate-950 rounded-xl border border-slate-800"
+                          />
+                        </div>
+                      )}
+                      {selectedItemForView.photoAfter && (
+                        <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800 space-y-1.5">
+                          <span className="text-[11px] font-bold text-emerald-400 block">รูปถ่ายอะไหล่จริง (Actual Part)</span>
+                          <img 
+                            src={selectedItemForView.photoAfter} 
+                            alt="Actual Part" 
+                            className="w-full h-44 object-cover rounded-xl border border-slate-800"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+                    <span className="text-slate-400">เชื่อมโยงจากระบบ: Cost Down 5 (CD5)</span>
+                    {onNavigateToKaizenTab && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedItemForView(null);
+                          onNavigateToKaizenTab('costdown');
+                        }}
+                        className="text-teal-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
+                      >
+                        เปิดดูในระบบ Cost Down 5 <ArrowUpRight size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+</div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => handleCopyLink(selectedItemForView)}
-                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              >
-                {copiedId === selectedItemForView.id ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                <span>{copiedId === selectedItemForView.id ? 'คัดลอกลิงก์แล้ว' : 'คัดลอกลิงก์อ้างอิง'}</span>
-              </button>
+            <div className="p-4 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCopyLink(selectedItemForView)}
+                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  {copiedId === selectedItemForView.id ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                  <span>{copiedId === selectedItemForView.id ? 'คัดลอกลิงก์แล้ว' : 'คัดลอกลิงก์อ้างอิง'}</span>
+                </button>
+
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEdit(selectedItemForView)}
+                    className="px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Edit2 size={13} />
+                    <span>แก้ไข</span>
+                  </button>
+                )}
+
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => setItemToDelete(selectedItemForView)}
+                    className="px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Trash2 size={13} />
+                    <span>ลบรายการ</span>
+                  </button>
+                )}
+              </div>
 
               <button
                 type="button"
@@ -1139,12 +2049,16 @@ export const ActiveKnowledgeHub: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setNewType('WHY_WHY')}
-                    className={`p-2.5 rounded-xl border text-center font-bold transition cursor-pointer ${
-                      newType === 'WHY_WHY' ? 'bg-purple-600 text-white border-purple-400' : 'bg-slate-900 text-slate-400 border-slate-800'
-                    }`}
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setEditingKaizenProject(null);
+                      setIsKaizenCreateModalOpen(true);
+                    }}
+                    className="p-2.5 rounded-xl border text-center font-bold transition cursor-pointer bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border-purple-800/60 flex items-center justify-center gap-1"
+                    title="สร้างด้วยระบบ Why-Why Analysis เต็มรูปแบบของ Kaizen"
                   >
-                    🧠 Why-Why
+                    <span>🧠 Why-Why</span>
+                    <span className="text-[10px] px-1 bg-purple-500/30 rounded text-purple-200">Full</span>
                   </button>
                 </div>
               </div>
@@ -1220,9 +2134,47 @@ export const ActiveKnowledgeHub: React.FC = () => {
                         <option value="Electrical Diagram">Electrical Diagram</option>
                         <option value="Pneumatic Diagram">Pneumatic Diagram</option>
                         <option value="Spare Parts Catalog">Spare Parts Catalog</option>
+                        <option value="Safety Standard">Safety Standard</option>
                       </select>
                     </div>
                   </div>
+
+                  {/* PDF File Upload Input */}
+                  <div className="p-3 bg-blue-950/30 border border-blue-800/40 rounded-xl space-y-2">
+                    <label className="text-blue-300 font-bold block flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <UploadCloud size={15} />
+                        แนบไฟล์คู่มือ PDF (Machine Manual PDF File)
+                      </span>
+                      {manualFileContent && manualFileContent !== 'sample_pdf' && (
+                        <span className="text-emerald-400 text-[11px] font-normal flex items-center gap-1">
+                          <CheckCircle2 size={12} /> อัปโหลดสำเร็จแล้ว
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="file"
+                      id="input-manual-file-upload"
+                      accept=".pdf,application/pdf"
+                      onChange={(e) => handlePdfFileUpload(e, false)}
+                      className="block w-full text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer"
+                    />
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                      <span className="truncate max-w-[320px]">
+                        📄 ไฟล์ปัจจุบัน: <strong className="text-slate-200">{manualFileName}</strong> ({manualFileSize})
+                      </span>
+                      {manualFileContent && manualFileContent !== 'sample_pdf' && (
+                        <button
+                          type="button"
+                          onClick={() => setViewPdfModal({ name: manualFileName, content: manualFileContent, fileType: 'pdf' })}
+                          className="text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye size={12} /> ทดสอบเปิดดู
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <div>
                     <label className="text-slate-400 block mb-1">สาระสำคัญโดยย่อ</label>
                     <textarea
@@ -1230,6 +2182,79 @@ export const ActiveKnowledgeHub: React.FC = () => {
                       placeholder="อธิบายสรุปสาระสำคัญของคู่มือฉบับนี้..."
                       value={manualSummary}
                       onChange={(e) => setManualSummary(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* WI / SOP Form Section for Create */}
+              {newType === 'WI' && (
+                <div className="p-3.5 bg-slate-900/60 rounded-2xl border border-slate-800 space-y-3">
+                  <h4 className="font-bold text-emerald-400">รายละเอียดขั้นตอนการปฏิบัติงานมาตรฐาน (WI / SOP Specs)</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 block mb-1">รหัสเอกสาร WI</label>
+                      <input
+                        type="text"
+                        placeholder="WI-MNT-VAC-001"
+                        value={wiDocCode}
+                        onChange={(e) => setWiDocCode(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">เครื่องมือที่จำเป็น (คั่นด้วยจุลภาค)</label>
+                      <input
+                        type="text"
+                        placeholder="ประแจแหวน, เกจวัดแรงดัน, มัลติมิเตอร์"
+                        value={wiTools}
+                        onChange={(e) => setWiTools(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">ข้อควรระวังความปลอดภัย (Safety Alerts)</label>
+                    <input
+                      type="text"
+                      placeholder="สวมถุงมือกันบาด, ล็อคเบรกเกอร์ LOTO ก่อนเริ่มงาน"
+                      value={wiSafetyAlerts}
+                      onChange={(e) => setWiSafetyAlerts(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                  <div className="p-3 bg-slate-950/50 rounded-xl border border-slate-800 space-y-2">
+                    <span className="font-bold text-slate-300 block text-xs">ขั้นตอนหลักที่ 1 (Step 1)</span>
+                    <input
+                      type="text"
+                      placeholder="หัวข้อขั้นตอนที่ 1 เช่น ตรวจเช็คแรงดันลมและทำความสะอาดหน้าสัมผัส"
+                      value={wiStep1Title}
+                      onChange={(e) => setWiStep1Title(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                    <textarea
+                      rows={2}
+                      placeholder="รายละเอียดวิธีการและเกณฑ์มาตรฐานที่ยอมรับได้..."
+                      value={wiStep1Desc}
+                      onChange={(e) => setWiStep1Desc(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                  <div className="p-3 bg-slate-950/50 rounded-xl border border-slate-800 space-y-2">
+                    <span className="font-bold text-slate-300 block text-xs">ขั้นตอนหลักที่ 2 (Step 2 - ถ้ามี)</span>
+                    <input
+                      type="text"
+                      placeholder="หัวข้อขั้นตอนที่ 2 เช่น ตรวจสอบการทำงานหลังประกอบและทดสอบเดินเครื่อง"
+                      value={wiStep2Title}
+                      onChange={(e) => setWiStep2Title(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                    <textarea
+                      rows={2}
+                      placeholder="รายละเอียดวิธีการและเกณฑ์มาตรฐาน..."
+                      value={wiStep2Desc}
+                      onChange={(e) => setWiStep2Desc(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
                     />
                   </div>
@@ -1349,6 +2374,447 @@ export const ActiveKnowledgeHub: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 5.1 EDIT KNOWLEDGE MODAL */}
+      {editingItem && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 animate-in fade-in">
+          <div className="bg-[#0b1325] border border-amber-500/40 rounded-3xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+                  <Edit2 size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">
+                    แก้ไขข้อมูลองค์ความรู้ (Edit Knowledge Base)
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    หมวดหมู่: <strong className="text-amber-300 font-mono">{editingItem.type}</strong> • รหัสอ้างอิง: <strong className="text-slate-300 font-mono">{editingItem.id}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingItem(null)}
+                className="p-2 text-slate-400 hover:text-white rounded-xl bg-slate-900 border border-slate-700 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateSubmit} className="p-5 overflow-y-auto space-y-4 text-xs">
+              {/* Title & Machine ID */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="text-slate-300 font-bold block mb-1">ชื่อหัวข้อองค์ความรู้ *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold block mb-1">เครื่องจักรที่เกี่ยวข้อง *</label>
+                  <select
+                    required
+                    value={editMachineId}
+                    onChange={(e) => setEditMachineId(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-cyan-400 cursor-pointer"
+                  >
+                    <option value="">-- เลือกรหัสเครื่อง --</option>
+                    {machines.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.id} - {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Tags */}
+              <div>
+                <label className="text-slate-300 font-bold block mb-1">แท็กช่วยสืบค้น (คั่นด้วยจุลภาค)</label>
+                <input
+                  type="text"
+                  placeholder="เช่น ซีลยาง, นิวเมติกส์, ฮีตเตอร์"
+                  value={editTags}
+                  onChange={(e) => setEditTags(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+
+              {/* Category-specific fields */}
+              {editingItem.type === 'MANUAL' && (
+                <div className="p-3.5 bg-slate-900/60 rounded-2xl border border-slate-800 space-y-3">
+                  <h4 className="font-bold text-blue-400">แก้ไขข้อมูลคู่มือเครื่องจักร (Manual Specs & PDF)</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 block mb-1">รหัสเอกสาร</label>
+                      <input
+                        type="text"
+                        value={editManualDocCode}
+                        onChange={(e) => setEditManualDocCode(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">หมวดหมู่คู่มือ</label>
+                      <select
+                        value={editManualCategory}
+                        onChange={(e) => setEditManualCategory(e.target.value as any)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                      >
+                        <option value="Maintenance Manual">Maintenance Manual</option>
+                        <option value="Operation Manual">Operation Manual</option>
+                        <option value="Electrical Diagram">Electrical Diagram</option>
+                        <option value="Pneumatic Diagram">Pneumatic Diagram</option>
+                        <option value="Spare Parts Catalog">Spare Parts Catalog</option>
+                        <option value="Safety Standard">Safety Standard</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* PDF Upload / Replace Input */}
+                  <div className="p-3 bg-blue-950/30 border border-blue-800/40 rounded-xl space-y-2">
+                    <label className="text-blue-300 font-bold block flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <UploadCloud size={15} />
+                        เปลี่ยนหรือแนบไฟล์ PDF ใหม่ (Update Manual PDF)
+                      </span>
+                      {editManualFileContent && editManualFileContent !== 'sample_pdf' && (
+                        <span className="text-emerald-400 text-[11px] font-normal flex items-center gap-1">
+                          <CheckCircle2 size={12} /> แนบไฟล์ใหม่แล้ว
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="file"
+                      id="input-edit-manual-file-upload"
+                      accept=".pdf,application/pdf"
+                      onChange={(e) => handlePdfFileUpload(e, true)}
+                      className="block w-full text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer"
+                    />
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                      <span className="truncate max-w-[320px]">
+                        📄 ไฟล์: <strong className="text-slate-200">{editManualFileName}</strong> ({editManualFileSize})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setViewPdfModal({ name: editManualFileName, content: editManualFileContent || 'sample_pdf', fileType: 'pdf' })}
+                        className="text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye size={12} /> ทดสอบเปิดดู
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-slate-400 block mb-1">สาระสำคัญโดยย่อ</label>
+                    <textarea
+                      rows={2}
+                      value={editManualSummary}
+                      onChange={(e) => setEditManualSummary(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {editingItem.type === 'WI' && (
+                <div className="p-3.5 bg-slate-900/60 rounded-2xl border border-slate-800 space-y-3">
+                  <h4 className="font-bold text-emerald-400">แก้ไขขั้นตอนการปฏิบัติงานมาตรฐาน (WI / SOP)</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 block mb-1">รหัสเอกสาร WI</label>
+                      <input
+                        type="text"
+                        value={editWiDocCode}
+                        onChange={(e) => setEditWiDocCode(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">เครื่องมือที่จำเป็น (คั่นด้วยจุลภาค)</label>
+                      <input
+                        type="text"
+                        value={editWiTools}
+                        onChange={(e) => setEditWiTools(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">ข้อควรระวังความปลอดภัย (Safety Alerts)</label>
+                    <input
+                      type="text"
+                      value={editWiSafetyAlerts}
+                      onChange={(e) => setEditWiSafetyAlerts(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                  <div className="p-3 bg-slate-950/50 rounded-xl border border-slate-800 space-y-2">
+                    <span className="font-bold text-slate-300 block text-xs">ขั้นตอนหลักที่ 1 (Step 1)</span>
+                    <input
+                      type="text"
+                      value={editWiStep1Title}
+                      onChange={(e) => setEditWiStep1Title(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                    <textarea
+                      rows={2}
+                      value={editWiStep1Desc}
+                      onChange={(e) => setEditWiStep1Desc(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                  <div className="p-3 bg-slate-950/50 rounded-xl border border-slate-800 space-y-2">
+                    <span className="font-bold text-slate-300 block text-xs">ขั้นตอนหลักที่ 2 (Step 2)</span>
+                    <input
+                      type="text"
+                      value={editWiStep2Title}
+                      onChange={(e) => setEditWiStep2Title(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                    <textarea
+                      rows={2}
+                      value={editWiStep2Desc}
+                      onChange={(e) => setEditWiStep2Desc(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {editingItem.type === 'TROUBLESHOOTING' && (
+                <div className="p-3.5 bg-slate-900/60 rounded-2xl border border-slate-800 space-y-3">
+                  <h4 className="font-bold text-amber-400">แก้ไขคู่มือวิเคราะห์อาการเสีย (Troubleshooting Details)</h4>
+                  <div>
+                    <label className="text-slate-400 block mb-1">อาการผิดปกติ (Symptom)</label>
+                    <input
+                      type="text"
+                      value={editTbSymptom}
+                      onChange={(e) => setEditTbSymptom(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 block mb-1">ระบบย่อย</label>
+                      <select
+                        value={editTbSubsystem}
+                        onChange={(e) => setEditTbSubsystem(e.target.value as any)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                      >
+                        <option value="เครื่องกล (Mechanical)">เครื่องกล (Mechanical)</option>
+                        <option value="ระบบไฟฟ้า (Electrical)">ระบบไฟฟ้า (Electrical)</option>
+                        <option value="ระบบลม (Pneumatic)">ระบบลม (Pneumatic)</option>
+                        <option value="เซนเซอร์ & คอนโทรล (Control/Sensor)">เซนเซอร์ & คอนโทรล (Control/Sensor)</option>
+                        <option value="ความร้อน & ซีล (Thermal/Sealing)">ความร้อน & ซีล (Thermal/Sealing)</option>
+                        <option value="ระบบสุญญากาศ (Vacuum)">ระบบสุญญากาศ (Vacuum)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">ระดับความเร่งด่วน</label>
+                      <select
+                        value={editTbUrgency}
+                        onChange={(e) => setEditTbUrgency(e.target.value as any)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                      >
+                        <option value="วิกฤตไลน์หยุด (Critical)">วิกฤตไลน์หยุด (Critical)</option>
+                        <option value="เร่งด่วน (Urgent)">เร่งด่วน (Urgent)</option>
+                        <option value="ทั่วไป (Normal)">ทั่วไป (Normal)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 block mb-1">สาเหตุที่เป็นไปได้</label>
+                      <input
+                        type="text"
+                        value={editTbCause1}
+                        onChange={(e) => setEditTbCause1(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">วิธีตรวจสอบและแก้ไข</label>
+                      <input
+                        type="text"
+                        value={editTbSolution1}
+                        onChange={(e) => setEditTbSolution1(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">อะไหล่ที่ต้องใช้</label>
+                    <input
+                      type="text"
+                      value={editTbPartNeeded1}
+                      onChange={(e) => setEditTbPartNeeded1(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {editingItem.type === 'WHY_WHY' && (
+                <div className="p-3.5 bg-slate-900/60 rounded-2xl border border-slate-800 space-y-3">
+                  <h4 className="font-bold text-purple-400">แก้ไขการวิเคราะห์ 5 Whys (Root Cause Analysis)</h4>
+                  <div>
+                    <label className="text-slate-400 block mb-1">ปัญหาหน้างานจริง (Problem)</label>
+                    <input
+                      type="text"
+                      value={editWhyProblem}
+                      onChange={(e) => setEditWhyProblem(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 block mb-1">ทำไม 1</label>
+                      <input
+                        type="text"
+                        value={editWhy1}
+                        onChange={(e) => setEditWhy1(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">ทำไม 5 (Root Cause)</label>
+                      <input
+                        type="text"
+                        value={editWhy5}
+                        onChange={(e) => setEditWhy5(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">มาตรการแก้ไขและป้องกันเกิดซ้ำ (Countermeasure)</label>
+                    <textarea
+                      rows={2}
+                      value={editWhyCountermeasure}
+                      onChange={(e) => setEditWhyCountermeasure(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Submit Buttons */}
+              <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black shadow-lg cursor-pointer"
+                >
+                  บันทึกการแก้ไข
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5.2 DELETE CONFIRMATION MODAL */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-[#0b1325] border border-rose-500/40 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-rose-500/20 text-rose-400 shrink-0">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-white">
+                  ยืนยันการลบองค์ความรู้?
+                </h3>
+                <p className="text-xs text-rose-300">
+                  หมวดหมู่ {itemToDelete.type} • เครื่องจักร {itemToDelete.machineId}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-900/80 rounded-2xl border border-slate-800 text-xs space-y-1.5">
+              <span className="text-slate-400 block text-[11px]">หัวข้อที่ต้องการลบ:</span>
+              <p className="font-bold text-white leading-relaxed">
+                {itemToDelete.title}
+              </p>
+              <div className="text-[11px] text-slate-400 pt-1">
+                สร้างโดย: {itemToDelete.author} • อัปเดตล่าสุด: {itemToDelete.updatedAt}
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              เมื่อลบแล้ว รายการนี้จะถูกลบออกจากฐานข้อมูลคลังความรู้ และจะไม่ปรากฏในการแนะนำอัตโนมัติหน้างานซ่อม
+            </p>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setItemToDelete(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-delete-knowledge"
+                onClick={handleConfirmDelete}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-lg shadow-rose-950/50 transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 size={14} />
+                <span>ยืนยันลบถาวร</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5.3 KAIZEN WHY-WHY CREATE/EDIT MODAL */}
+      <CreateEditKaizenModal
+        isOpen={isKaizenCreateModalOpen}
+        onClose={() => {
+          setIsKaizenCreateModalOpen(false);
+          setEditingKaizenProject(null);
+        }}
+        onSave={handleSaveKaizenProject}
+        machines={machines}
+        technicians={technicians || []}
+        initialProject={editingKaizenProject}
+        defaultCategory="WHY_WHY"
+      />
+
+      {/* 5.4 KAIZEN WHY-WHY DETAIL MODAL */}
+      <KaizenDetailModal
+        project={selectedKaizenProject}
+        onClose={() => setSelectedKaizenProject(null)}
+        onUpdate={handleUpdateKaizenProject}
+        onEdit={(proj) => {
+          setSelectedKaizenProject(null);
+          setEditingKaizenProject(proj);
+          setIsKaizenCreateModalOpen(true);
+        }}
+        onDelete={handleDeleteKaizenProject}
+        machines={machines}
+        onOpenPDF={(pdf) => setViewPdfModal(pdf)}
+        onOpenPhoto={(photo) => setActivePhoto(photo)}
+      />
+
+      {/* 5.5 PHOTO LIGHTBOX MODAL */}
+      <PhotoLightboxModal
+        photo={activePhoto}
+        onClose={() => setActivePhoto(null)}
+      />
 
       {/* 6. PDF PREVIEW MODAL */}
       {viewPdfModal && (

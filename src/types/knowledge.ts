@@ -1,4 +1,4 @@
-export type KnowledgeType = 'MANUAL' | 'WI' | 'TROUBLESHOOTING' | 'WHY_WHY';
+export type KnowledgeType = 'MANUAL' | 'WI' | 'TROUBLESHOOTING' | 'WHY_WHY' | 'KAIZEN' | 'OPL' | 'FA' | 'MP_INFO' | 'CD5';
 
 export interface ManualData {
   docCode: string;
@@ -93,4 +93,16 @@ export interface KnowledgeItem {
   wiData?: WIData;
   troubleshootingData?: TroubleshootingData;
   whyWhyData?: KnowledgeWhyWhyData;
+
+  // Synced metadata from Improvement / Kaizen / CD5
+  sourceCategory?: 'KAIZEN' | 'OPL' | 'FA' | 'WHY_WHY' | 'MP_INFO' | 'CD5';
+  sourceImprovementId?: string;
+  sourceCd5Id?: string;
+  costSavings?: number;
+  description?: string;
+  photoBefore?: string;
+  photoAfter?: string;
+  pdfFilesCount?: number;
+  fileName?: string;
+  fileContent?: string;
 }

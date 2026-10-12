@@ -18,7 +18,11 @@ import { PhotoLightboxModal } from './kaizen/PhotoLightboxModal';
 
 type ActiveTab = 'kaizen' | 'opl' | 'fa' | 'why_why' | 'mp_info' | 'overview';
 
-export const ImprovementPage: React.FC = () => {
+export interface ImprovementPageProps {
+  initialTab?: 'kaizen' | 'opl' | 'fa' | 'why_why' | 'mp_info' | 'overview';
+}
+
+export const ImprovementPage: React.FC<ImprovementPageProps> = ({ initialTab }) => {
   const { 
     improvements, 
     setImprovements, 
@@ -36,6 +40,7 @@ export const ImprovementPage: React.FC = () => {
     if (kaizenNavigationFilter?.category === 'OPL') return 'opl';
     if (kaizenNavigationFilter?.category === 'WHY_WHY') return 'why_why';
     if (kaizenNavigationFilter?.category === 'MP_INFO') return 'mp_info';
+    if (initialTab) return initialTab;
     return 'kaizen';
   });
 

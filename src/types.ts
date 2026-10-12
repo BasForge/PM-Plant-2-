@@ -713,6 +713,13 @@ export interface WorkOrder {
   productionHandoverNotes?: string;
   satisfactionRating?: number;
   
+  // Phase 3: การปิดใบงานสมบูรณ์แบบ (Failure Codes, Actual Parts Deduction & Knowledge Integration)
+  failureCode?: WorkOrderFailureCode;
+  actualPartsUsed?: UsedPartItem[];
+  totalPartsCost?: number;
+  savedToKnowledge?: boolean;
+  knowledgeItemId?: string;
+
   // ข้อมูลระบบ
   createdAt: string;
   createdBy: string;
@@ -720,6 +727,27 @@ export interface WorkOrder {
   releasedBy?: string;
   closedAt?: string;
   closedBy?: string;
+}
+
+export type WorkOrderFailureSubsystem = 
+  | 'MECHANICAL'
+  | 'ELECTRICAL'
+  | 'PNEUMATIC'
+  | 'SENSOR_CONTROL'
+  | 'THERMAL'
+  | 'HYDRAULIC_VACUUM'
+  | 'OTHER';
+
+export interface WorkOrderFailureCode {
+  subsystem: WorkOrderFailureSubsystem;
+  subsystemLabel: string;
+  symptomCode: string;
+  symptomLabel: string;
+  causeCode: string;
+  causeLabel: string;
+  actionCode: string;
+  actionLabel: string;
+  severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 }
 
 

@@ -1089,12 +1089,29 @@ export const WorkOrderHub: React.FC = () => {
                             <div className="font-semibold text-white group-hover:text-cyan-300 transition line-clamp-1 max-w-[240px]">
                               {wo.title}
                             </div>
-                            {wo.lotoRequired && (
-                              <div className="inline-flex items-center gap-1 text-[10px] text-amber-400 mt-0.5">
-                                <ShieldAlert size={11} />
-                                <span>LOTO: {wo.lotoTag || 'Active'}</span>
-                              </div>
-                            )}
+                            <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                              {wo.lotoRequired && (
+                                <div className="inline-flex items-center gap-1 text-[10px] text-amber-400">
+                                  <ShieldAlert size={11} />
+                                  <span>LOTO: {wo.lotoTag || 'Active'}</span>
+                                </div>
+                              )}
+                              {wo.failureCode && (
+                                <div className="inline-flex items-center gap-1.5 flex-wrap">
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-800/60">
+                                    {wo.failureCode.symptomCode}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 truncate max-w-[130px]" title={wo.failureCode.symptomLabel}>
+                                    {wo.failureCode.symptomLabel}
+                                  </span>
+                                  {wo.totalPartsCost !== undefined && wo.totalPartsCost > 0 && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-800/60">
+                                      ฿{wo.totalPartsCost.toLocaleString()}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </td>
 
                           {/* 4 Pillars Readiness Mini Badges */}
@@ -1199,6 +1216,17 @@ export const WorkOrderHub: React.FC = () => {
                                   title={isReadyToRelease ? "ปล่อยงานให้ช่างเริ่มปฏิบัติงาน" : "ยังไม่ผ่านเกณฑ์ 4 เสาหลัก"}
                                 >
                                   <Play size={13} className="fill-current" />
+                                </button>
+                              )}
+
+                              {wo.status === 'RELEASED' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenDetail(wo)}
+                                  className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black transition cursor-pointer"
+                                  title="ปิดงานและตัดสต็อกอะไหล่ (Close WO)"
+                                >
+                                  <Check size={13} className="stroke-[3]" />
                                 </button>
                               )}
 
