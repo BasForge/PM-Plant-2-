@@ -13,7 +13,7 @@ import {
   Clock, Calendar, User, Package, ShieldCheck, ShieldAlert, 
   Layers, ArrowUpDown, Eye, Play, Check, ChevronRight, BarChart3, 
   Sparkles, RefreshCw, AlertCircle, FileText, CalendarRange, Edit3, Trash2,
-  FileSpreadsheet, CheckSquare, Square, X
+  FileSpreadsheet, CheckSquare, Square, X, Flame, BookOpen
 } from 'lucide-react';
 
 export const WorkOrderHub: React.FC = () => {
@@ -35,7 +35,8 @@ export const WorkOrderHub: React.FC = () => {
     updateWorkOrder,
     canEdit,
     canDelete,
-    isAdmin
+    isAdmin,
+    setActivePage
   } = useApp();
 
   const [activeMainView, setActiveMainView] = useState<'grid' | 'tbm_matrix' | 'analytics'>('grid');
@@ -501,6 +502,26 @@ export const WorkOrderHub: React.FC = () => {
               >
                 <BarChart3 size={13} />
                 <span>แดชบอร์ด %Planned Work</span>
+              </button>
+              <button
+                type="button"
+                id="btn-goto-bad-actor-from-wo"
+                onClick={() => setActivePage(16)}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 text-rose-300 hover:text-white hover:bg-rose-950/40 border border-rose-900/40"
+                title="วิเคราะห์เครื่องจักรวิกฤต Bad Actor (Pareto 80/20 & Chronic Failures)"
+              >
+                <Flame size={13} className="text-rose-400" />
+                <span>🚨 รายงาน Bad Actor</span>
+              </button>
+              <button
+                type="button"
+                id="btn-goto-knowledge-from-wo"
+                onClick={() => setActivePage(18)}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 text-indigo-300 hover:text-white hover:bg-indigo-950/40 border border-indigo-900/40"
+                title="เปิดศูนย์คลังความรู้ Active CMMS (Manual, WI, Troubleshooting, Why-Why)"
+              >
+                <BookOpen size={13} className="text-indigo-400" />
+                <span>📚 ฐานความรู้ CMMS</span>
               </button>
             </div>
 

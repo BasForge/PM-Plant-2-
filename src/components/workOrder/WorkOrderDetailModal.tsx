@@ -6,6 +6,7 @@ import {
   Wrench, Package, Calendar, Play, Check, Star, ShieldAlert, 
   Printer, ArrowRight, Layers, FileText, Edit3, Trash2 
 } from 'lucide-react';
+import { ContextualKnowledgeAssistant } from '../knowledge/ContextualKnowledgeAssistant';
 
 interface WorkOrderDetailModalProps {
   workOrder: WorkOrder | null;
@@ -425,6 +426,13 @@ export const WorkOrderDetailModal: React.FC<WorkOrderDetailModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Active CMMS Contextual Knowledge Assistant (Auto-suggests Manual, WI, Troubleshooting, Why-Why) */}
+              <ContextualKnowledgeAssistant
+                machineId={workOrder.machineId}
+                machineName={workOrder.machineName || workOrder.title}
+                symptoms={workOrder.description || workOrder.title}
+              />
 
               {/* Spare Parts List Table */}
               {workOrder.requiresParts && workOrder.requiredParts && workOrder.requiredParts.length > 0 && (

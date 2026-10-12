@@ -30,6 +30,7 @@ import {
   WorkRequest,
   WorkOrder
 } from '../types';
+import { KnowledgeItem } from '../types/knowledge';
 
 export interface AppDatabaseState {
   machines: Machine[];
@@ -46,6 +47,7 @@ export interface AppDatabaseState {
   cd5Projects: CD5Project[];
   workRequests?: WorkRequest[];
   workOrders?: WorkOrder[];
+  knowledgeItems?: KnowledgeItem[];
   settings: SystemSettings;
 }
 

@@ -23,13 +23,14 @@ import { LoginPage } from './components/LoginPage';
 import { UserManagementModal } from './components/UserManagementModal';
 import { MtbfMttrDashboardPage } from './components/mtbf/MtbfMttrDashboardPage';
 import { WorkOrderHub } from './components/workOrder/WorkOrderHub';
+import { ActiveKnowledgeHub } from './components/knowledge/ActiveKnowledgeHub';
 import { getOverdueAndRescheduledSummary, getTodayDateString } from './utils/pmAlerts';
 
 import { 
   Wrench, Activity, CalendarDays, ClipboardList, PenTool, 
   BarChart3, Settings, Menu, ChevronLeft, ChevronRight, Clock, ShieldCheck, Send, Presentation, Users,
   Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell, Cloud,
-  LogOut, Shield, UserCheck, Eye, BellRing, Factory, CalendarRange
+  LogOut, Shield, UserCheck, Eye, BellRing, Factory, CalendarRange, BookOpen
 } from 'lucide-react';
 
 // Isolated memoized clock component to prevent the root App and active page from re-rendering every second
@@ -185,6 +186,7 @@ function AppContent() {
       case 6:
       case 9:
       case 16: return <MtbfMttrDashboardPage />;
+      case 18: return <ActiveKnowledgeHub />;
       case 12: return <TechnicianPortfolioPage />;
       default: return <SchedulePage />;
     }
@@ -197,7 +199,8 @@ function AppContent() {
     { id: 3, label: "📅 ตารางงานช่าง", icon: CalendarDays, desc: "มาสเตอร์พิกัดกะ" },
     { id: 1, label: "🏭 เครื่องจักร & แผน PM", icon: Activity, desc: "ทะเบียน, แผนงาน PM & TBM Matrix" },
     { id: 4, label: "🔧 ประวัติซ่อม & ประวัติ PM", icon: Wrench, desc: "บันทึกซ่อม Why-Why & งาน PM" },
-    { id: 16, label: "📈 แดชบอร์ด MTBF / MTTR", icon: BarChart3, desc: "SUM & 8 ห้องแยกรายเครื่อง" },
+    { id: 16, label: "📈 MTBF/MTTR & Bad Actor", icon: BarChart3, desc: "Pareto 80/20 & วิเคราะห์เครื่องวิกฤต" },
+    { id: 18, label: "📚 ศูนย์คลังความรู้ Active CMMS", icon: BookOpen, desc: "Manual, WI, Troubleshoot & Why-Why" },
     { id: 13, label: "💰 Cost Down 5 & Kaizen", icon: TrendingDown, desc: "ลดต้นทุนอะไหล่ & งานพัฒนา Kaizen" },
     { id: 7, label: "📋 ระบบจ่ายงาน & Setup เครื่อง", icon: Send, desc: "ศูนย์สั่งจ่ายงาน & บันทึก Setup" },
     { id: 10, label: "📦 คลังอะไหล่สำรอง", icon: Package, desc: "ควบคุมความปลอดภัยสต็อก" },

@@ -28,6 +28,7 @@ import { LineTextImportModal } from './repair/LineTextImportModal';
 import { DateTimePicker24H } from './common/DateTimePicker24H';
 import { WorkOrderDetailModal } from './workOrder/WorkOrderDetailModal';
 import { PDFViewerModal } from './kaizen/PDFViewerModal';
+import { ContextualKnowledgeAssistant } from './knowledge/ContextualKnowledgeAssistant';
 
 export const RepairPage: React.FC = () => {
   const { 
@@ -4121,6 +4122,12 @@ export const RepairPage: React.FC = () => {
                   </div>
                 );
               })()}
+
+              {/* Active CMMS Contextual Knowledge Assistant */}
+              <ContextualKnowledgeAssistant
+                machineId={selectedRepairDetail.machineId}
+                symptoms={selectedRepairDetail.symptoms}
+              />
 
             </div>
 

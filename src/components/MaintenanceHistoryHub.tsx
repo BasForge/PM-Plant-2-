@@ -5,7 +5,7 @@ import { PMHistoryPage } from './PMHistoryPage';
 import { PrintheadHistoryTab } from './workRequest/PrintheadHistoryTab';
 import { PrintheadDetailsModal } from './workRequest/PrintheadDetailsModal';
 import { PrintheadRequestSelectorModal } from './workRequest/PrintheadRequestSelectorModal';
-import { Wrench, ClipboardCheck, AlertTriangle, CheckCircle2, History, Clock, Printer, X, FileText, ArrowLeft, Check } from 'lucide-react';
+import { Wrench, ClipboardCheck, AlertTriangle, CheckCircle2, History, Clock, Printer, X, FileText, ArrowLeft, Check, Flame, BookOpen } from 'lucide-react';
 import { getTodayDateString } from '../utils/pmAlerts';
 import { getRepairStoppageType, WorkRequest } from '../types';
 
@@ -14,7 +14,7 @@ interface MaintenanceHistoryHubProps {
 }
 
 export const MaintenanceHistoryHub: React.FC<MaintenanceHistoryHubProps> = ({ defaultTab = 'repair' }) => {
-  const { repairs, schedules, machines, workRequests, updateWorkRequest, technicians, currentUser, repairNavigationFilter } = useApp();
+  const { repairs, schedules, machines, workRequests, updateWorkRequest, technicians, currentUser, repairNavigationFilter, setActivePage } = useApp();
   const [activeSubTab, setActiveSubTab] = useState<'repair' | 'pm' | 'printhead'>(defaultTab);
 
   // Modals for Printhead history
@@ -155,6 +155,30 @@ export const MaintenanceHistoryHub: React.FC<MaintenanceHistoryHubProps> = ({ de
             >
               {printheadCount} งาน
             </span>
+          </button>
+
+          {/* Quick jump to Bad Actor Report */}
+          <button
+            type="button"
+            id="btn-subtab-bad-actor"
+            onClick={() => setActivePage(16)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-rose-300 hover:text-white hover:bg-rose-950/40 border border-rose-900/40 transition whitespace-nowrap cursor-pointer select-none"
+            title="ไปที่รายงานวิเคราะห์เครื่องจักรวิกฤต Bad Actor (Pareto 80/20 & Chronic Failures)"
+          >
+            <Flame size={14} className="text-rose-400" />
+            <span>🚨 รายงาน Bad Actor</span>
+          </button>
+
+          {/* Quick jump to Knowledge Base */}
+          <button
+            type="button"
+            id="btn-subtab-knowledge"
+            onClick={() => setActivePage(18)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-indigo-300 hover:text-white hover:bg-indigo-950/40 border border-indigo-900/40 transition whitespace-nowrap cursor-pointer select-none"
+            title="เปิดศูนย์คลังความรู้ Active CMMS (Manual, WI, Troubleshooting, Why-Why)"
+          >
+            <BookOpen size={14} className="text-indigo-400" />
+            <span>📚 ฐานความรู้ CMMS</span>
           </button>
         </div>
 

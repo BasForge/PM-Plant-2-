@@ -15,6 +15,8 @@ import { PRELOADED_WORK_REQUESTS } from '../data/preloadedRequests';
 import { PRELOADED_WORK_ORDERS } from '../data/preloadedWorkOrders';
 import { evaluateWorkOrderReadiness, generateWorkOrderNo } from '../utils/workOrderUtils';
 import { DEFAULT_USER_ACCOUNTS } from '../data/preloadedUsers';
+import { KnowledgeItem } from '../types/knowledge';
+import { PRELOADED_KNOWLEDGE_ITEMS } from '../data/preloadedKnowledge';
 import { 
   loadDatabaseFromFirebase, 
   saveDatabaseToFirebase, 
@@ -78,6 +80,11 @@ export interface AppContextType {
   setWorkRequests: React.Dispatch<React.SetStateAction<WorkRequest[]>>;
   workOrders: WorkOrder[];
   setWorkOrders: React.Dispatch<React.SetStateAction<WorkOrder[]>>;
+  knowledgeItems: KnowledgeItem[];
+  setKnowledgeItems: React.Dispatch<React.SetStateAction<KnowledgeItem[]>>;
+  addKnowledgeItem: (item: Omit<KnowledgeItem, 'id' | 'createdAt' | 'updatedAt'>) => KnowledgeItem;
+  updateKnowledgeItem: (id: string, updates: Partial<KnowledgeItem>) => void;
+  deleteKnowledgeItem: (id: string) => void;
   addWorkOrder: (wo: Omit<WorkOrder, 'id' | 'createdAt'>) => WorkOrder;
   updateWorkOrder: (id: string, updates: Partial<WorkOrder>) => void;
   deleteWorkOrder: (id: string) => void;
@@ -177,6 +184,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+  const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>(() => {
+    try {
+      const stored = localStorage.getItem('app_cmms_knowledge_items');
+      if (stored) return JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+    return PRELOADED_KNOWLEDGE_ITEMS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('app_cmms_knowledge_items', JSON.stringify(knowledgeItems));
+    } catch {
+      // ignore
+    }
+  }, [knowledgeItems]);
+
+  const addKnowledgeItem = (item: Omit<KnowledgeItem, 'id' | 'createdAt' | 'updatedAt'>): KnowledgeItem => {
+    const now = new Date().toISOString().split('T')[0];
+    const newItem: KnowledgeItem = {
+      ...item,
+      id: `kn-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: now,
+      updatedAt: now,
+      viewCount: 0,
+      isVerified: true
+    };
+    setKnowledgeItems(prev => [newItem, ...prev]);
+    return newItem;
+  };
+
+  const updateKnowledgeItem = (id: string, updates: Partial<KnowledgeItem>) => {
+    const now = new Date().toISOString().split('T')[0];
+    setKnowledgeItems(prev => prev.map(k => k.id === id ? { ...k, ...updates, updatedAt: now } : k));
+  };
+
+  const deleteKnowledgeItem = (id: string) => {
+    setKnowledgeItems(prev => prev.filter(k => k.id !== id));
+  };
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     try {
       const storedId = localStorage.getItem('foodfab_current_user_id');
@@ -1710,6 +1757,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       users, setUsers,
       workRequests, setWorkRequests,
       workOrders, setWorkOrders,
+      knowledgeItems, setKnowledgeItems,
+      addKnowledgeItem, updateKnowledgeItem, deleteKnowledgeItem,
       addWorkOrder, updateWorkOrder, deleteWorkOrder,
       deleteRepair, deleteRepairsBatch,
       releaseWorkOrder, closeWorkOrder, createEmergencyBreakdownWorkOrder,

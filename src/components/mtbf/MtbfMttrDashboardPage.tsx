@@ -9,9 +9,11 @@ import { ProductionTimeModal } from './ProductionTimeModal';
 import { MachineMappingModal } from './MachineMappingModal';
 import { BaselineEditModal } from './BaselineEditModal';
 import { BreakdownCasesModal } from './BreakdownCasesModal';
+import { BadActorReportView } from './BadActorReportView';
 import { 
   BarChart3, Clock, Link2, History, FileSpreadsheet, 
-  Filter, Calendar, ChevronRight, Layers, AlertTriangle, ShieldCheck
+  Filter, Calendar, ChevronRight, Layers, AlertTriangle, ShieldCheck,
+  Flame
 } from 'lucide-react';
 
 export const MtbfMttrDashboardPage: React.FC = () => {
@@ -298,9 +300,29 @@ export const MtbfMttrDashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. NAVIGATION TABS: SUM + 8 ROOMS */}
+        {/* 2. NAVIGATION TABS: BAD ACTOR + SUM + 8 ROOMS */}
         <div className="border-t border-slate-800/80 pt-4">
           <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin" id="mtbf-tabs-nav">
+            {/* Bad Actor Report Tab */}
+            <button
+              type="button"
+              id="tab-btn-bad-actor"
+              onClick={() => setActiveTab('BAD_ACTOR')}
+              className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+                activeTab === 'BAD_ACTOR'
+                  ? 'bg-gradient-to-r from-rose-500 via-red-500 to-amber-500 text-slate-950 shadow-lg shadow-rose-500/25 ring-1 ring-rose-300'
+                  : 'bg-slate-900/80 text-rose-300 hover:text-white hover:bg-slate-800 border border-rose-900/40'
+              }`}
+            >
+              <Flame size={16} className={activeTab === 'BAD_ACTOR' ? 'text-slate-950' : 'text-rose-400'} />
+              <span>🚨 Bad Actor Report</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                activeTab === 'BAD_ACTOR' ? 'bg-slate-950/20 text-slate-950' : 'bg-rose-950 text-rose-300 border border-rose-800'
+              }`}>
+                Pareto 80/20
+              </span>
+            </button>
+
             {/* SUM Tab */}
             <button
               type="button"
@@ -373,8 +395,15 @@ export const MtbfMttrDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* 3. MAIN CONTENT: SUM OR ROOM VIEW */}
-      {activeTab === 'SUM' ? (
+      {/* 3. MAIN CONTENT: BAD ACTOR, SUM OR ROOM VIEW */}
+      {activeTab === 'BAD_ACTOR' ? (
+        <BadActorReportView
+          year={selectedYear}
+          rooms={rooms}
+          repairs={repairs}
+          machines={machines}
+        />
+      ) : activeTab === 'SUM' ? (
         <MtbfSumView
           year={selectedYear}
           rooms={rooms}
