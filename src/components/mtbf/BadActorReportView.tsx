@@ -114,10 +114,11 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
   // Filter scoped repairs based on time range and stoppage
   const scopedRepairs = useMemo(() => {
     return repairs.filter(r => {
-      if (!r.date) return false;
-      const rDate = new Date(r.date);
-      const rYear = rDate.getFullYear();
-      const rMonth = rDate.getMonth() + 1;
+      const dateStr = r.date || r.breakdownTime || '';
+      if (!dateStr) return false;
+      const parts = dateStr.slice(0, 10).split('-');
+      const rYear = parseInt(parts[0], 10);
+      const rMonth = parseInt(parts[1], 10);
 
       // Stoppage filter
       if (stoppageFilter === 'BREAKDOWN_ONLY') {

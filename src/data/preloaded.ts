@@ -1,6 +1,6 @@
 import { Machine, CD5Project, ImprovementProject, RepairLog, PMPlan, ScheduleItem } from '../types';
 import { CPRAM_PDF_MACHINES } from './cpramMachines';
-import { CPRAM_PDF_REPAIRS } from './cpramRepairHistory';
+import { CPRAM_PDF_REPAIRS, ALL_INITIAL_REPAIRS } from './cpramRepairHistory';
 import { FQMS_SAMPLE_STEPS } from '../utils/pmExcelParser';
 
 export const PRELOADED_MACHINES: Machine[] = CPRAM_PDF_MACHINES;
@@ -152,7 +152,7 @@ export const PRELOADED_PM_PLANS = [
   }
 ];
 
-export const PRELOADED_REPAIRS: RepairLog[] = CPRAM_PDF_REPAIRS;
+export const PRELOADED_REPAIRS: RepairLog[] = ALL_INITIAL_REPAIRS;
 
 export const PRELOADED_IMPROVEMENTS: ImprovementProject[] = [
   // 1. KAIZEN PROJECTS

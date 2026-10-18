@@ -35,18 +35,21 @@ export const OFFICIAL_MTBF_ROOMS: RoomConfig[] = [
     id: 'room-4',
     name: 'ห้องขึ้นรูปข้าวกล่อง',
     machines: [
-      { id: 'ATS01', name: 'AUTOMATIC TOP SEARER1', ranking: 'A' },
-      { id: 'ATS02', name: 'AUTOMATIC TOP SEARER2', ranking: 'A' },
-      { id: 'FFS01', name: 'HORIZONTAL FORM FILL SEAL1', ranking: 'A' },
+      { id: 'ATS01', name: 'AUTOMATIC TOP SEALER 1', ranking: 'A' },
+      { id: 'ATS02', name: 'AUTOMATIC TOP SEALER 2', ranking: 'A' },
+      { id: 'ATS04', name: 'TOP SEALER ข้าวเหนียว', ranking: 'A', altIds: ['TSS01', 'STK01', 'STK02'] },
+      { id: 'ATS05', name: 'TOP SEALER CUP TO GO', ranking: 'A', altIds: ['TSC01', 'CLM01'] },
+      { id: 'FFS01', name: 'HORIZONTAL FORM FILL SEAL1', ranking: 'A', altIds: ['BCV01', 'SBC01', 'SBC11', 'SBC10'] },
       { id: 'FFS02', name: 'HORIZONTAL FORM FILL SEAL2', ranking: 'A' },
       { id: 'FFS03', name: 'HORIZONTAL FORM FILL SEAL3', ranking: 'A' },
       { id: 'STN01', name: 'SHRINK TUNNEL1', ranking: 'A' },
       { id: 'STN02', name: 'SHRINK TUNNEL2', ranking: 'A' },
-      { id: 'TSS01', name: 'TOP SEALER RICE STICKY', ranking: 'A', altIds: ['STK01', 'STK02'] },
-      { id: 'TSC01', name: 'TOP SEALER CUP TO GO', ranking: 'A', altIds: ['CLM01'] },
+      { id: 'TSS01', name: 'TOP SEALER RICE STICKY', ranking: 'A', altIds: ['ATS04', 'STK01', 'STK02'] },
+      { id: 'TSC01', name: 'TOP SEALER CUP TO GO', ranking: 'A', altIds: ['ATS05', 'CLM01'] },
       { id: 'RPT01', name: 'RICE PORTION1', ranking: 'A' },
       { id: 'RPT02', name: 'RICE PORTION2', ranking: 'A' },
-      { id: 'SRM01', name: 'STICKY RICE FORMING', ranking: 'A', altIds: ['RPT02_STICKY', 'SRM01'] }
+      { id: 'SRM01', name: 'STICKY RICE FORMING', ranking: 'A', altIds: ['RPT02_STICKY', 'SRM01'] },
+      { id: 'STK07', name: 'เครื่องติดสติกเกอร์อัตโนมัติ', ranking: 'B', altIds: ['STK01', 'STK02', 'STK03'] }
     ]
   },
   {
@@ -61,11 +64,14 @@ export const OFFICIAL_MTBF_ROOMS: RoomConfig[] = [
       { id: 'RWM01', name: 'ROLL SUSHI WRAPPING MACHINE', ranking: 'A', altIds: ['RSW01'] },
       { id: 'STF01', name: 'STUFFER1', ranking: 'A' },
       { id: 'STF02', name: 'STUFFER2', ranking: 'A' },
-      { id: 'TSY01', name: 'TOP SEAL ยำสาหร่าย', ranking: 'A', altIds: ['TLP01'] },
+      { id: 'TSY01', name: 'TOP SEAL ยำสาหร่าย', ranking: 'A', altIds: ['TLP01', 'ATS03'] },
+      { id: 'ATS03', name: 'TOP SEALER ยำสาหร่าย', ranking: 'A', altIds: ['TSY01', 'TLP01'] },
       { id: 'MIV01', name: 'MIXER VERTICAL 1', ranking: 'A' },
       { id: 'MIV02', name: 'MIXER VERTICAL 2', ranking: 'A' },
+      { id: 'MIV03', name: 'MIXER VERTICAL 3', ranking: 'A' },
       { id: 'ONG01', name: 'ONIGIRI ROBOT (SUPPLY UNIT)', ranking: 'A' },
       { id: 'ONR01', name: 'ONIGIRI ROBOT', ranking: 'A', altIds: ['OFR01'] },
+      { id: 'STK06', name: 'เครื่องติดสติกเกอร์อัตโนมัติ โอนิกิริ แบบใหม่', ranking: 'A', altIds: ['STK04', 'STK05'] },
       { id: 'WHD01', name: 'WEIGHING DEVICE', ranking: 'A', altIds: ['OWD01', 'WHS01'] },
       { id: 'WHR01', name: 'WEIGHING DEVICE (REJECT)', ranking: 'A' },
       { id: 'AWR01', name: 'AUTOMATIC RICE BALL WRAPPING MACHINE', ranking: 'A' }
@@ -75,11 +81,12 @@ export const OFFICIAL_MTBF_ROOMS: RoomConfig[] = [
     id: 'room-6',
     name: 'ห้องขึ้นรูปสลัด',
     machines: [
-      { id: 'TFD002', name: 'TOP SEALER SALAD', ranking: 'A', altIds: ['TLP02', 'TFD02'] },
-      { id: 'MDT01', name: 'METAL DETECTOR', ranking: 'B', altIds: ['MTD01', 'MTD02'] },
-      { id: 'XIS01', name: 'X-RAY INSPECTION SYSTEM', ranking: 'B', altIds: ['XRA01', 'XRA02'] },
-      { id: 'RJT01', name: 'REJECTOR', ranking: 'B', altIds: ['RJT02'] },
-      { id: 'CVB01', name: 'CONVEYOR BELT', ranking: 'B', altIds: ['SBC08', 'MBC04'] }
+      { id: 'TFD002', name: 'TOP SEALER SALAD', ranking: 'A', altIds: ['TLP02', 'TFD02', 'ATS06'] },
+      { id: 'ATS06', name: 'TOP SEALER สลัด', ranking: 'A', altIds: ['TFD002', 'TFD02', 'TLP02'] },
+      { id: 'MDT01', name: 'METAL DETECTOR', ranking: 'B', altIds: ['MTD01', 'MTD02', 'MTD06'] },
+      { id: 'XIS01', name: 'X-RAY INSPECTION SYSTEM', ranking: 'B', altIds: ['XRA01', 'XRA02', 'XRA06'] },
+      { id: 'RJT01', name: 'REJECTOR', ranking: 'B', altIds: ['RJT02', 'RJT06'] },
+      { id: 'CVB01', name: 'CONVEYOR BELT', ranking: 'B', altIds: ['SBC08', 'MBC04', 'SBC09'] }
     ]
   },
   {
@@ -100,6 +107,7 @@ export const OFFICIAL_MTBF_ROOMS: RoomConfig[] = [
       { id: 'BCF04', name: 'BLAST CHILLER & FREEZER4', ranking: 'B' },
       { id: 'BCF05', name: 'BLAST CHILLER & FREEZER5', ranking: 'B' },
       { id: 'BCF06', name: 'BLAST CHILLER & FREEZER6', ranking: 'A' },
+      { id: 'BCF07', name: 'BLAST CHILLER & FREEZER7', ranking: 'A' },
       { id: 'CDU01', name: 'CONDENSING UNIT1', ranking: 'B' },
       { id: 'CDU02', name: 'CONDENSING UNIT2', ranking: 'B' },
       { id: 'CDU03', name: 'CONDENSING UNIT3', ranking: 'B' },

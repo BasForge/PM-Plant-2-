@@ -368,17 +368,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return Array.from(set).filter(t => !isFakeTechnician(t));
   };
 
-  // Helper to ensure repair history only uses plant technicians
+  // Helper to ensure repair history only uses plant technicians, deduplicates, and preserves all baseline CPRAM repairs
   const sanitizeRepairs = (reps: any[] | undefined | null): RepairLog[] => {
     if (!Array.isArray(reps) || reps.length === 0) {
       return PRELOADED_REPAIRS;
     }
-    const hasCpram = reps.some(r => r.id && r.id.startsWith('rep-cpram-'));
-    const sourceReps = (!hasCpram && reps.every(r => r.id === 'rep-01' || r.id === 'rep-02' || r.id === 'rep-03' || r.id === 'rep-04'))
-      ? PRELOADED_REPAIRS
-      : reps;
 
-    return sourceReps.map((r, idx) => {
+    // Check if stored data has legacy inverted order, missing rows (< 77), or previous turn's uncalibrated time
+    const firstCpram = reps.find(r => r && r.id === 'rep-cpram-001');
+    const isLegacyCpramData = firstCpram && (
+      firstCpram.date === '2026-01-04' || 
+      firstCpram.machineId !== 'ATS04' ||
+      firstCpram.breakdownTime === '2026-10-10T08:00'
+    );
+    const cpramCount = reps.filter(r => r && r.id && r.id.startsWith('rep-cpram-')).length;
+
+    let sourceReps: RepairLog[];
+    if (isLegacyCpramData || cpramCount < PRELOADED_REPAIRS.length) {
+      // Preserve any user-created custom tickets (non-rep-cpram and not old placeholder dups)
+      const userCustomRepairs = reps.filter(r => r && r.id && !r.id.startsWith('rep-cpram-') && r.id !== 'rep-1791357011265' && r.id !== 'rep-1791356818193');
+      sourceReps = [...PRELOADED_REPAIRS, ...userCustomRepairs];
+    } else {
+      sourceReps = reps;
+    }
+
+    // Deduplicate strictly by ID
+    const seen = new Set<string>();
+    const deduped: RepairLog[] = [];
+    for (const r of sourceReps) {
+      if (!r || !r.id) continue;
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      deduped.push(r);
+    }
+
+    // If CPRAM records were partially missing from truncated storage, backfill remaining baseline items
+    const cpramCountInList = deduped.filter(r => r.id.startsWith('rep-cpram-')).length;
+    if (cpramCountInList > 0 && cpramCountInList < PRELOADED_REPAIRS.length) {
+      for (const baseRep of PRELOADED_REPAIRS) {
+        if (!seen.has(baseRep.id)) {
+          seen.add(baseRep.id);
+          deduped.push(baseRep);
+        }
+      }
+    }
+
+    return deduped.map((r, idx) => {
       let tech = r.technician;
       if (!tech || isFakeTechnician(tech)) {
         tech = PRELOADED_TECHNICIANS[idx % PRELOADED_TECHNICIANS.length];
@@ -488,6 +523,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // Helper to ensure canonical JSON string comparison regardless of object key order
+  const serializeDbState = (state: any): string => {
+    if (!state || typeof state !== 'object') return '';
+    const orderedKeys = Object.keys(state).sort();
+    const normalized: Record<string, any> = {};
+    for (const k of orderedKeys) {
+      normalized[k] = (state as any)[k];
+    }
+    return JSON.stringify(normalized);
+  };
+
   // Load from Firebase Cloud Firestore or fall back to Server / LocalStorage / preloads
   useEffect(() => {
     const initDb = async () => {
@@ -532,7 +578,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setSettings(cloudData.settings);
             }
 
-            lastSavedJsonRef.current = JSON.stringify(cloudData);
+            lastSavedJsonRef.current = serializeDbState(cloudData);
             setFirebaseStatus('connected');
             setLastFirebaseSync(new Date().toLocaleTimeString('th-TH'));
             setIsLoaded(true);
@@ -717,7 +763,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       if (resolvedData) {
-        lastSavedJsonRef.current = JSON.stringify(resolvedData);
+        lastSavedJsonRef.current = serializeDbState(resolvedData);
       }
       try {
         localStorage.setItem('cpram_cleared_machine_fields_v1', 'migrated');
@@ -730,7 +776,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!loadedFromCloud && resolvedData && !isCloudQuotaExceeded()) {
         try {
           await saveDatabaseToFirebase(resolvedData);
-          lastSavedJsonRef.current = JSON.stringify(resolvedData);
+          lastSavedJsonRef.current = serializeDbState(resolvedData);
           if (isCloudQuotaExceeded()) {
             setFirebaseStatus('quota-exceeded');
           } else {
@@ -801,7 +847,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     // Check if the data has actually changed compared to the last saved state
-    const currentJson = JSON.stringify(dataToSave);
+    const currentJson = serializeDbState(dataToSave);
     if (currentJson === lastSavedJsonRef.current) {
       return;
     }
@@ -814,7 +860,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           headers: {
             "Content-Type": "application/json"
           },
-          body: currentJson
+          body: JSON.stringify(dataToSave)
         });
       } catch (error) {
         console.error("Error syncing with LAN server:", error);
@@ -884,7 +930,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const cloudData = await loadDatabaseFromFirebase();
         if (cloudData && cloudData.machines && cloudData.machines.length > 0) {
-          const newJson = JSON.stringify(cloudData);
+          const newJson = serializeDbState(cloudData);
           if (newJson === lastSavedJsonRef.current) {
             return;
           }
@@ -975,14 +1021,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (cloudData.settings && Object.keys(cloudData.settings).length > 0) {
           setSettings(cloudData.settings);
         }
-        lastSavedJsonRef.current = JSON.stringify(cloudData);
+        lastSavedJsonRef.current = serializeDbState(cloudData);
       } else {
         const payload = {
           machines, technicians, employees, pmPlans, schedules,
           repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, knowledgeItems, settings, users
         };
         await saveDatabaseToFirebase(payload);
-        lastSavedJsonRef.current = JSON.stringify(payload);
+        lastSavedJsonRef.current = serializeDbState(payload);
       }
 
       if (isCloudQuotaExceeded()) {

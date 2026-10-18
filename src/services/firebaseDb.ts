@@ -180,6 +180,12 @@ export async function markCloudQuotaExceeded(): Promise<void> {
   }
 }
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('firestore-quota-exceeded', () => {
+    markCloudQuotaExceeded().catch(() => {});
+  });
+}
+
 export async function resetCloudQuotaStatus(): Promise<boolean> {
   try {
     localStorage.removeItem(QUOTA_STORAGE_KEY);
@@ -508,7 +514,12 @@ export async function saveDatabaseToFirebase(data: AppDatabaseState): Promise<vo
         version: 3
       });
 
-      await catalogBatch.commit();
+      await Promise.race([
+        catalogBatch.commit(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Cloud Firestore commit timed out')), 10000)
+        )
+      ]);
       try {
         localStorage.setItem(HASHES_STORAGE_KEY, JSON.stringify(lastSavedEntityHashes));
       } catch {
@@ -516,8 +527,8 @@ export async function saveDatabaseToFirebase(data: AppDatabaseState): Promise<vo
       }
     }
   } catch (error) {
-    if (isQuotaExceededError(error)) {
-      console.warn('Cloud Firestore write quota reached. Gracefully pausing cloud writes for today.');
+    if (isQuotaExceededError(error) || String(error).toLowerCase().includes('timed out')) {
+      console.warn('Cloud Firestore write quota reached or timed out. Gracefully pausing cloud writes for today.');
       await markCloudQuotaExceeded();
       return;
     }

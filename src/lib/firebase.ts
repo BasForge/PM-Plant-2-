@@ -1,7 +1,14 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeFirestore, getFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, Firestore, setLogLevel } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
 import firebaseConfigData from '../../firebase-applet-config.json';
+
+// Silence verbose internal Firestore logs/errors to avoid crashing dev environments on quota backoff
+try {
+  setLogLevel('silent');
+} catch {
+  // Ignore if already set or unsupported in runtime
+}
 
 // Configuration from provisioned Firebase project
 export const firebaseConfig = {

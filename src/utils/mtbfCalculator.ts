@@ -32,19 +32,35 @@ export function parseProductionTimeValue(val: number | string): number {
   return Number((intPart + minutes / 60).toFixed(4));
 }
 
+import { CPRAM_PDF_MACHINES } from '../data/cpramMachines';
+
+const LOCATION_TO_ROOM_ID: Record<string, string> = {
+  'ห้องซุยข้าว': 'room-1',
+  'ห้องแวคข้าว': 'room-2',
+  'ห้องแวคกับข้าว': 'room-3',
+  'ห้องขึ้นรูปข้าวกล่อง': 'room-4',
+  'ห้องขึ้นรูปข้าวปั้น': 'room-5',
+  'ASSEMBLY ROOM': 'room-5',
+  'ห้องขึ้นรูปสลัด': 'room-6',
+  'ห้องล้างอุปกรณ์': 'room-7',
+  'CHANGING HIGH CARE ROOM': 'room-7',
+  'ห้องแช่เย็นและแช่แข็ง': 'room-8',
+};
+
 /**
  * ค้นหา Room และ Machine ที่จับคู่กับงานซ่อม
  */
 export function resolveRepairToRoomAndMachine(
   repair: RepairLog,
   rooms: RoomConfig[],
-  customMappings: Record<string, { roomId: string; machineId: string }>
+  customMappings: Record<string, { roomId: string; machineId: string }> = {}
 ): { room: RoomConfig | null; machine: RoomMachineConfig | null; isExplicitlyMapped: boolean } {
   const rawId = (repair.machineId || '').trim();
   const rawName = (repair.symptoms || '').trim().toLowerCase();
+  const normRawId = rawId.toUpperCase();
 
   // 1. ตรวจสอบ Custom Mapping ของผู้ใช้ก่อน
-  if (customMappings[rawId]) {
+  if (customMappings && customMappings[rawId]) {
     const { roomId, machineId } = customMappings[rawId];
     const room = rooms.find(r => r.id === roomId) || null;
     const machine = room?.machines.find(m => m.id === machineId) || null;
@@ -53,7 +69,7 @@ export function resolveRepairToRoomAndMachine(
     }
   }
 
-  // 2. ตรวจสอบรหัส M/C No. ตรงๆ หรือผ่าน AltIds
+  // 2. ตรวจสอบรหัส M/C No. ตรงๆ หรือผ่าน AltIds ในห้องที่มีการกำหนดไว้
   for (const room of rooms) {
     for (const machine of room.machines) {
       if (machine.id.toLowerCase() === rawId.toLowerCase()) {
@@ -65,12 +81,52 @@ export function resolveRepairToRoomAndMachine(
     }
   }
 
-  // 3. Smart Matching: ตามชื่อเครื่อง หรือหมวดหมู่อุปกรณ์
-  const normRawId = rawId.toUpperCase();
+  // 3. Smart Matching ตามรหัสและชื่อเครื่องในสายผลิต CPRAM โรงงาน 2
+  if (normRawId === 'ATS03') {
+    const r5 = rooms.find(r => r.id === 'room-5');
+    const tsy = r5?.machines.find(m => m.id === 'TSY01') || r5?.machines.find(m => m.id === 'ATS03') || { id: 'ATS03', name: 'TOP SEALER ยำสาหร่าย', ranking: 'A' };
+    if (r5) return { room: r5, machine: tsy, isExplicitlyMapped: false };
+  }
+  if (normRawId === 'ATS04') {
+    const r4 = rooms.find(r => r.id === 'room-4');
+    const tss = r4?.machines.find(m => m.id === 'TSS01') || r4?.machines.find(m => m.id === 'ATS04') || { id: 'ATS04', name: 'TOP SEALER ข้าวเหนียว', ranking: 'A' };
+    if (r4) return { room: r4, machine: tss, isExplicitlyMapped: false };
+  }
+  if (normRawId === 'ATS05') {
+    const r4 = rooms.find(r => r.id === 'room-4');
+    const tsc = r4?.machines.find(m => m.id === 'TSC01') || r4?.machines.find(m => m.id === 'ATS05') || { id: 'ATS05', name: 'TOP SEALER CUP TO GO', ranking: 'A' };
+    if (r4) return { room: r4, machine: tsc, isExplicitlyMapped: false };
+  }
+  if (normRawId === 'ATS06') {
+    const r6 = rooms.find(r => r.id === 'room-6');
+    const tfd = r6?.machines.find(m => m.id === 'TFD002') || r6?.machines.find(m => m.id === 'ATS06') || { id: 'ATS06', name: 'TOP SEALER สลัด', ranking: 'A' };
+    if (r6) return { room: r6, machine: tfd, isExplicitlyMapped: false };
+  }
+  if (normRawId === 'STK06') {
+    const r5 = rooms.find(r => r.id === 'room-5');
+    const stk = r5?.machines.find(m => m.id === 'STK06') || { id: 'STK06', name: 'เครื่องติดสติกเกอร์อัตโนมัติ โอนิกิริ แบบใหม่', ranking: 'A' };
+    if (r5) return { room: r5, machine: stk, isExplicitlyMapped: false };
+  }
+  if (normRawId === 'STK07' || normRawId === 'STK01' || normRawId === 'STK02' || normRawId === 'STK03') {
+    const r4 = rooms.find(r => r.id === 'room-4');
+    const stk = r4?.machines.find(m => m.id === normRawId) || r4?.machines.find(m => m.id === 'STK07') || r4?.machines.find(m => m.id === 'TSS01') || { id: normRawId, name: 'เครื่องติดสติกเกอร์อัตโนมัติ', ranking: 'B' };
+    if (r4) return { room: r4, machine: stk, isExplicitlyMapped: false };
+  }
+  if (normRawId === 'MIV03') {
+    const r5 = rooms.find(r => r.id === 'room-5');
+    const miv = r5?.machines.find(m => m.id === 'MIV03') || r5?.machines.find(m => m.id === 'MIV01') || { id: 'MIV03', name: 'MIXER VERTICAL 3', ranking: 'A' };
+    if (r5) return { room: r5, machine: miv, isExplicitlyMapped: false };
+  }
+  if (normRawId === 'BCF07' || normRawId === 'BCF05' || normRawId === 'BCF06') {
+    const r8 = rooms.find(r => r.id === 'room-8');
+    const bcf = r8?.machines.find(m => m.id === normRawId) || r8?.machines.find(m => m.id === 'BCF04') || { id: normRawId, name: 'BLAST CHILLER & FREEZER', ranking: 'A' };
+    if (r8) return { room: r8, machine: bcf, isExplicitlyMapped: false };
+  }
+
+  // เช็คการสลับอักษรย่อทั่วไป เช่น VAC กับ VCA
   for (const room of rooms) {
     for (const machine of room.machines) {
       const normMachId = machine.id.toUpperCase();
-      // เช็คการสลับอักษรย่อทั่วไป เช่น VAC กับ VCA
       if (normRawId.startsWith('VAC') && normMachId.startsWith('VCA')) {
         const numPartRaw = normRawId.replace(/\D/g, '');
         const numPartMach = normMachId.replace(/\D/g, '');
@@ -78,14 +134,13 @@ export function resolveRepairToRoomAndMachine(
           return { room, machine, isExplicitlyMapped: false };
         }
       }
-      // เช็คการ match prefix เช่น FFS01 -> FFS01
       if (normRawId === normMachId) {
         return { room, machine, isExplicitlyMapped: false };
       }
     }
   }
 
-  // 4. กรณีพิเศษที่ระบุในคำสั่งผู้ใช้:
+  // กรณีพิเศษ:
   // - STICKY RICE FORMING (map ตาม SRM01 หรือ RPT02)
   if (normRawId.includes('SRM') || rawName.includes('sticky rice')) {
     const r4 = rooms.find(r => r.id === 'room-4');
@@ -96,15 +151,14 @@ export function resolveRepairToRoomAndMachine(
   // - BCV / SBC / MBC สายพานขึ้นรูปในห้องข้าวกล่อง
   if (normRawId.startsWith('BCV') || normRawId.startsWith('SBC') || normRawId.startsWith('MBC')) {
     const r4 = rooms.find(r => r.id === 'room-4');
-    // ให้ fallback ไปที่ FFS หรือเครื่องขึ้นรูปหลักในห้องข้าวกล่อง
-    const fallbackM = r4?.machines.find(m => m.id === 'FFS01') || r4?.machines[0] || null;
-    if (r4 && fallbackM) return { room: r4, machine: fallbackM, isExplicitlyMapped: false };
+    const ffs = r4?.machines.find(m => m.id === 'FFS01') || r4?.machines[0] || null;
+    if (r4 && ffs) return { room: r4, machine: ffs, isExplicitlyMapped: false };
   }
 
   // - TLP01 / TSY01 Top Seal ยำสาหร่าย
   if (normRawId.startsWith('TLP01') || normRawId === 'TLP01') {
     const r5 = rooms.find(r => r.id === 'room-5');
-    const tsy = r5?.machines.find(m => m.id === 'TSY01');
+    const tsy = r5?.machines.find(m => m.id === 'TSY01') || r5?.machines.find(m => m.id === 'ATS03') || null;
     if (r5 && tsy) return { room: r5, machine: tsy, isExplicitlyMapped: false };
   }
 
@@ -113,6 +167,36 @@ export function resolveRepairToRoomAndMachine(
     const r5 = rooms.find(r => r.id === 'room-5');
     const onr = r5?.machines.find(m => m.id === 'ONR01');
     if (r5 && onr) return { room: r5, machine: onr, isExplicitlyMapped: false };
+  }
+
+  // 4. Lookup จากฐานข้อมูลทะเบียนเครื่องจักร CPRAM Master Database
+  const master = CPRAM_PDF_MACHINES.find(m => m.id.toUpperCase() === normRawId);
+  if (master) {
+    const loc = master.location || master.lineGroup || '';
+    const rId = LOCATION_TO_ROOM_ID[loc] || 'room-4';
+    const rm = rooms.find(r => r.id === rId);
+    if (rm) {
+      let mc = rm.machines.find(m => m.id.toUpperCase() === normRawId || (m.altIds && m.altIds.some(a => a.toUpperCase() === normRawId)));
+      if (!mc) {
+        mc = { id: master.id, name: master.name, ranking: 'A' };
+      }
+      return { room: rm, machine: mc, isExplicitlyMapped: false };
+    }
+  }
+
+  // 5. Fallback ตามรหัส Prefix ไปยังห้องหลัก
+  let fallbackRoomId = 'room-4';
+  if (normRawId.startsWith('RIM') || normRawId.startsWith('TOC')) fallbackRoomId = 'room-1';
+  else if (normRawId.startsWith('VAC') || normRawId.startsWith('VCA') || normRawId.startsWith('BCH')) fallbackRoomId = 'room-2';
+  else if (normRawId.startsWith('RFD') || normRawId.startsWith('FMC') || normRawId.startsWith('WRM') || normRawId.startsWith('CTC') || normRawId.startsWith('CUC') || normRawId.startsWith('RWM') || normRawId.startsWith('STF') || normRawId.startsWith('MIV') || normRawId.startsWith('ONG') || normRawId.startsWith('ONR') || normRawId.startsWith('WHD') || normRawId.startsWith('WHR') || normRawId.startsWith('AWR')) fallbackRoomId = 'room-5';
+  else if (normRawId.startsWith('MDT') || normRawId.startsWith('MTD') || normRawId.startsWith('XIS') || normRawId.startsWith('XRA') || normRawId.startsWith('RJT') || normRawId.startsWith('CVB')) fallbackRoomId = 'room-6';
+  else if (normRawId.startsWith('EQW') || normRawId.startsWith('DLW') || normRawId.startsWith('ASW')) fallbackRoomId = 'room-7';
+  else if (normRawId.startsWith('BCF') || normRawId.startsWith('CDU') || normRawId.startsWith('TTB')) fallbackRoomId = 'room-8';
+
+  const fRoom = rooms.find(r => r.id === fallbackRoomId);
+  if (fRoom) {
+    const fMach = fRoom.machines.find(m => m.id.toUpperCase() === normRawId) || fRoom.machines[0] || { id: rawId, name: rawId, ranking: 'B' };
+    return { room: fRoom, machine: fMach, isExplicitlyMapped: false };
   }
 
   return { room: null, machine: null, isExplicitlyMapped: false };
@@ -197,7 +281,21 @@ export function calculateMTBFMTTRData(params: {
 
   for (const room of rooms) {
     const roomPTArray = productionTimes[room.id] || DEFAULT_PRODUCTION_TIME_MONTHLY_2026;
-    const machinesInRoom = room.machines;
+    
+    // รวมเครื่องจักรที่มีการคอนฟิกไว้ และเครื่องจักรที่มีงานซ่อมในห้องนี้ เพื่อไม่ให้เกิดประวัติงานซ่อมตกหล่น
+    const roomMachMap = new Map<string, RoomMachineConfig>();
+    (room.machines || []).forEach(m => roomMachMap.set(m.id, { ...m }));
+
+    for (const r of relevantRepairs) {
+      const resolved = resolveRepairToRoomAndMachine(r, rooms, customMappings);
+      if (resolved.room?.id === room.id && resolved.machine) {
+        if (!roomMachMap.has(resolved.machine.id)) {
+          roomMachMap.set(resolved.machine.id, resolved.machine);
+        }
+      }
+    }
+
+    const machinesInRoom = Array.from(roomMachMap.values());
 
     // เตรียม bucket ข้อมูลสำหรับแต่ละเครื่องในห้อง
     const machineBDMin: Record<string, number[]> = {};
@@ -219,12 +317,15 @@ export function calculateMTBFMTTRData(params: {
       const resolved = resolveRepairToRoomAndMachine(r, rooms, customMappings);
       if (resolved.room?.id === room.id && resolved.machine) {
         const mId = resolved.machine.id;
-        if (machineBDMin[mId]) {
-          const duration = r.duration || 0;
-          machineBDMin[mId][mIdx] += duration;
-          machineBDCount[mId][mIdx] += 1;
-          machineRepairIds[mId][mIdx].push(r.id);
+        if (!machineBDMin[mId]) {
+          machineBDMin[mId] = new Array(12).fill(0);
+          machineBDCount[mId] = new Array(12).fill(0);
+          machineRepairIds[mId] = Array.from({ length: 12 }, () => []);
         }
+        const duration = r.duration || 0;
+        machineBDMin[mId][mIdx] += duration;
+        machineBDCount[mId][mIdx] += 1;
+        machineRepairIds[mId][mIdx].push(r.id);
       }
     }
 

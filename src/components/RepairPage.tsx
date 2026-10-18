@@ -24,7 +24,7 @@ import { notifyRepairOpened, notifyRepairClosed, sendLineNotification } from '..
 import { compressImageFile } from '../utils/imageUtils';
 import { getTodayDateString } from '../utils/pmAlerts';
 import * as XLSX from 'xlsx';
-import { LineTextImportModal } from './repair/LineTextImportModal';
+import { PDFRepairImportModal } from './repair/PDFRepairImportModal';
 import { DateTimePicker24H } from './common/DateTimePicker24H';
 import { WorkOrderDetailModal } from './workOrder/WorkOrderDetailModal';
 import { PDFViewerModal } from './kaizen/PDFViewerModal';
@@ -44,10 +44,10 @@ export const RepairPage: React.FC = () => {
   const [monthFilter, setMonthFilter] = useState('');
   const [mttrFilter, setMttrFilter] = useState<number>(0); // MTTR > X minutes
   const [stoppageFilter, setStoppageFilter] = useState<string>('ALL'); // 'ALL' | 'BREAKDOWN' | 'MINOR_STOPPAGE' | 'ADJUSTMENT_LOSS'
-  const [sortBy, setSortBy] = useState<'date' | 'duration'>('date'); // default to date descending (newest first)
+  const [sortBy, setSortBy] = useState<'sheet' | 'date' | 'duration'>('sheet'); // default to sheet order (1 - 77) matching PDF
 
-  // LINE Smart Text Import state
-  const [showLineTextModal, setShowLineTextModal] = useState(false);
+  // PDF Repair Import state
+  const [showPdfModal, setShowPdfModal] = useState(false);
 
   // Add Repair Form visibility
   const [showFormModal, setShowFormModal] = useState(false);
@@ -110,6 +110,7 @@ export const RepairPage: React.FC = () => {
 
   // Form Inputs
   const [formMachine, setFormMachine] = useState(machines[0]?.id || '');
+  const [formMachineSearch, setFormMachineSearch] = useState('');
   const [formBreakdown, setFormBreakdown] = useState(() => `${getTodayDateString()}T09:00`);
   const [formDone, setFormDone] = useState(() => `${getTodayDateString()}T11:30`);
   const [formSymptoms, setFormSymptoms] = useState('');
@@ -117,6 +118,21 @@ export const RepairPage: React.FC = () => {
   const [formTechnicians, setFormTechnicians] = useState<string[]>([]);
   const [formCorrection, setFormCorrection] = useState('');
   const [formStatus, setFormStatus] = useState<'กำลังซ่อม' | 'ปิดงาน'>('ปิดงาน');
+  
+  // Filtered machines for searchable machine selection in repair form
+  const filteredFormMachines = useMemo(() => {
+    if (!formMachineSearch.trim()) return machines;
+    const q = formMachineSearch.toLowerCase().trim();
+    return machines.filter(m => 
+      m.id.toLowerCase().includes(q) || 
+      m.name.toLowerCase().includes(q) || 
+      (m.lineGroup && m.lineGroup.toLowerCase().includes(q))
+    );
+  }, [machines, formMachineSearch]);
+
+  const currentSelectedMachine = useMemo(() => {
+    return machines.find(m => m.id === formMachine);
+  }, [machines, formMachine]);
   
   // CMMS Work Order Link states (No Work Order - No Work)
   const [formWorkOrderId, setFormWorkOrderId] = useState<string>('');
@@ -527,6 +543,7 @@ export const RepairPage: React.FC = () => {
 
     // Reset Form
     setEditingId(null);
+    setFormMachineSearch('');
     setFormSymptoms('');
     setFormCorrection('');
     setWhy1(''); setWhy2(''); setWhy3(''); setWhy4(''); setWhy5('');
@@ -761,6 +778,7 @@ export const RepairPage: React.FC = () => {
   const handleEditClick = (log: RepairLog) => {
     setEditingId(log.id);
     setFormMachine(log.machineId);
+    setFormMachineSearch('');
     setFormBreakdown(log.breakdownTime);
     setFormDone(log.repairDoneTime);
     setFormSymptoms(log.symptoms);
@@ -1356,7 +1374,11 @@ export const RepairPage: React.FC = () => {
         if (repairNavigationFilter.targetRepairIds.length === 0) return false;
         return repairNavigationFilter.targetRepairIds.includes(r.id);
       }
-      const matchMachine = machineFilter ? r.machineId.toLowerCase().includes(machineFilter.toLowerCase()) : true;
+      const machineObj = machines.find(m => m.id === r.machineId);
+      const matchMachine = machineFilter 
+        ? (r.machineId.toLowerCase().includes(machineFilter.toLowerCase()) || 
+           (machineObj && machineObj.name.toLowerCase().includes(machineFilter.toLowerCase())))
+        : true;
       const matchTech = techFilter 
         ? (r.technicians ? r.technicians.includes(techFilter) : r.technician === techFilter) 
         : true;
@@ -1368,14 +1390,17 @@ export const RepairPage: React.FC = () => {
       return matchMachine && matchTech && matchMonth && matchMttr && matchStoppage;
     })
     .sort((a, b) => {
-      if (sortBy === 'date') {
+      if (sortBy === 'sheet') {
+        return (a.id || '').localeCompare(b.id || '');
+      } else if (sortBy === 'date') {
         const timeA = new Date(a.breakdownTime || a.date).getTime();
         const timeB = new Date(b.breakdownTime || b.date).getTime();
-        return timeB - timeA; // Newest first
+        if (timeB !== timeA) return timeB - timeA; // Newest first
+        return (a.id || '').localeCompare(b.id || ''); // Stable tie-breaker matching PDF sheet order
       } else {
         return b.duration - a.duration; // MTTR Descending
       }
-    }); // Default sorted by Date Desc (ล่าสุดก่อน) or MTTR Desc
+    });
 
   // Multi-selection handlers for bulk deletion (ฟังก์ชันลบประวัติซ่อมแบบเลือกทั้งหมด)
   const handleSelectAllFiltered = () => {
@@ -1531,32 +1556,13 @@ export const RepairPage: React.FC = () => {
           {canEdit && (
             <button
               type="button"
-              id="btn-import-repairs-line"
-              onClick={() => setShowLineTextModal(true)}
-              className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 hover:from-emerald-500 hover:via-green-500 hover:to-teal-500 text-white font-bold px-4 py-2.5 rounded-lg transition-all shadow-md focus:outline-none text-xs cursor-pointer shadow-emerald-700/20"
-              title="วางข้อความสรุปอาการเสียจากไลน์กลุ่มช่าง/ฝ่ายผลิต ระบบแยก ID เครื่อง, เวลา และคำนวณ MTTR ให้อัตโนมัติ"
+              id="btn-import-repairs-pdf"
+              onClick={() => setShowPdfModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-500 hover:to-indigo-500 text-white font-bold px-4 py-2.5 rounded-lg transition-all shadow-md focus:outline-none text-xs cursor-pointer shadow-purple-900/30"
+              title="นำเข้าประวัติงานซ่อมจากเอกสาร PDF แบบฟอร์มโรงงาน หรือโหลดชุดข้อมูลมาตรฐาน 74 รายการ"
             >
-              <MessageSquare size={16} />
-              นำเข้าจากข้อความไลน์ / กะ
-            </button>
-          )}
-
-          {canEdit && (
-            <button
-              type="button"
-              id="btn-import-repairs-excel"
-              onClick={() => {
-                setExcelData([]);
-                setExcelHeaders([]);
-                setFileName('');
-                setImportPreview([]);
-                setShowImportModal(true);
-              }}
-              className="flex items-center gap-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 text-white font-bold px-4 py-2.5 rounded-lg transition-all shadow-md focus:outline-none text-xs cursor-pointer"
-              title="นำเข้าประวัติการซ่อมบำรุงจากไฟล์ Excel"
-            >
-              <Upload size={16} />
-              นำเข้า Excel ประวัติซ่อม
+              <FileText size={16} />
+              นำเข้าประวัติซ่อมจากไฟล์ PDF
             </button>
           )}
 
@@ -1598,6 +1604,7 @@ export const RepairPage: React.FC = () => {
               onClick={() => {
                 setEditingId(null);
                 setPartSearchQuery('');
+                setFormMachineSearch('');
                 setFormMachine(machines[0]?.id || '');
                 setFormBreakdown(`${getTodayDateString()}T09:00`);
                 setFormDone(`${getTodayDateString()}T11:30`);
@@ -1798,15 +1805,39 @@ export const RepairPage: React.FC = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold text-slate-400">ค้นหารหัสเครื่องจักร</label>
-            <input
-              id="filter-rep-machine"
-              type="text"
-              placeholder="เช่น RIM01, FFS..."
-              value={machineFilter}
-              onChange={(e) => setMachineFilter(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 font-mono focus:outline-none focus:border-cyan-500"
-            />
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-semibold text-slate-400">ค้นหารหัส/ชื่อเครื่องจักร</label>
+              {machineFilter && (
+                <button
+                  type="button"
+                  onClick={() => setMachineFilter('')}
+                  className="text-[9.5px] text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer"
+                >
+                  ล้าง ✕
+                </button>
+              )}
+            </div>
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+              <input
+                id="filter-rep-machine"
+                type="text"
+                placeholder="เช่น RIM01, FFS..."
+                value={machineFilter}
+                onChange={(e) => setMachineFilter(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-200 placeholder-slate-500 font-mono focus:outline-none focus:border-cyan-500"
+              />
+              {machineFilter && (
+                <button
+                  type="button"
+                  onClick={() => setMachineFilter('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  title="ล้างข้อความค้นหา"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -1871,10 +1902,11 @@ export const RepairPage: React.FC = () => {
             <select
               id="filter-rep-sort"
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as 'date' | 'duration')}
+              onChange={(e) => setSortBy(e.target.value as 'sheet' | 'date' | 'duration')}
               className="w-full bg-slate-900 border border-slate-750/90 rounded-lg px-3 py-1.5 text-xs text-cyan-300 font-bold focus:outline-none focus:border-cyan-500 cursor-pointer"
             >
-              <option value="date">📅 วันที่เสียล่าสุดก่อน</option>
+              <option value="sheet">📑 ลำดับตามชีต PDF (แถว 1 - 77)</option>
+              <option value="date">📅 วันที่และเวลาเสียล่าสุดก่อน</option>
               <option value="duration">⏱ เวลากระทบเสียนานสุด (MTTR)</option>
             </select>
           </div>
@@ -2105,11 +2137,31 @@ export const RepairPage: React.FC = () => {
                           )}
                         </div>
                       </td>
-                      <td className="py-4 px-3 font-mono font-bold text-red-400">
-                        {r.machineId}
+                      <td className="py-4 px-3 font-mono">
+                        <div className="flex flex-col gap-1 items-start">
+                          <span className="font-bold text-red-400 text-xs sm:text-[13px] tracking-wide">
+                            {r.machineId}
+                          </span>
+                          {mach ? (
+                            <span className="text-[9.5px] text-slate-400 font-sans hidden sm:inline truncate max-w-[120px]" title={mach.name}>
+                              {mach.name}
+                            </span>
+                          ) : (
+                            <span className="text-[9px] text-amber-400/80 font-sans">
+                              (ไม่อยู่ในทะเบียน)
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 px-4 font-medium text-slate-200">
-                        {mach?.name || 'เครื่องจักรทั่วไป'}
+                        <div className="flex flex-col">
+                          <span>{mach?.name || 'เครื่องจักรทั่วไป'}</span>
+                          {mach?.lineGroup && (
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              {mach.lineGroup}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 px-3 text-center">
                         {(() => {
@@ -2388,20 +2440,175 @@ export const RepairPage: React.FC = () => {
             {/* Scrollable Form Body */}
             <form onSubmit={handleSaveRepair} className="p-6 space-y-4 overflow-y-auto flex-1 text-xs">
               
-              {/* Row 1: Machine Select */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-slate-300">เลือกเครื่องจักร*</label>
-                <select
-                  id="frm-rep-machine"
-                  required
-                  value={formMachine}
-                  onChange={(e) => setFormMachine(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
-                >
-                  {machines.map(m => (
-                    <option key={m.id} value={m.id}>{m.id} : {m.name}</option>
-                  ))}
-                </select>
+              {/* Row 1: Machine Select with Typing Search */}
+              <div className="space-y-2 bg-slate-850/80 p-3.5 rounded-xl border border-slate-700/80">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11.5px] font-bold text-slate-200 flex items-center gap-1.5">
+                    <Search size={13} className="text-cyan-400" />
+                    เลือกเครื่องจักร (ตรงกับทะเบียนเครื่อง)*
+                  </label>
+                  {formMachineSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setFormMachineSearch('')}
+                      className="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-semibold transition cursor-pointer"
+                    >
+                      <X size={12} /> ล้างคำค้นหา
+                    </button>
+                  )}
+                </div>
+
+                {/* Search input - allows typing to search machine ID or name */}
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    id="frm-rep-machine-search"
+                    type="text"
+                    placeholder="🔍 พิมพ์ค้นหา ID เครื่อง หรือชื่อเครื่อง... (เช่น RIM01, FFS, M-01)"
+                    value={formMachineSearch}
+                    onChange={(e) => setFormMachineSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault(); // Don't trigger form submit
+                        if (filteredFormMachines.length > 0) {
+                          setFormMachine(filteredFormMachines[0].id);
+                        }
+                      }
+                    }}
+                    className="w-full bg-slate-950 border border-slate-700 focus:border-cyan-500 rounded-lg pl-9 pr-8 py-2 text-xs text-slate-100 placeholder-slate-500 font-mono focus:outline-none focus:ring-1 focus:ring-cyan-500 transition"
+                  />
+                  {formMachineSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setFormMachineSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                      title="ล้างคำค้นหา"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Quick suggestions when typing a search query */}
+                {formMachineSearch.trim() && (
+                  <div className="space-y-1.5 pt-0.5">
+                    <div className="flex items-center justify-between text-[10.5px] text-slate-400">
+                      <span>
+                        พบที่ตรงกับคำค้นหา: <b className="text-cyan-400">{filteredFormMachines.length}</b> เครื่อง
+                      </span>
+                      {filteredFormMachines.length > 0 && (
+                        <span className="text-[10px] text-slate-500">กดเลือกเครื่องได้ทันที</span>
+                      )}
+                    </div>
+
+                    {filteredFormMachines.length === 0 ? (
+                      <div className="p-2.5 bg-rose-950/30 border border-rose-800/40 rounded-lg text-rose-300 text-[11px] flex items-center justify-between">
+                        <span>⚠️ ไม่พบ ID เครื่องหรือชื่อที่ตรงกับ "{formMachineSearch}"</span>
+                        <button
+                          type="button"
+                          onClick={() => setFormMachineSearch('')}
+                          className="text-[10px] underline text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer"
+                        >
+                          แสดงทั้งหมด
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1.5 bg-slate-950/60 rounded-lg border border-slate-800">
+                        {filteredFormMachines.slice(0, 12).map(m => {
+                          const isSelected = formMachine === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => {
+                                setFormMachine(m.id);
+                              }}
+                              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-mono transition text-left cursor-pointer ${
+                                isSelected
+                                  ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400 font-bold ring-1 ring-cyan-400/40'
+                                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-cyan-300 border border-slate-700/80'
+                              }`}
+                            >
+                              <span className="font-bold text-cyan-400">{m.id}</span>
+                              <span className="text-slate-400 font-sans truncate max-w-[150px]">: {m.name}</span>
+                              {m.lineGroup && (
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-sans">
+                                  {m.lineGroup}
+                                </span>
+                              )}
+                              {isSelected && <Check size={12} className="text-cyan-400 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                        {filteredFormMachines.length > 12 && (
+                          <span className="text-[10px] text-slate-500 self-center px-1">
+                            +อีก {filteredFormMachines.length - 12} เครื่อง
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Dropdown list synchronized with search */}
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center text-[10px] text-slate-400">
+                    <span>
+                      {formMachineSearch.trim()
+                        ? `รายการที่ผ่านการกรอง (${filteredFormMachines.length} เครื่อง):`
+                        : `เลือกจากทะเบียนเครื่องจักรทั้งหมด (${machines.length} เครื่อง):`}
+                    </span>
+                  </div>
+                  <select
+                    id="frm-rep-machine"
+                    required
+                    value={formMachine}
+                    onChange={(e) => setFormMachine(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-cyan-500 text-xs"
+                  >
+                    {formMachine && !filteredFormMachines.some(m => m.id === formMachine) && (
+                      <option value={formMachine}>
+                        {formMachine} (ที่เลือกไว้เดิม)
+                      </option>
+                    )}
+                    {filteredFormMachines.length === 0 ? (
+                      <option value="">-- ไม่พบเครื่องที่ตรงกับการค้นหา --</option>
+                    ) : (
+                      filteredFormMachines.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.id} : {m.name} ({m.lineGroup || 'ทั่วไป'})
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                {/* Current Selected Machine Status Badge */}
+                {currentSelectedMachine ? (
+                  <div className="flex items-center justify-between p-2.5 bg-cyan-950/30 border border-cyan-800/40 rounded-lg text-xs">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0 shadow-sm shadow-cyan-400/50" />
+                      <span className="font-mono font-bold text-cyan-300 shrink-0">{currentSelectedMachine.id}</span>
+                      <span className="text-slate-300 truncate">: {currentSelectedMachine.name}</span>
+                      {currentSelectedMachine.lineGroup && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-900/40 text-cyan-300 font-medium shrink-0">
+                          {currentSelectedMachine.lineGroup}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10.5px] text-emerald-400 font-semibold flex items-center gap-1 shrink-0 ml-2">
+                      <CheckCircle2 size={12} /> เลือกอยู่
+                    </span>
+                  </div>
+                ) : formMachine ? (
+                  <div className="flex items-center justify-between p-2 bg-amber-950/25 border border-amber-800/40 rounded-lg text-xs">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle size={13} className="text-amber-400 shrink-0" />
+                      <span className="font-mono font-bold text-amber-300">{formMachine}</span>
+                      <span className="text-amber-200/80 text-[11px]">(รหัสไม่อยู่ในทะเบียนหลัก)</span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {/* Row 1.1: CMMS Work Order Selection & Fast-Track Button */}
@@ -4401,14 +4608,19 @@ export const RepairPage: React.FC = () => {
         </div>
       )}
 
-      {/* Smart LINE Text Import Modal */}
-      <LineTextImportModal
-        isOpen={showLineTextModal}
-        onClose={() => setShowLineTextModal(false)}
+
+      {/* PDF Repair History Import Modal */}
+      <PDFRepairImportModal
+        isOpen={showPdfModal}
+        onClose={() => setShowPdfModal(false)}
         machines={machines}
         technicians={technicians}
-        onImportRepairs={(newRepairs) => {
-          setRepairs(prev => [...newRepairs, ...prev]);
+        onImportRepairs={(newRepairs, mode) => {
+          if (mode === 'replace') {
+            setRepairs(newRepairs);
+          } else {
+            setRepairs(prev => [...newRepairs, ...prev]);
+          }
         }}
       />
 

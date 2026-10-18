@@ -22,14 +22,29 @@ export const MtbfMttrDashboardPage: React.FC = () => {
   // Active view: 'SUM' or room id 'room-1'..'room-8'
   const [activeTab, setActiveTab] = useState<string>('SUM');
 
+  // Helper to ensure all official room machines exist
+  const mergeWithOfficialRooms = (existingRooms: RoomConfig[]): RoomConfig[] => {
+    return OFFICIAL_MTBF_ROOMS.map(officialRoom => {
+      const found = existingRooms.find(r => r.id === officialRoom.id);
+      if (!found) return officialRoom;
+      const machMap = new Map<string, RoomMachineConfig>();
+      officialRoom.machines.forEach(m => machMap.set(m.id, m));
+      found.machines.forEach(m => machMap.set(m.id, { ...machMap.get(m.id), ...m }));
+      return {
+        ...found,
+        machines: Array.from(machMap.values())
+      };
+    });
+  };
+
   // Rooms & machines configuration state (persisted to localStorage & Firestore settings)
   const [rooms, setRooms] = useState<RoomConfig[]>(() => {
     if (settings.mtbfRoomsConfig && Array.isArray(settings.mtbfRoomsConfig) && settings.mtbfRoomsConfig.length > 0) {
-      return settings.mtbfRoomsConfig;
+      return mergeWithOfficialRooms(settings.mtbfRoomsConfig);
     }
     try {
       const saved = localStorage.getItem('mtbf_custom_rooms_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) return mergeWithOfficialRooms(JSON.parse(saved));
     } catch {
       // ignore
     }
@@ -39,7 +54,7 @@ export const MtbfMttrDashboardPage: React.FC = () => {
   // Sync rooms if settings change from cloud
   useEffect(() => {
     if (settings.mtbfRoomsConfig && Array.isArray(settings.mtbfRoomsConfig) && settings.mtbfRoomsConfig.length > 0) {
-      setRooms(settings.mtbfRoomsConfig);
+      setRooms(mergeWithOfficialRooms(settings.mtbfRoomsConfig));
     }
   }, [settings.mtbfRoomsConfig]);
 
