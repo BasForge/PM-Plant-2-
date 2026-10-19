@@ -158,7 +158,7 @@ export const PlannedProductionTimeModal: React.FC<PlannedProductionTimeModalProp
                 กำหนด Planned Production Time (เวลาผลิตที่วางแผน) รายเครื่องจักร
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                เวลาที่วางแผนให้เครื่องจักรพร้อมสำหรับการผลิต (ชม./เดือน) ใช้เป็นฐานคำนวณ % Breakdown, MTTR และ MTBF ตามมาตรฐาน CPRAM
+                เวลาที่วางแผนให้เครื่องจักรพร้อมสำหรับการผลิต (ชม./เดือน) ใช้เป็นฐานคำนวณ % Breakdown, MTTR และ MTBF ตามมาตรฐาน TPM โรงงาน
               </p>
             </div>
           </div>
@@ -198,7 +198,7 @@ export const PlannedProductionTimeModal: React.FC<PlannedProductionTimeModalProp
                 }`}
               >
                 <span>600 ชม./เดือน</span>
-                <span className="text-[9.5px] opacity-75 font-normal">(มาตรฐาน CPRAM TPM)</span>
+                <span className="text-[9.5px] opacity-75 font-normal">(มาตรฐาน TPM โรงงาน)</span>
               </button>
 
               <button

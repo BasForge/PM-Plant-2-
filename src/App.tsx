@@ -31,7 +31,8 @@ import {
   Wrench, Activity, CalendarDays, ClipboardList, PenTool, 
   BarChart3, Settings, Menu, ChevronLeft, ChevronRight, Clock, ShieldCheck, Send, Presentation, Users,
   Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell, Cloud,
-  LogOut, Shield, UserCheck, Eye, BellRing, Factory, CalendarRange, BookOpen
+  LogOut, Shield, UserCheck, Eye, BellRing, Factory, CalendarRange, BookOpen,
+  Maximize2, Minimize2
 } from 'lucide-react';
 
 // Isolated memoized clock component to prevent the root App and active page from re-rendering every second
@@ -97,7 +98,8 @@ function AppContent() {
   const { 
     currentUser, logout, isAdmin, canEdit, canDelete,
     schedules, workRequests, workOrders, firebaseStatus, lastFirebaseSync, syncWithFirebaseNow,
-    activePage, setActivePage
+    activePage, setActivePage,
+    sidebarOpen, setSidebarOpen, toggleSidebar
   } = useApp();
   
   // If not logged in, show login page
@@ -107,7 +109,6 @@ function AppContent() {
 
   const isProductionUser = currentUser?.role === 'production';
 
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true); // Collapsible fixed 220px
   const [showOverdueModal, setShowOverdueModal] = useState<boolean>(false);
   const [showUserModal, setShowUserModal] = useState<boolean>(false);
 
@@ -502,6 +503,22 @@ function AppContent() {
               </button>
             )}
 
+            {/* Toggle Full Screen Width (ซ่อนเมนูข้างเพื่อขยายหน้าจอทางขวาเต็มตา) */}
+            <button
+              type="button"
+              id="btn-toggle-fullscreen-width"
+              onClick={toggleSidebar}
+              className={`p-2 rounded-lg transition-all cursor-pointer shadow-md flex items-center gap-1.5 border ${
+                !sidebarOpen
+                  ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/30'
+                  : 'bg-slate-900 border-slate-850 hover:bg-slate-850 text-slate-350 hover:text-cyan-400'
+              }`}
+              title={sidebarOpen ? "ขยายเต็มหน้าจอ (ซ่อนเมนูข้างเพื่อให้เห็นข้อมูลทางขวาครบ 100%)" : "แสดงเมนูข้างกลับมา"}
+            >
+              {sidebarOpen ? <Maximize2 size={16} /> : <Minimize2 size={16} className="text-cyan-400" />}
+              <span className="hidden xl:inline text-[11px] font-semibold">{sidebarOpen ? 'ขยายเต็มจอ' : 'ย่อเต็มจอ'}</span>
+            </button>
+
             {/* Toggle Dark/Light Mode button */}
             <button
               id="btn-toggle-theme"
@@ -586,8 +603,8 @@ function AppContent() {
         </header>
 
         {/* Scrollable page canvas body */}
-        <main className="flex-1 overflow-y-auto p-6 bg-[#0f172a] relative min-h-0" id="app-canvas-container">
-          <div className="max-w-[1600px] mx-auto animate-in fade-in duration-300">
+        <main className="flex-1 overflow-auto p-2 sm:p-3 lg:p-4 bg-[#0f172a] relative min-h-0" id="app-canvas-container">
+          <div className="w-full max-w-full min-w-0 mx-auto animate-in fade-in duration-300">
             {renderActivePage()}
           </div>
         </main>

@@ -303,7 +303,7 @@ export const PDFRepairImportModal: React.FC<PDFRepairImportModalProps> = ({
                   ชุดข้อมูลมาตรฐานจากใบสรุปโรงงาน
                 </div>
                 <h4 className="text-sm font-bold text-white mb-1">
-                  แบบฟอร์ม PDF สรุปประวัติซ่อมโรงงาน CPRAM (ครบ 74 รายการมาตรฐาน)
+                  แบบฟอร์ม PDF สรุปประวัติซ่อมโรงงาน (ครบ 74 รายการมาตรฐาน)
                 </h4>
                 <p className="text-xs text-slate-400 leading-relaxed">
                   มีรายการครบถ้วน 74 งานมาตรฐานตามเอกสารสรุปโรงงาน พร้อมวิเคราะห์อาการเสีย, ชิ้นส่วน, และ MTTR รวม 11,302 นาที

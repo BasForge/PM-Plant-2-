@@ -3,7 +3,8 @@ import { useApp } from '../context/AppContext';
 import { ImprovementProject, KaizenCategory, PDFFileAttachment, RepairAttachmentItem } from '../types';
 import { 
   Wrench, BookOpen, Search as SearchIcon, HelpCircle, Plus, 
-  BarChart3, Filter, FileText, Image as ImageIcon, Sparkles, Layers, FileCheck 
+  BarChart3, Filter, FileText, Image as ImageIcon, Sparkles, Layers, FileCheck,
+  Trash2, CheckSquare, AlertTriangle
 } from 'lucide-react';
 import { KaizenKanbanView } from './kaizen/KaizenKanbanView';
 import { OPLView } from './kaizen/OPLView';
@@ -283,6 +284,43 @@ export const ImprovementPage: React.FC<ImprovementPageProps> = ({ initialTab }) 
     return filteredImprovements.filter(i => i.category === 'MP_INFO');
   }, [filteredImprovements]);
 
+  // Current projects list according to active tab
+  const currentTabProjects = useMemo<ImprovementProject[]>(() => {
+    if (activeTab === 'why_why') return whyWhyProjects;
+    if (activeTab === 'fa') return faProjects;
+    if (activeTab === 'opl') return oplProjects;
+    if (activeTab === 'kaizen') return kaizenProjects;
+    if (activeTab === 'mp_info') return mpProjects;
+    return filteredImprovements;
+  }, [activeTab, whyWhyProjects, faProjects, oplProjects, kaizenProjects, mpProjects, filteredImprovements]);
+
+  // Multi-Selection and Bulk Deletion System (ระบบการลบแบบเลือกทั้งหมด เลือกทีละตัวงานได้)
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState<boolean>(false);
+
+  const handleSelectAllTabProjects = () => {
+    if (currentTabProjects.length === 0) return;
+    const allSelected = currentTabProjects.every(p => selectedProjectIds.has(p.id));
+    const next = new Set(selectedProjectIds);
+    if (allSelected) {
+      currentTabProjects.forEach(p => next.delete(p.id));
+    } else {
+      currentTabProjects.forEach(p => next.add(p.id));
+    }
+    setSelectedProjectIds(next);
+  };
+
+  const handleClearProjectSelection = () => {
+    setSelectedProjectIds(new Set());
+  };
+
+  const handleConfirmBulkDeleteProjects = () => {
+    if (selectedProjectIds.size === 0) return;
+    setImprovements(prev => prev.filter(p => !selectedProjectIds.has(p.id) && !selectedProjectIds.has(`why-breakdown-${p.id}`)));
+    setSelectedProjectIds(new Set());
+    setIsBulkDeleteModalOpen(false);
+  };
+
   // Handlers for Save (Create & Edit)
   const handleSaveProject = (projData: Partial<ImprovementProject>) => {
     if (editingProject) {
@@ -523,45 +561,33 @@ export const ImprovementPage: React.FC<ImprovementPageProps> = ({ initialTab }) 
       <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 bg-slate-900/90 border border-slate-800 p-2 rounded-2xl shadow-lg">
         
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+        {/* Navigation Tabs (Why-Why ตามด้วยแถบ FA, OPL, Kaizen, MP) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 sm:pb-1 scrollbar-thin scrollbar-thumb-cyan-500/50 scrollbar-track-slate-900 scroll-smooth">
           
+          {/* 1. แถบ Why-Why Analysis */}
           <button
-            onClick={() => setActiveTab('kaizen')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'kaizen'
-                ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20'
+            id="tab-kaizen-why-why"
+            onClick={() => setActiveTab('why_why')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === 'why_why'
+                ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            <Wrench size={15} />
-            <span>โครงการ Kaizen</span>
+            <HelpCircle size={15} />
+            <span>Why-Why Analysis</span>
             <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-              activeTab === 'kaizen' ? 'bg-cyan-700 text-white' : 'bg-slate-800 text-slate-400'
+              activeTab === 'why_why' ? 'bg-purple-800 text-white' : 'bg-slate-800 text-slate-400'
             }`}>
-              {kaizenProjects.length}
+              {whyWhyProjects.length}
             </span>
           </button>
 
+          {/* 2. แถบ FA ต่อจาก why why */}
           <button
-            onClick={() => setActiveTab('opl')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'opl'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            <BookOpen size={15} />
-            <span>One Point Lesson (OPL)</span>
-            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-              activeTab === 'opl' ? 'bg-blue-800 text-white' : 'bg-slate-800 text-slate-400'
-            }`}>
-              {oplProjects.length}
-            </span>
-          </button>
-
-          <button
+            id="tab-kaizen-fa"
             onClick={() => setActiveTab('fa')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
               activeTab === 'fa'
                 ? 'bg-rose-600 text-white shadow-md shadow-rose-500/20'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -576,26 +602,49 @@ export const ImprovementPage: React.FC<ImprovementPageProps> = ({ initialTab }) 
             </span>
           </button>
 
+          {/* 3. แถบ OPL ต่อจาก why why */}
           <button
-            onClick={() => setActiveTab('why_why')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'why_why'
+            id="tab-kaizen-opl"
+            onClick={() => setActiveTab('opl')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === 'opl'
                 ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            <HelpCircle size={15} />
-            <span>Why-Why Analysis</span>
+            <BookOpen size={15} />
+            <span>One Point Lesson (OPL)</span>
             <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-              activeTab === 'why_why' ? 'bg-amber-700 text-white' : 'bg-slate-800 text-slate-400'
+              activeTab === 'opl' ? 'bg-amber-700 text-white' : 'bg-slate-800 text-slate-400'
             }`}>
-              {whyWhyProjects.length}
+              {oplProjects.length}
             </span>
           </button>
 
+          {/* 4. แถบ Kaizen ต่อจาก why why */}
           <button
+            id="tab-kaizen-kaizen"
+            onClick={() => setActiveTab('kaizen')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === 'kaizen'
+                ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <Wrench size={15} />
+            <span>โครงการ Kaizen</span>
+            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+              activeTab === 'kaizen' ? 'bg-cyan-700 text-white' : 'bg-slate-800 text-slate-400'
+            }`}>
+              {kaizenProjects.length}
+            </span>
+          </button>
+
+          {/* 5. แถบ MP ต่อจาก why why */}
+          <button
+            id="tab-kaizen-mp"
             onClick={() => setActiveTab('mp_info')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
               activeTab === 'mp_info'
                 ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -610,9 +659,11 @@ export const ImprovementPage: React.FC<ImprovementPageProps> = ({ initialTab }) 
             </span>
           </button>
 
+          {/* 6. แถบ Overview */}
           <button
+            id="tab-kaizen-overview"
             onClick={() => setActiveTab('overview')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
               activeTab === 'overview'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -625,6 +676,106 @@ export const ImprovementPage: React.FC<ImprovementPageProps> = ({ initialTab }) 
         </div>
 
       </div>
+
+      {/* BULK ACTION & SELECTION TOOLBAR (ระบบการลบแบบเลือกทั้งหมด เลือกทีละตัวงานได้) */}
+      {activeTab !== 'overview' && (
+        <div 
+          id="kaizen-bulk-action-bar"
+          className={`p-3.5 sm:p-4 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3 border transition-all ${
+            selectedProjectIds.size > 0
+              ? 'bg-gradient-to-r from-slate-900 via-rose-950/70 to-slate-900 text-white border-rose-500/50 shadow-rose-950/30'
+              : 'bg-slate-900/90 text-slate-300 border-slate-800'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${
+              selectedProjectIds.size > 0 
+                ? 'bg-rose-500/20 border-rose-400/40 text-rose-300' 
+                : 'bg-slate-800/80 border-slate-750 text-slate-400'
+            }`}>
+              <CheckSquare className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-bold flex items-center gap-2">
+                {selectedProjectIds.size > 0 ? (
+                  <>
+                    <span className="text-white">เลือกรายการงานปรับปรุงอยู่:</span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-500 text-slate-950 font-black font-mono text-xs">
+                      {selectedProjectIds.size} รายการ
+                    </span>
+                    <span className="text-slate-400 text-xs font-normal hidden sm:inline">
+                      (จากในหมวดนี้ {currentTabProjects.length} รายการ / ทั้งหมด {improvements.length} รายการ)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span>ระบบจัดการและลบรายการ (เลือกทั้งหมด / เลือกทีละตัวงาน)</span>
+                    <span className="text-slate-400 text-xs font-normal hidden sm:inline">
+                      (มี {currentTabProjects.length} รายการในหมวดหมู่นี้)
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                {selectedProjectIds.size > 0
+                  ? 'สามารถกดเลือกลบรายการที่เลือกทั้งหมดพร้อมกัน หรือยกเลิกการเลือกได้ทันที'
+                  : 'สามารถกดปุ่มเพื่อเลือกทั้งหมดในหมวดหมู่นี้ หรือลบทีละตัวงานได้จากปุ่มถังขยะบนการ์ดแต่ละใบ'}
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              id="btn-kaizen-select-all"
+              onClick={handleSelectAllTabProjects}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition border cursor-pointer ${
+                currentTabProjects.length > 0 && currentTabProjects.every(p => selectedProjectIds.has(p.id))
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+              }`}
+            >
+              {currentTabProjects.length > 0 && currentTabProjects.every(p => selectedProjectIds.has(p.id))
+                ? '✓ ยกเลิกเลือกทั้งหมดในหมวดนี้'
+                : `☑ เลือกทั้งหมดในหมวดนี้ (${currentTabProjects.length})`}
+            </button>
+
+            {selectedProjectIds.size > 0 && (
+              <button
+                type="button"
+                id="btn-kaizen-clear-selection"
+                onClick={handleClearProjectSelection}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition border border-slate-700 cursor-pointer"
+              >
+                ล้างการเลือก
+              </button>
+            )}
+
+            {selectedProjectIds.size > 0 ? (
+              <button
+                type="button"
+                id="btn-bulk-delete-kaizen"
+                onClick={() => setIsBulkDeleteModalOpen(true)}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer animate-pulse"
+                title="ลบรายการที่เลือกทั้งหมด"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ลบรายการที่เลือก ({selectedProjectIds.size})</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="px-4 py-1.5 bg-slate-800/60 text-slate-500 text-xs font-semibold rounded-xl border border-slate-750 flex items-center gap-1.5 cursor-not-allowed"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ลบรายการที่เลือก (0)</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Filter and Search Bar (shown on list tabs) */}
       {activeTab !== 'overview' && (
@@ -826,6 +977,67 @@ export const ImprovementPage: React.FC<ImprovementPageProps> = ({ initialTab }) 
         photo={activePhoto}
         onClose={() => setActivePhoto(null)}
       />
+
+      {/* Bulk Delete Confirmation Modal (ระบบการลบแบบเลือกทั้งหมด) */}
+      {isBulkDeleteModalOpen && selectedProjectIds.size > 0 && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-[#0b1325] border border-rose-500/40 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-rose-500/20 text-rose-400 shrink-0">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-white">
+                  ยืนยันการลบรายการปรับปรุงแบบกลุ่ม (Bulk Delete)?
+                </h3>
+                <p className="text-xs text-rose-300 font-semibold">
+                  ลบทั้งหมด {selectedProjectIds.size} รายการที่เลือก
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-900/80 rounded-2xl border border-slate-800 text-xs space-y-2 max-h-56 overflow-y-auto">
+              <span className="text-slate-400 block text-[11px] font-bold">รายการที่จะถูกลบ:</span>
+              <div className="space-y-1.5 divide-y divide-slate-800">
+                {improvements
+                  .filter(p => selectedProjectIds.has(p.id))
+                  .map(p => (
+                    <div key={p.id} className="pt-1.5 flex items-center justify-between text-slate-300 text-[11px]">
+                      <div className="flex items-center gap-2 truncate pr-2">
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-400 font-mono text-[9px]">{p.machineId || 'ALL'}</span>
+                        <span className="truncate">{p.title}</span>
+                      </div>
+                      <span className="text-slate-500 text-[10px] shrink-0">{p.category || 'KAIZEN'}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            <p className="text-xs text-rose-400/90 leading-relaxed bg-rose-950/20 p-2.5 rounded-xl border border-rose-900/30">
+              ⚠️ การลบนี้จะมีผลถาวร รายการที่เลือกทั้งหมดจะถูกลบออกจากระบบทันที
+            </p>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-bulk-delete-kaizen"
+                onClick={handleConfirmBulkDeleteProjects}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-lg shadow-rose-950/50 transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 size={14} />
+                <span>ยืนยันลบทั้งหมด {selectedProjectIds.size} รายการ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

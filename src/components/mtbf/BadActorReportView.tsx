@@ -20,9 +20,11 @@ import {
   BarChart3, Search, Filter, ArrowUpDown, FileSpreadsheet, 
   ChevronRight, Calendar, ShieldAlert, ShieldCheck, Clock, 
   Wrench, Sparkles, ExternalLink, FileText, CheckCircle2, 
-  Zap, DollarSign, Activity, Eye, X, ArrowUpRight, Tag, HelpCircle
+  Zap, DollarSign, Activity, Eye, X, ArrowUpRight, Tag, HelpCircle,
+  Calculator, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, ChevronLeft, BookOpen, Info
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { BCIExplanationModal } from './BCIExplanationModal';
 
 interface BadActorReportViewProps {
   year: number;
@@ -61,6 +63,9 @@ export interface BadActorMachineStat {
   isPareto80Count: boolean;
   bciScore: number; // Bad Actor Criticality Index (0-100)
   bciTier: 'CRITICAL' | 'WATCHLIST' | 'MODERATE';
+  maxDT?: number;
+  maxCount?: number;
+  maxCost?: number;
   repairs: RepairLog[];
   chronicPatterns: ChronicPattern[];
   topSymptom: string;
@@ -73,7 +78,7 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
   machines,
   onSelectMachineDrillDown
 }) => {
-  const { navigateToKaizen, navigateToRepairs, setActivePage } = useApp();
+  const { navigateToKaizen, navigateToRepairs, setActivePage, sidebarOpen, toggleSidebar } = useApp();
 
   // Filters
   const [timeRange, setTimeRange] = useState<'YTD' | 'MONTH' | 'QUARTER' | 'ALL'>('YTD');
@@ -84,6 +89,27 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
   const [rankingFilter, setRankingFilter] = useState<'ALL' | 'A' | 'B' | 'C'>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [sortBy, setSortBy] = useState<'downtime' | 'frequency' | 'cost' | 'bci'>('downtime');
+
+  // BCI Explanation Modal & Inline Card States (คลิกเข้าไปแล้วมีคำอธิบาย + สูตรคำนวณ)
+  const [isBCIModalOpen, setIsBCIModalOpen] = useState<boolean>(false);
+  const [selectedBCIMachine, setSelectedBCIMachine] = useState<BadActorMachineStat | null>(null);
+  const [showBCIInlineBanner, setShowBCIInlineBanner] = useState<boolean>(false);
+
+  // Table Fit Screen & Horizontal Scroll Controls (แก้ปัญหามองไม่เห็นเต็มหน้าจอทางขวา)
+  const [isFitToScreen, setIsFitToScreen] = useState<boolean>(false);
+  const tableScrollRef = React.useRef<HTMLDivElement>(null);
+
+  const handleScrollTable = (direction: 'left' | 'right' | 'start' | 'end') => {
+    if (!tableScrollRef.current) return;
+    if (direction === 'start') {
+      tableScrollRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+    } else if (direction === 'end') {
+      tableScrollRef.current.scrollTo({ left: tableScrollRef.current.scrollWidth, behavior: 'smooth' });
+    } else {
+      const scrollAmount = direction === 'left' ? -350 : 350;
+      tableScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
 
   // Selected Machine modal for local drill down
   const [inspectMachine, setInspectMachine] = useState<BadActorMachineStat | null>(null);
@@ -274,7 +300,10 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
       return {
         ...s,
         bciScore: bci,
-        bciTier: tier
+        bciTier: tier,
+        maxDT,
+        maxCount,
+        maxCost
       };
     });
 
@@ -472,8 +501,55 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
           </div>
 
           {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Export Excel */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* 1. BCI Explanation Modal Button */}
+            <button
+              type="button"
+              id="btn-open-bci-modal"
+              onClick={() => {
+                setSelectedBCIMachine(filteredMachines[0] || null);
+                setIsBCIModalOpen(true);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-rose-600/30 via-indigo-600/30 to-cyan-600/30 hover:from-rose-600/40 hover:to-cyan-600/40 border border-cyan-400/50 text-cyan-200 text-xs font-bold shadow-md shadow-cyan-950/40 flex items-center gap-1.5 transition cursor-pointer"
+              title="คลิกเพื่อเปิดหน้าต่างอธิบาย BCI คืออะไร พร้อมสูตรคำนวณและเครื่องคำนวณแบบเจาะลึก"
+            >
+              <Calculator size={15} className="text-cyan-400 animate-pulse" />
+              <span>💡 BCI คืออะไร? ดูสูตร & คำนวณ</span>
+            </button>
+
+            {/* 2. Inline BCI Toggle on this page */}
+            <button
+              type="button"
+              id="btn-toggle-bci-inline"
+              onClick={() => setShowBCIInlineBanner(!showBCIInlineBanner)}
+              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                showBCIInlineBanner
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 ring-1 ring-cyan-400/30'
+                  : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700 text-slate-300'
+              }`}
+              title="กางดูคำอธิบายและสูตรคำนวณ BCI ตรงหน้านี้ทันที"
+            >
+              <BookOpen size={14} className={showBCIInlineBanner ? 'text-cyan-400' : 'text-slate-400'} />
+              <span>{showBCIInlineBanner ? 'ซ่อนสูตร BCI ในหน้านี้' : '📖 สูตร BCI ในหน้านี้'}</span>
+            </button>
+
+            {/* 3. Fullscreen / Sidebar Toggle */}
+            <button
+              type="button"
+              id="btn-toggle-sidebar-badactor"
+              onClick={toggleSidebar}
+              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                !sidebarOpen
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                  : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700 text-slate-300'
+              }`}
+              title={sidebarOpen ? "ซ่อนเมนูข้างเพื่อขยายหน้าจอทางขวาให้เต็มตา" : "แสดงเมนูข้างกลับมา"}
+            >
+              {sidebarOpen ? <Maximize2 size={14} /> : <Minimize2 size={14} className="text-emerald-400" />}
+              <span className="hidden sm:inline">{sidebarOpen ? 'ขยายจอเต็ม' : 'เปิดเมนูข้าง'}</span>
+            </button>
+
+            {/* 4. Export Excel */}
             <button
               type="button"
               id="btn-export-bad-actor-excel"
@@ -629,6 +705,17 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
           <p className="text-[11px] text-slate-400 mt-2">
             เฝ้าระวังพิเศษ (Watchlist): <strong className="text-amber-300 font-mono">{kpiSummary.watchlistCount}</strong> เครื่อง
           </p>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedBCIMachine(filteredMachines.find(m => m.bciTier === 'CRITICAL') || filteredMachines[0] || null);
+              setIsBCIModalOpen(true);
+            }}
+            className="mt-2 text-[11px] text-rose-300 hover:text-white font-semibold flex items-center gap-1 cursor-pointer transition underline decoration-rose-500/50 hover:decoration-rose-300"
+          >
+            <span>💡 BCI คืออะไร? ดูสูตร & เครื่องคำนวณ</span>
+            <ChevronRight size={12} />
+          </button>
           <div className="absolute right-0 bottom-0 translate-x-2 translate-y-2 opacity-5 pointer-events-none">
             <Flame size={80} />
           </div>
@@ -688,6 +775,161 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* 2.5 INLINE BCI FORMULA & EXPLANATION BANNER (ตรงหน้านี้) */}
+      {showBCIInlineBanner && (
+        <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-br from-indigo-950/60 via-slate-900 to-slate-950 border border-cyan-500/40 shadow-2xl shadow-cyan-950/30 text-xs text-slate-200 space-y-4 animate-in fade-in duration-200 relative overflow-hidden" id="bci-inline-explainer">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300">
+                <Calculator size={20} className="animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2 flex-wrap">
+                  <span>BCI คืออะไร? และสูตรการคำนวณมาตรฐาน (Bad Actor Criticality Index)</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-cyan-950 text-cyan-300 border border-cyan-800">
+                    TPM 80/20 & Reliability Matrix
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  ดัชนีคะแนนรวม 0 - 100 เพื่อจัดลำดับความวิกฤตของเครื่องจักรตัวร้าย ป้องกันข้อผิดพลาดจากการดู Downtime เพียงอย่างเดียว
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedBCIMachine(filteredMachines[0] || null);
+                  setIsBCIModalOpen(true);
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-cyan-500/20 text-xs"
+              >
+                <Calculator size={13} />
+                <span>เปิดเครื่องคำนวณจำลอง BCI (Modal)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowBCIInlineBanner(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+                title="ซ่อนคำอธิบาย"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Formula Summary Box */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Dimension 1: Downtime */}
+            <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-800/40 space-y-1.5">
+              <div className="flex items-center justify-between text-rose-300 font-bold">
+                <span className="flex items-center gap-1.5">
+                  <Clock size={14} className="text-rose-400" />
+                  1. มิติ Downtime รวม
+                </span>
+                <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-300 font-mono text-[10px] border border-rose-800/60">
+                  ถ่วงน้ำหนัก 40%
+                </span>
+              </div>
+              <p className="font-mono text-cyan-300 font-bold text-xs bg-slate-900/80 p-2 rounded-xl border border-slate-800 text-center">
+                Score = (Downtime ÷ Max DT) × 40
+              </p>
+              <p className="text-[11px] text-slate-300">
+                สะท้อนการสูญเสียกำลังการผลิตโดยรวม และผลกระทบต่อค่าความพร้อมใช้งาน (Availability)
+              </p>
+            </div>
+
+            {/* Dimension 2: Frequency */}
+            <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-800/40 space-y-1.5">
+              <div className="flex items-center justify-between text-amber-300 font-bold">
+                <span className="flex items-center gap-1.5">
+                  <Activity size={14} className="text-amber-400" />
+                  2. มิติ ความถี่การเสีย (Frequency)
+                </span>
+                <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 font-mono text-[10px] border border-amber-800/60">
+                  ถ่วงน้ำหนัก 35%
+                </span>
+              </div>
+              <p className="font-mono text-cyan-300 font-bold text-xs bg-slate-900/80 p-2 rounded-xl border border-slate-800 text-center">
+                Score = (ครั้งเสีย ÷ Max ครั้ง) × 35
+              </p>
+              <p className="text-[11px] text-slate-300">
+                สะท้อนความไม่เสถียรของเครื่องจักรและปัญหาเรื้อรัง (Chronic Issues) ที่กวนใจหน้างานบ่อย
+              </p>
+            </div>
+
+            {/* Dimension 3: Cost */}
+            <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 space-y-1.5">
+              <div className="flex items-center justify-between text-emerald-300 font-bold">
+                <span className="flex items-center gap-1.5">
+                  <DollarSign size={14} className="text-emerald-400" />
+                  3. มิติ ค่าใช้จ่ายอะไหล่ (Cost)
+                </span>
+                <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 font-mono text-[10px] border border-emerald-800/60">
+                  ถ่วงน้ำหนัก 25%
+                </span>
+              </div>
+              <p className="font-mono text-cyan-300 font-bold text-xs bg-slate-900/80 p-2 rounded-xl border border-slate-800 text-center">
+                Score = (ค่าอะไหล่ ÷ Max ค่าอะไหล่) × 25
+              </p>
+              <p className="text-[11px] text-slate-300">
+                สะท้อนภาระงบประมาณการซ่อมบำรุง และการสึกหรอของอะไหล่สำคัญที่มีมูลค่าสูง
+              </p>
+            </div>
+          </div>
+
+          {/* Formula Full Line */}
+          <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+            <div>
+              <span className="text-[10px] text-slate-400 uppercase font-mono block">สมการคะแนนรวม (0 - 100 คะแนน)</span>
+              <span className="font-mono text-sm font-black text-white">
+                BCI Score = Downtime Score (40%) + Frequency Score (35%) + Cost Score (25%)
+              </span>
+            </div>
+            <div className="text-[11px] text-cyan-300 font-semibold bg-cyan-950/40 px-3 py-1.5 rounded-xl border border-cyan-800/60">
+              คำนวณเทียบสัดส่วนกับเครื่องที่มีค่าสูงสุด (Normalized Scale) ในรอบวิเคราะห์เดียวกัน
+            </div>
+          </div>
+
+          {/* Tiers Explanation */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-[11px]">
+            <div className="p-2.5 rounded-xl bg-rose-950/20 border border-rose-800/50 flex items-start gap-2">
+              <Flame size={16} className="text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-rose-300 font-bold block">ระดับ 1: CRITICAL (วิกฤตสูง)</strong>
+                <span className="text-slate-300">BCI ≥ 55 หรือ Downtime ≥ 10 ชม. หรือ เสีย ≥ 5 ครั้ง</span>
+                <p className="text-[10px] text-rose-200/80 mt-1">
+                  ⚡ ปฏิบัติการ: ตั้งทีมวิเคราะห์รากเหง้า Why-Why Analysis ภายใน 24 ชม. และทำ Kaizen ป้องกันซ้ำ
+                </p>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-amber-950/20 border border-amber-800/50 flex items-start gap-2">
+              <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-amber-300 font-bold block">ระดับ 2: WATCHLIST (เฝ้าระวังพิเศษ)</strong>
+                <span className="text-slate-300">BCI 30 - 54 หรือ Downtime ≥ 4 ชม. หรือ เสีย ≥ 3 ครั้ง</span>
+                <p className="text-[10px] text-amber-200/80 mt-1">
+                  🔧 ปฏิบัติการ: ทบทวนรอบเปลี่ยนอะไหล่ตามเวลา (TBM) และปรับปรุงแบบฟอร์มตรวจสอบ PM
+                </p>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-cyan-950/20 border border-cyan-800/50 flex items-start gap-2">
+              <ShieldCheck size={16} className="text-cyan-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-cyan-300 font-bold block">ระดับ 3: MODERATE (ทั่วไป)</strong>
+                <span className="text-slate-300">BCI &lt; 30 (ค่าการหยุดปกติ)</span>
+                <p className="text-[10px] text-cyan-200/80 mt-1">
+                  📋 ปฏิบัติการ: ดำเนินงาน Autonomous Maintenance และ PM ตามตารางมาตรฐาน
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 3. PARETO CHART VISUALIZATION */}
       <div className="bg-[#0b1325]/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-xl space-y-4">
@@ -808,7 +1050,7 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
 
       {/* 4. BAD ACTOR RANKING TABLE & ACTION INTEGRATION */}
       <div className="bg-[#0b1325]/90 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl backdrop-blur-xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
               <Flame size={20} className="text-rose-400" />
@@ -819,35 +1061,127 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
             </p>
           </div>
 
-          {/* Quick search inside table */}
-          <div className="relative w-full sm:w-64">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              id="input-bad-actor-search"
-              placeholder="ค้นหาเครื่อง, อาการเสีย..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
-            />
+          {/* Table Controls Row */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Quick search inside table */}
+            <div className="relative w-full sm:w-56">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                id="input-bad-actor-search"
+                placeholder="ค้นหาเครื่อง, อาการเสีย..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+
+            {/* 1. ปุ่มปรับพอดีจอ 100% */}
+            <button
+              type="button"
+              id="btn-toggle-fit-screen-badactor"
+              onClick={() => setIsFitToScreen(!isFitToScreen)}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                isFitToScreen
+                  ? 'bg-gradient-to-r from-cyan-500/25 to-blue-500/25 text-cyan-300 border-cyan-400 ring-1 ring-cyan-400/40'
+                  : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800 hover:text-white'
+              }`}
+              title={isFitToScreen ? "กำลังใช้โหมดพอดีจอ (Fit Screen) เห็นครบทุกคอลัมน์ถึงขวาสุด - คลิกเพื่อสลับเป็นโหมดขยาย" : "คลิกเพื่อปรับตารางให้พอดีหน้าจอ เห็นครบทุกคอลัมน์ถึงขวาสุด"}
+            >
+              {isFitToScreen ? <Minimize2 size={13} className="text-cyan-400" /> : <Maximize2 size={13} />}
+              <span>{isFitToScreen ? '🖥️ พอดีจอ 100%' : '↔️ ขยายตาราง'}</span>
+            </button>
+
+            {/* 2. ปุ่มขยายเต็มจอ (ซ่อน/แสดงเมนูข้าง) */}
+            <button
+              type="button"
+              id="btn-toggle-sidebar-badactor-table"
+              onClick={toggleSidebar}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl border transition flex items-center gap-1.5 cursor-pointer ${
+                !sidebarOpen
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+              title={sidebarOpen ? "ซ่อนเมนูข้างชั่วคราว เพื่อขยายตารางให้เห็นฝั่งขวาสุด 100%" : "แสดงเมนูข้างกลับมา"}
+            >
+              {sidebarOpen ? <Maximize2 size={13} /> : <Minimize2 size={13} className="text-emerald-400" />}
+              <span className="hidden sm:inline">{sidebarOpen ? 'ขยายจอเต็ม' : 'เปิดเมนูข้าง'}</span>
+            </button>
+
+            {/* 3. แถบเลื่อนคอลัมน์ด่วน พร้อมปุ่มขวาสุด (ดูคอลัมน์ Action) */}
+            <div className="flex items-center gap-0.5 bg-slate-900 p-0.5 rounded-xl border border-slate-700/80">
+              <button
+                type="button"
+                id="btn-scroll-badactor-start"
+                onClick={() => handleScrollTable('start')}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                title="เลื่อนไปซ้ายสุด (อันดับ/เครื่อง)"
+              >
+                <ChevronsLeft size={14} />
+              </button>
+              <button
+                type="button"
+                id="btn-scroll-badactor-left"
+                onClick={() => handleScrollTable('left')}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                title="เลื่อนไปทางซ้าย"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                type="button"
+                id="btn-scroll-badactor-right"
+                onClick={() => handleScrollTable('right')}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                title="เลื่อนไปทางขวา"
+              >
+                <ChevronRight size={14} />
+              </button>
+              <button
+                type="button"
+                id="btn-scroll-badactor-end"
+                onClick={() => handleScrollTable('end')}
+                className="p-1 rounded-lg hover:bg-slate-800 text-cyan-400 hover:text-cyan-200 transition cursor-pointer flex items-center gap-0.5 text-[10px] font-bold px-1.5"
+                title="เลื่อนไปขวาสุด (ดูคอลัมน์จัดการ/Action ทันที)"
+              >
+                <span>ขวาสุด</span>
+                <ChevronsRight size={14} />
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Table Viewport */}
-        <div className="overflow-x-auto rounded-2xl border border-slate-800">
+        <div ref={tableScrollRef} className="overflow-x-auto rounded-2xl border border-slate-800 scrollbar-thin">
           <table className="w-full text-left text-xs" id="table-bad-actors">
-            <thead className="bg-slate-900/90 text-slate-400 font-bold border-b border-slate-800 uppercase text-[10px]">
+            <thead className="bg-slate-900/95 text-slate-400 font-bold border-b border-slate-800 uppercase text-[10px]">
               <tr>
-                <th className="py-3 px-3 text-center">Rank</th>
-                <th className="py-3 px-3">เครื่องจักร (M/C)</th>
-                <th className="py-3 px-3">ห้องผลิต</th>
-                <th className="py-3 px-3 text-center">ระดับ BCI</th>
-                <th className="py-3 px-3 text-center">จำนวนครั้ง</th>
-                <th className="py-3 px-3 text-right">Downtime รวม</th>
-                <th className="py-3 px-3 text-right">% สะสม</th>
-                <th className="py-3 px-3 text-right">MTTR (เฉลี่ย)</th>
-                <th className="py-3 px-3">ปัญหาซ้ำซาก (Chronic Issues)</th>
-                <th className="py-3 px-3 text-center">เชื่อมโยงแก้ไข (Action)</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-center`}>Rank</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'}`}>เครื่องจักร (M/C)</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'}`}>ห้องผลิต</th>
+                <th 
+                  className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-center cursor-pointer hover:bg-slate-800 text-cyan-300 transition select-none`}
+                  onClick={() => {
+                    setSelectedBCIMachine(filteredMachines[0] || null);
+                    setIsBCIModalOpen(true);
+                  }}
+                  title="คลิกเพื่อดูคำอธิบายและสูตรคำนวณ BCI"
+                >
+                  <span className="inline-flex items-center gap-1 justify-center">
+                    <span>ระดับ BCI</span>
+                    <HelpCircle size={12} className="text-cyan-400" />
+                  </span>
+                </th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-center`}>จำนวนครั้ง</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-right`}>Downtime รวม</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-right`}>% สะสม</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-right`}>MTTR (เฉลี่ย)</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'}`}>ปัญหาซ้ำซาก (Chronic Issues)</th>
+                <th className={`sticky right-0 z-20 bg-slate-900 border-l border-slate-700/80 shadow-[-6px_0_12px_rgba(0,0,0,0.5)] text-center ${
+                  isFitToScreen ? 'py-2 px-1.5 w-24' : 'py-3 px-3 w-28'
+                }`}>
+                  เชื่อมโยงแก้ไข (Action)
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -859,7 +1193,6 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
                 </tr>
               ) : (
                 filteredMachines.map((m, idx) => {
-                  const isTop3 = idx < 3;
                   return (
                     <tr 
                       key={m.machineId} 
@@ -868,7 +1201,7 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
                       }`}
                     >
                       {/* Rank Index */}
-                      <td className="py-3 px-3 text-center">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-center`}>
                         <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-mono text-xs font-black ${
                           idx === 0 
                             ? 'bg-rose-500 text-slate-950 shadow-md shadow-rose-500/30' 
@@ -883,7 +1216,7 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
                       </td>
 
                       {/* Machine ID & Name */}
-                      <td className="py-3 px-3">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'}`}>
                         <div className="flex items-center gap-2">
                           <div>
                             <div className="flex items-center gap-1.5">
@@ -894,38 +1227,47 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
                                 Rank {m.ranking}
                               </span>
                             </div>
-                            <p className="text-[11px] text-slate-300 font-semibold truncate max-w-[180px]">{m.machineName}</p>
+                            <p className={`text-[11px] text-slate-300 font-semibold truncate ${isFitToScreen ? 'max-w-[120px]' : 'max-w-[180px]'}`} title={m.machineName}>{m.machineName}</p>
                           </div>
                         </div>
                       </td>
 
                       {/* Room */}
-                      <td className="py-3 px-3 text-slate-300 text-[11px] truncate max-w-[130px]">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5 max-w-[90px]' : 'py-3 px-3 max-w-[130px]'} text-slate-300 text-[11px] truncate`} title={m.roomName}>
                         {m.roomName}
                       </td>
 
-                      {/* BCI Tier */}
-                      <td className="py-3 px-3 text-center">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          m.bciTier === 'CRITICAL'
-                            ? 'bg-rose-900/60 text-rose-300 border border-rose-600/50'
-                            : m.bciTier === 'WATCHLIST'
-                            ? 'bg-amber-900/60 text-amber-300 border border-amber-600/50'
-                            : 'bg-cyan-950/60 text-cyan-300 border border-cyan-700/40'
-                        }`}>
-                          {m.bciTier === 'CRITICAL' && <Flame size={10} />}
-                          {m.bciTier === 'WATCHLIST' && <AlertTriangle size={10} />}
+                      {/* BCI Tier (คลิกเพื่อดูคำอธิบายและสูตรคำนวณ) */}
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-center`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBCIMachine(m);
+                            setIsBCIModalOpen(true);
+                          }}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer hover:scale-105 active:scale-95 transition shadow-sm ${
+                            m.bciTier === 'CRITICAL'
+                              ? 'bg-rose-900/70 hover:bg-rose-900 text-rose-200 border border-rose-500/60 shadow-rose-950/50'
+                              : m.bciTier === 'WATCHLIST'
+                              ? 'bg-amber-900/70 hover:bg-amber-900 text-amber-200 border border-amber-500/60 shadow-amber-950/50'
+                              : 'bg-cyan-950/70 hover:bg-cyan-900 text-cyan-200 border border-cyan-600/50'
+                          }`}
+                          title={`คลิกเพื่อดูวิธีคำนวณและสูตร BCI (${m.bciScore} คะแนน) สำหรับเครื่อง ${m.machineId}`}
+                        >
+                          {m.bciTier === 'CRITICAL' && <Flame size={11} className="text-rose-400 animate-pulse" />}
+                          {m.bciTier === 'WATCHLIST' && <AlertTriangle size={11} className="text-amber-400" />}
                           <span>BCI {m.bciScore}</span>
-                        </span>
+                          <HelpCircle size={10} className="opacity-70" />
+                        </button>
                       </td>
 
                       {/* Breakdown Count */}
-                      <td className="py-3 px-3 text-center font-mono font-bold text-slate-200">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-center font-mono font-bold text-slate-200`}>
                         {m.failureCount} ครั้ง
                       </td>
 
                       {/* Total Downtime */}
-                      <td className="py-3 px-3 text-right">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-right`}>
                         <div className="font-mono font-black text-rose-300">
                           {m.totalDowntimeHours} ชม.
                         </div>
@@ -935,7 +1277,7 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
                       </td>
 
                       {/* Cumulative % */}
-                      <td className="py-3 px-3 text-right">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-right`}>
                         <div className="font-mono font-bold text-amber-400">
                           {m.cumDowntimePct}%
                         </div>
@@ -947,12 +1289,12 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
                       </td>
 
                       {/* MTTR */}
-                      <td className="py-3 px-3 text-right font-mono text-slate-300">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'} text-right font-mono text-slate-300`}>
                         {m.mttrMins} นาที
                       </td>
 
                       {/* Chronic Patterns */}
-                      <td className="py-3 px-3">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5' : 'py-3 px-3'}`}>
                         {m.chronicPatterns.length > 0 ? (
                           <div className="space-y-1">
                             {m.chronicPatterns.map((c, i) => (
@@ -967,14 +1309,20 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
                             ))}
                           </div>
                         ) : (
-                          <span className="text-slate-500 text-[11px] truncate block max-w-[140px]">
+                          <span className="text-slate-500 text-[11px] truncate block max-w-[140px]" title={m.topSymptom}>
                             {m.topSymptom}
                           </span>
                         )}
                       </td>
 
-                      {/* Action Trigger Buttons */}
-                      <td className="py-3 px-3">
+                      {/* Action Trigger Buttons (STICKY RIGHT COLUMN: ตรึงไว้ขวาสุดตลอดเวลาไม่ให้หลุดจอ) */}
+                      <td className={`sticky right-0 z-10 text-center border-l border-slate-700/80 shadow-[-6px_0_12px_rgba(0,0,0,0.45)] ${
+                        m.bciTier === 'CRITICAL' 
+                          ? 'bg-[#1e1017]' 
+                          : m.bciTier === 'WATCHLIST' 
+                          ? 'bg-[#1e160e]' 
+                          : 'bg-[#0b1325]'
+                      } ${isFitToScreen ? 'py-2 px-1.5 w-24' : 'py-3 px-3 w-28'}`}>
                         <div className="flex items-center justify-center gap-1.5">
                           {/* 1. Open Why-Why Case */}
                           <button
@@ -1170,6 +1518,27 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* 6. BCI EXPLANATION & CALCULATOR MODAL */}
+      <BCIExplanationModal
+        isOpen={isBCIModalOpen}
+        onClose={() => setIsBCIModalOpen(false)}
+        selectedMachine={selectedBCIMachine}
+        allMachines={filteredMachines}
+        onSelectMachine={(m) => setSelectedBCIMachine(m)}
+        onOpenWhyWhy={(mId, symptom) => {
+          setIsBCIModalOpen(false);
+          navigateToKaizen({
+            category: 'WHY_WHY',
+            machineId: mId,
+            searchQuery: symptom
+          });
+        }}
+        onNavigateToTBM={(_mId) => {
+          setIsBCIModalOpen(false);
+          setActivePage(15);
+        }}
+      />
     </div>
   );
 };

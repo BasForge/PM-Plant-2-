@@ -109,16 +109,117 @@ export interface OperationScheduleItem {
   duration: number; // in minutes (end - start)
 }
 
-export type StoppageType = 'BREAKDOWN' | 'MINOR_STOPPAGE' | 'ADJUSTMENT_LOSS';
+export type StoppageType = 'BREAKDOWN' | 'MINOR_STOPPAGE' | 'ADJUSTMENT_LOSS' | 'SHUTDOWN' | 'STARTUP';
+
+export interface CPRAMLossItem {
+  lossNumber: number;
+  type: StoppageType;
+  thaiName: string;
+  definition: string;
+  topicName: string;
+  downtimeType: 'Downtime' | 'Performance' | 'Plan Downtime';
+  unit: string;
+  examples: string[];
+}
+
+export const CPRAM_LOSSES_STANDARD: {
+  title: string;
+  updateDate: string;
+  version: string;
+  company: string;
+  losses: CPRAMLossItem[];
+} = {
+  title: 'มาตรฐานนิยาม 5 หัวข้อเครื่องหยุดและความสูญเสีย (Update09. 19/05/25 (Losses Type 1-20))',
+  updateDate: '19/05/25',
+  version: 'Update09',
+  company: 'มาตรฐานโรงงาน (Plant 2)',
+  losses: [
+    {
+      lossNumber: 1,
+      type: 'SHUTDOWN',
+      thaiName: '1. ความสูญเสียจากการหยุดตามแผน (Shutdown losses)',
+      definition: 'เวลาที่เครื่องจักรหยุดตามแผนที่กำหนดล่วงหน้า (Plan Downtime)',
+      topicName: 'Shutdown / Plan Downtime',
+      downtimeType: 'Plan Downtime',
+      unit: 'ชั่วโมง / นาที',
+      examples: [
+        'ล้างทำความสะอาดเครื่องจักรประจำสัปดาห์/เดือนตามแผนที่กำหนดไว้',
+        'การซ่อมบำรุงรักษาเชิงป้องกันตามแผน (PM Planned Maintenance)',
+        'การจัดฝึกอบรมพนักงาน หรือวันหยุดตามประเพณีของโรงงาน'
+      ]
+    },
+    {
+      lossNumber: 4,
+      type: 'BREAKDOWN',
+      thaiName: '4. ความสูญเสียจากการชำรุดเสียหายของเครื่องจักร (Breakdown Loss)',
+      definition: 'เวลาที่เครื่องจักรหยุดในขณะทำการผลิต อันเนื่องมาจากชิ้นส่วนเครื่องจักรเสียหาย (มีการซ่อมแซม หรือเปลี่ยนอะไหล่) หรือเหตุขัดข้องที่ต้องใช้เวลาซ่อมมากกว่า 1 นาที****',
+      topicName: 'Breakdown',
+      downtimeType: 'Downtime',
+      unit: 'ชั่วโมง / นาที',
+      examples: [
+        'เช่น สายพานขาดต้องเปลี่ยนสายพาน (เปลี่ยนอะไหล่)',
+        'แบริ่งแตกต้องเปลี่ยนแบริ่งใหม่ (เปลี่ยนอะไหล่)',
+        'ถอดชิ้นส่วนออกมาซ่อมและใส่กลับเข้าไปใหม่'
+      ]
+    },
+    {
+      lossNumber: 5,
+      type: 'STARTUP',
+      thaiName: '5. ความสูญเสียจากช่วงเริ่มต้นการผลิต (Start Up Loss)',
+      definition: 'เวลาที่เครื่องจักรหยุดในช่วงเริ่มเดินเครื่องจักร จนผลิตได้สินค้าชิ้นแรกตามมาตรฐานของสินค้าที่กำหนด มี 2 แนวทางดังนี้',
+      topicName: 'Start up2',
+      downtimeType: 'Downtime',
+      unit: 'ชั่วโมง / นาที',
+      examples: [
+        'เช่น รออุณหภูมิตู้อบ, รออุณหภูมิตู้, รออุณหภูมิน้ำมัน',
+        'รอระดับแรงดันน้ำ, ลม ของเครื่องให้อยู่ในระดับปกติหรืออยู่ในเกณฑ์มาตรฐานก่อนถึงจะสามารถเดินเครื่องได้',
+        'ตรวจเช็คเครื่องจักรก่อนเริ่มผลิต'
+      ]
+    },
+    {
+      lossNumber: 7,
+      type: 'ADJUSTMENT_LOSS',
+      thaiName: '7. ความสูญเสียจากการปรับแต่ง (Adjustment Loss)',
+      definition: 'เวลาที่เครื่องจักรหยุดในระหว่างผลิตเพื่อปรับแต่ง เนื่องจากมีผลต่อคุณภาพสินค้า นับตั้งแต่เครื่องจักรหยุดจนเริ่มผลิตสินค้าได้คุณภาพสมบูรณ์ทั้งหมด โดยชิ้นส่วนเครื่องจักรไม่ชำรุดเสียหาย และใช้เวลาปรับแต่งเกิน 15 นาที',
+      topicName: 'Adjustmen',
+      downtimeType: 'Downtime',
+      unit: 'ชั่วโมง / นาที',
+      examples: [
+        'การปรับแต่งแก้ไขปัญหาคุณภาพต่างๆ ระหว่างการผลิต เช่น ปรับน้ำหนักแป้ง',
+        'ปรับน้ำหนักไส้',
+        'ปรับรอย Seal'
+      ]
+    },
+    {
+      lossNumber: 12,
+      type: 'MINOR_STOPPAGE',
+      thaiName: '12. ความสูญเสียจากการหยุดเล็กๆ น้อยๆ ระหว่างการผลิต (Minor Stoppage Loss)',
+      definition: 'การหยุดเครื่องจักรเพื่อปรับแต่งเป็นช่วงๆ ในทุกกรณี โดยชิ้นส่วนเครื่องจักรไม่ชำรุดเสียหาย และใช้เวลาปรับแต่งน้อยกว่า 15 นาที หมายเหตุ : โดยจะบันทึกเป็นจำนวนครั้งที่เครื่องหยุดเพื่อปรับแต่ง ไม่บันทึกเป็นเวลา',
+      topicName: 'Minor Stoppage',
+      downtimeType: 'Performance',
+      unit: 'จำนวนครั้ง',
+      examples: [
+        '1. หยุดหาความผิดปกติ/ปรับแต่งน้อยกว่า 15 นาที เช่น ฟิล์มขาด, ฟิล์มย่น, ฟิล์มตัดไม่ขาด, รอยซีลพับ, ฟิล์มตัดไม่ได้ระยะ top seal ไม่ติด',
+        '2. เครื่อง Portion ข้าวไม่ออก, ข้าวออกไม่เต็มวง, ข้าวแน่นติดเครื่อง Portion, เครื่องค้าง',
+        '3. สติ๊กเกอร์ระยะไม่ได้, วันที่สติ๊กเกอร์หลังไม่ได้ตาม STD, เครื่องสติ๊กเกอร์ค้าง'
+      ]
+    }
+  ]
+};
 
 export interface StoppageTypeDefinition {
   type: StoppageType;
+  lossNumber: number;
   name: string;
+  thaiName: string;
+  topicName: string;
+  downtimeType: 'Downtime' | 'Performance' | 'Plan Downtime';
+  unit: string;
   label: string;
   shortLabel: string;
   definition: string;
-  unit: string;
   condition: string;
+  examples: string[];
   color: string;
   badgeClass: string;
   borderClass: string;
@@ -129,58 +230,145 @@ export interface StoppageTypeDefinition {
 export const STOPPAGE_TYPE_DEFINITIONS: Record<StoppageType, StoppageTypeDefinition> = {
   BREAKDOWN: {
     type: 'BREAKDOWN',
-    name: 'Breakdown',
-    label: 'Breakdown (เครื่องเสียไม่คาดคิด)',
-    shortLabel: 'Breakdown',
-    definition: 'เครื่องเสียที่ไม่ทราบล่วงหน้า มีการเปลี่ยนอะไหล่ หน่วยเป็นครั้ง แต่เก็บเวลาด้วย',
-    unit: 'ครั้ง (บันทึกเวลา MTTR)',
-    condition: 'มีการเปลี่ยนอะไหล่',
+    lossNumber: 4,
+    name: 'Breakdown Loss',
+    thaiName: '4. ความสูญเสียจากการชำรุดเสียหายของเครื่องจักร (Breakdown Loss)',
+    topicName: 'Breakdown',
+    downtimeType: 'Downtime',
+    unit: 'ชั่วโมง / นาที',
+    label: '4. Breakdown (ชำรุดเสียหาย / ซ่อมหรือเปลี่ยนอะไหล่ / > 1 นาที)',
+    shortLabel: '4. Breakdown',
+    definition: 'เวลาที่เครื่องจักรหยุดในขณะทำการผลิต อันเนื่องมาจากชิ้นส่วนเครื่องจักรเสียหาย (มีการซ่อมแซม หรือเปลี่ยนอะไหล่) หรือเหตุขัดข้องที่ต้องใช้เวลาซ่อมมากกว่า 1 นาที****',
+    condition: 'ชิ้นส่วนเสียหาย (ซ่อมแซม/เปลี่ยนอะไหล่) หรือใช้เวลาซ่อมมากกว่า 1 นาที',
+    examples: [
+      'สายพานขาดต้องเปลี่ยนสายพาน (เปลี่ยนอะไหล่)',
+      'แบริ่งแตกต้องเปลี่ยนแบริ่งใหม่ (เปลี่ยนอะไหล่)',
+      'ถอดชิ้นส่วนออกมาซ่อมและใส่กลับเข้าไปใหม่'
+    ],
     color: 'rose',
-    badgeClass: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+    badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/40',
     borderClass: 'border-rose-500',
-    bgClass: 'bg-rose-950/30',
+    bgClass: 'bg-rose-950/40',
     icon: '🔴'
   },
   MINOR_STOPPAGE: {
     type: 'MINOR_STOPPAGE',
-    name: 'Minor stoppage',
-    label: 'Minor stoppage (หยุดชะงักเล็กน้อย)',
-    shortLabel: 'Minor stoppage',
-    definition: 'เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ น้อยกว่า 15 นาที หน่วยเป็นครั้ง',
-    unit: 'ครั้ง (< 15 นาที)',
-    condition: 'ไม่เปลี่ยนอะไหล่ & เวลา < 15 นาที',
+    lossNumber: 12,
+    name: 'Minor Stoppage Loss',
+    thaiName: '12. ความสูญเสียจากการหยุดเล็กๆ น้อยๆ ระหว่างการผลิต (Minor Stoppage Loss)',
+    topicName: 'Minor Stoppage',
+    downtimeType: 'Performance',
+    unit: 'จำนวนครั้ง (ไม่บันทึกเป็นเวลา)',
+    label: '12. Minor Stoppage (หยุดเล็กๆ น้อยๆ / ไม่ชำรุด / < 15 นาที)',
+    shortLabel: '12. Minor Stoppage',
+    definition: 'การหยุดเครื่องจักรเพื่อปรับแต่งเป็นช่วงๆ ในทุกกรณี โดยชิ้นส่วนเครื่องจักรไม่ชำรุดเสียหาย และใช้เวลาปรับแต่งน้อยกว่า 15 นาที (หมายเหตุ: โดยจะบันทึกเป็นจำนวนครั้งที่เครื่องหยุดเพื่อปรับแต่ง ไม่บันทึกเป็นเวลา)',
+    condition: 'ชิ้นส่วนไม่ชำรุดเสียหาย & ปรับแต่งน้อยกว่า 15 นาที (< 15 นาที)',
+    examples: [
+      'ฟิล์มขาด, ฟิล์มย่น, ฟิล์มตัดไม่ขาด, รอยซีลพับ, ฟิล์มตัดไม่ได้ระยะ, Top seal ไม่ติด',
+      'เครื่อง Portion ข้าวไม่ออก, ข้าวออกไม่เต็มวง, ข้าวแน่นติดเครื่อง Portion, เครื่องค้าง',
+      'สติ๊กเกอร์ระยะไม่ได้, วันที่สติ๊กเกอร์หลังไม่ได้ตาม STD, เครื่องสติ๊กเกอร์ค้าง'
+    ],
     color: 'amber',
-    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/40',
     borderClass: 'border-amber-500',
-    bgClass: 'bg-amber-950/30',
+    bgClass: 'bg-amber-950/40',
     icon: '🟡'
   },
   ADJUSTMENT_LOSS: {
     type: 'ADJUSTMENT_LOSS',
-    name: 'Adjustment loss',
-    label: 'Adjustment loss (สูญเสียจากการปรับแต่ง)',
-    shortLabel: 'Adjustment loss',
-    definition: 'เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ มากกว่า 15 นาที หน่วยเป็นครั้ง',
-    unit: 'ครั้ง (> 15 นาที)',
-    condition: 'ไม่เปลี่ยนอะไหล่ & เวลา > 15 นาที',
+    lossNumber: 7,
+    name: 'Adjustment Loss',
+    thaiName: '7. ความสูญเสียจากการปรับแต่ง (Adjustment Loss)',
+    topicName: 'Adjustmen',
+    downtimeType: 'Downtime',
+    unit: 'ชั่วโมง / นาที',
+    label: '7. Adjustment Loss (ปรับแต่งคุณภาพ / ไม่ชำรุด / > 15 นาที)',
+    shortLabel: '7. Adjustment',
+    definition: 'เวลาที่เครื่องจักรหยุดในระหว่างผลิตเพื่อปรับแต่ง เนื่องจากมีผลต่อคุณภาพสินค้า นับตั้งแต่เครื่องจักรหยุดจนเริ่มผลิตสินค้าได้คุณภาพสมบูรณ์ทั้งหมด โดยชิ้นส่วนเครื่องจักรไม่ชำรุดเสียหาย และใช้เวลาปรับแต่งเกิน 15 นาที',
+    condition: 'ชิ้นส่วนไม่ชำรุดเสียหาย & ปรับแต่งคุณภาพเกิน 15 นาที (> 15 นาที)',
+    examples: [
+      'ปรับแต่งแก้ไขปัญหาคุณภาพ เช่น ปรับน้ำหนักแป้ง',
+      'ปรับน้ำหนักไส้',
+      'ปรับรอย Seal'
+    ],
     color: 'orange',
-    badgeClass: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    badgeClass: 'bg-orange-500/15 text-orange-300 border-orange-500/40',
     borderClass: 'border-orange-500',
-    bgClass: 'bg-orange-950/30',
+    bgClass: 'bg-orange-950/40',
     icon: '🟠'
+  },
+  SHUTDOWN: {
+    type: 'SHUTDOWN',
+    lossNumber: 1,
+    name: 'Shutdown losses',
+    thaiName: '1. ความสูญเสียจากการหยุดตามแผน (Shutdown losses)',
+    topicName: 'Shutdown / Plan Downtime',
+    downtimeType: 'Plan Downtime',
+    unit: 'ชั่วโมง / นาที',
+    label: '1. Shutdown losses (หยุดตามแผน / Plan Downtime)',
+    shortLabel: '1. Shutdown',
+    definition: 'เวลาที่เครื่องจักรหยุดตามแผนที่กำหนดล่วงหน้า (Plan Downtime)',
+    condition: 'หยุดตามแผนงานล่วงหน้า (ล้างทำความสะอาด, PM, อบรม)',
+    examples: [
+      'ล้างทำความสะอาดเครื่องจักรประจำสัปดาห์/เดือนตามแผน',
+      'การซ่อมบำรุงตามแผน (PM Planned Maintenance)',
+      'อบรมพนักงานหรือวันหยุดของโรงงาน'
+    ],
+    color: 'blue',
+    badgeClass: 'bg-blue-500/15 text-blue-300 border-blue-500/40',
+    borderClass: 'border-blue-500',
+    bgClass: 'bg-blue-950/40',
+    icon: '🔵'
+  },
+  STARTUP: {
+    type: 'STARTUP',
+    lossNumber: 5,
+    name: 'Start Up Loss',
+    thaiName: '5. ความสูญเสียจากช่วงเริ่มต้นการผลิต (Start Up Loss)',
+    topicName: 'Start up2',
+    downtimeType: 'Downtime',
+    unit: 'ชั่วโมง / นาที',
+    label: '5. Start Up Loss (ช่วงเริ่มต้นการผลิต)',
+    shortLabel: '5. Start Up',
+    definition: 'เวลาที่เครื่องจักรหยุดในช่วงเริ่มเดินเครื่องจักร จนผลิตได้สินค้าชิ้นแรกตามมาตรฐานของสินค้าที่กำหนด มี 2 แนวทางดังนี้',
+    condition: 'หยุดช่วงเริ่มเดินเครื่องเพื่อรออุณหภูมิ/ความดัน/เกณฑ์มาตรฐาน',
+    examples: [
+      'รออุณหภูมิตู้อบ, รออุณหภูมิตู้, รออุณหภูมิน้ำมัน',
+      'รอระดับแรงดันน้ำ, ลม ของเครื่องให้อยู่ในเกณฑ์มาตรฐานก่อนเริ่มผลิต',
+      'ตรวจเช็คเครื่องจักรก่อนเริ่มผลิต'
+    ],
+    color: 'purple',
+    badgeClass: 'bg-purple-500/15 text-purple-300 border-purple-500/40',
+    borderClass: 'border-purple-500',
+    bgClass: 'bg-purple-950/40',
+    icon: '🟣'
   }
 };
 
 /**
- * คำนวณจำแนกประเภทความสูญเสียตามนิยามมาตรฐาน
- * - Breakdown: เครื่องเสียที่ไม่ทราบล่วงหน้า มีการเปลี่ยนอะไหล่ หน่วยเป็นครั้ง แต่เก็บเวลาด้วย
- * - Minor stoppage: เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ น้อยกว่า 15 นาที หน่วยเป็นครั้ง
- * - Adjustment loss: เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ มากกว่า 15 นาที หน่วยเป็นครั้ง
+ * คำนวณจำแนกประเภทความสูญเสียตามมาตรฐานนิยาม Losses ของโรงงาน (Update09. 19/05/25)
+ * - Loss 4 (Breakdown): ชิ้นส่วนเสียหาย (มีการซ่อมแซม หรือเปลี่ยนอะไหล่) หรือเหตุขัดข้องใช้เวลาซ่อมมากกว่า 1 นาที
+ * - Loss 12 (Minor stoppage): ชิ้นส่วนไม่เสียหาย ปรับแต่ง < 15 นาที (บันทึกเป็นจำนวนครั้ง)
+ * - Loss 7 (Adjustment loss): ชิ้นส่วนไม่เสียหาย ปรับแต่งคุณภาพ > 15 นาที
  */
-export function detectStoppageType(hasUsedParts: boolean, durationMinutes: number): StoppageType {
-  if (hasUsedParts) {
+export function detectStoppageType(
+  hasPartsOrRepair: boolean, 
+  durationMinutes: number,
+  isQualityAdjustment: boolean = false
+): StoppageType {
+  // หากชิ้นส่วนเครื่องจักรเสียหาย (มีการซ่อมแซมหรือเปลี่ยนอะไหล่) -> Breakdown (Loss 4)
+  if (hasPartsOrRepair) {
     return 'BREAKDOWN';
   }
+  // หากเป็นการปรับแต่งคุณภาพสินค้า (ชิ้นส่วนไม่เสียหาย)
+  if (isQualityAdjustment) {
+    return durationMinutes < 15 ? 'MINOR_STOPPAGE' : 'ADJUSTMENT_LOSS';
+  }
+  // หากใช้เวลามากกว่า 1 นาทีและมีอาการชำรุดเสียหาย -> Breakdown ตามนิยามโรงงาน (> 1 นาที)
+  if (durationMinutes > 1 && !isQualityAdjustment) {
+    return 'BREAKDOWN';
+  }
+  // หากน้อยกว่า 15 นาทีและหยุดเพื่อปรับแต่งชั่วคราว -> Minor stoppage (Loss 12)
   if (durationMinutes < 15) {
     return 'MINOR_STOPPAGE';
   }
@@ -195,9 +383,11 @@ export function getRepairStoppageType(repair: {
 }): StoppageType {
   if (repair.stoppageType) {
     const raw = String(repair.stoppageType).trim().toUpperCase();
-    if (raw === 'BREAKDOWN') return 'BREAKDOWN';
+    if (raw === 'BREAKDOWN' || raw === 'BREAKDOWN_LOSS') return 'BREAKDOWN';
     if (raw === 'MINOR_STOPPAGE' || raw === 'MINOR' || raw === 'MINOR_STOP') return 'MINOR_STOPPAGE';
     if (raw === 'ADJUSTMENT_LOSS' || raw === 'ADJUSTMENT' || raw === 'ADJUST') return 'ADJUSTMENT_LOSS';
+    if (raw === 'SHUTDOWN' || raw === 'SHUTDOWN_LOSS' || raw === 'PLAN_DOWNTIME') return 'SHUTDOWN';
+    if (raw === 'STARTUP' || raw === 'START_UP' || raw === 'START_UP_LOSS') return 'STARTUP';
     return repair.stoppageType as StoppageType;
   }
   const hasParts = Boolean((repair.usedParts && repair.usedParts.length > 0) || repair.hasPartsReplaced);
@@ -234,14 +424,15 @@ export interface RepairLog {
   oplFile?: RepairAttachmentItem; // เอกสาร One Point Lesson
   whyWhyFile?: RepairAttachmentItem; // เอกสาร Why-Why Analysis
   kaizenFile?: RepairAttachmentItem; // เอกสารโครงการ Kaizen
-  repairAttachments?: RepairAttachmentItem[]; // ไฟล์แนบประกอบใบซ่อมทั้งหมด (FA, OPL, Why-Why, Kaizen)
+  mpFile?: RepairAttachmentItem; // เอกสาร MP Information Sheet
+  repairAttachments?: RepairAttachmentItem[]; // ไฟล์แนบประกอบใบซ่อมทั้งหมด (FA, OPL, Why-Why, Kaizen, MP)
 }
 
 export type KaizenCategory = 'KAIZEN' | 'OPL' | 'FA' | 'WHY_WHY' | 'MP_INFO';
 
 export interface RepairAttachmentItem {
   id: string;
-  category: 'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN';
+  category: 'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN' | 'MP_INFO';
   name: string;
   content: string; // Base64 or Blob URL or file link
   fileType?: 'pdf' | 'excel' | 'image' | 'word' | 'other';

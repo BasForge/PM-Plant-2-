@@ -110,7 +110,7 @@ export const ExcelWorkRequestImportModal: React.FC<ExcelWorkRequestImportModalPr
   // Load sample work requests
   const handleLoadSampleData = () => {
     setParseError(null);
-    setUploadedFileName('ตัวอย่างใบแจ้งซ่อม_CPRAM_Plant2.xlsx');
+    setUploadedFileName('ตัวอย่างใบแจ้งซ่อม_Plant2.xlsx');
     // Map with latest machines if matched
     const mapped = SAMPLE_EXCEL_WORK_REQUESTS.map(item => {
       const match = findMatchingMachine(item.machineId, machines);

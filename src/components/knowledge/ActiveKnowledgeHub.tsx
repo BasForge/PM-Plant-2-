@@ -11,6 +11,10 @@ import {
 } from 'lucide-react';
 import { PDFViewerModal } from '../kaizen/PDFViewerModal';
 import { WhyWhyAnalysisView } from '../kaizen/WhyWhyAnalysisView';
+import { FailureAnalysisView } from '../kaizen/FailureAnalysisView';
+import { OPLView } from '../kaizen/OPLView';
+import { KaizenKanbanView } from '../kaizen/KaizenKanbanView';
+import { MPInformationView } from '../kaizen/MPInformationView';
 import { CreateEditKaizenModal } from '../kaizen/CreateEditKaizenModal';
 import { KaizenDetailModal } from '../kaizen/KaizenDetailModal';
 import { PhotoLightboxModal } from '../kaizen/PhotoLightboxModal';
@@ -44,7 +48,11 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [activeTypeTab, setActiveTypeTab] = useState<'ALL' | KnowledgeType>(initialFilterType || 'ALL');
 
-  // Kaizen Why-Why System Integration States
+  // Multi-Selection and Bulk Deletion System (ระบบการลบแบบเลือกทั้งหมด เลือกทีละตัวงานได้)
+  const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState<boolean>(false);
+
+  // Kaizen & Engineering Suite Integration States
   const [isKaizenCreateModalOpen, setIsKaizenCreateModalOpen] = useState(false);
   const [editingKaizenProject, setEditingKaizenProject] = useState<ImprovementProject | null>(null);
   const [selectedKaizenProject, setSelectedKaizenProject] = useState<ImprovementProject | null>(null);
@@ -391,9 +399,10 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
     const kaizenCount = combinedItems.filter(k => k.type === 'KAIZEN').length;
     const oplCount = combinedItems.filter(k => k.type === 'OPL').length;
     const faCount = combinedItems.filter(k => k.type === 'FA').length;
+    const mpCount = combinedItems.filter(k => k.type === 'MP_INFO').length;
     const cd5Count = combinedItems.filter(k => k.type === 'CD5').length;
     const totalSavings = combinedItems.reduce((sum, k) => sum + (k.costSavings || 0), 0);
-    return { total, manualCount, wiCount, tbCount, whyCount, kaizenCount, oplCount, faCount, cd5Count, totalSavings };
+    return { total, manualCount, wiCount, tbCount, whyCount, kaizenCount, oplCount, faCount, mpCount, cd5Count, totalSavings };
   }, [combinedItems]);
 
   const handleCopyLink = (item: KnowledgeItem) => {
@@ -696,6 +705,99 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
       return true;
     });
   }, [improvements, linkedBreakdownWhyProjects, searchTerm, selectedMachineId]);
+
+  // Filtered FA list for FailureAnalysisView
+  const allKaizenFAList = useMemo<ImprovementProject[]>(() => {
+    return improvements.filter(i => i.category === 'FA').filter(item => {
+      if (selectedMachineId !== 'ALL' && item.machineId !== selectedMachineId) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        return item.title?.toLowerCase().includes(q) || item.description?.toLowerCase().includes(q) || item.machineId?.toLowerCase().includes(q) || item.faData?.failurePartName?.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [improvements, searchTerm, selectedMachineId]);
+
+  // Filtered OPL list for OPLView
+  const allKaizenOPLList = useMemo<ImprovementProject[]>(() => {
+    return improvements.filter(i => i.category === 'OPL').filter(item => {
+      if (selectedMachineId !== 'ALL' && item.machineId !== selectedMachineId) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        return item.title?.toLowerCase().includes(q) || item.description?.toLowerCase().includes(q) || item.machineId?.toLowerCase().includes(q) || item.oplData?.sopDocumentRef?.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [improvements, searchTerm, selectedMachineId]);
+
+  // Filtered Kaizen Projects list for KaizenKanbanView
+  const allKaizenProjectsList = useMemo<ImprovementProject[]>(() => {
+    return improvements.filter(i => !i.category || i.category === 'KAIZEN').filter(item => {
+      if (selectedMachineId !== 'ALL' && item.machineId !== selectedMachineId) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        return item.title?.toLowerCase().includes(q) || item.description?.toLowerCase().includes(q) || item.machineId?.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [improvements, searchTerm, selectedMachineId]);
+
+  // Filtered MP list for MPInformationView
+  const allKaizenMPList = useMemo<ImprovementProject[]>(() => {
+    return improvements.filter(i => i.category === 'MP_INFO').filter(item => {
+      if (selectedMachineId !== 'ALL' && item.machineId !== selectedMachineId) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        return item.title?.toLowerCase().includes(q) || item.description?.toLowerCase().includes(q) || item.machineId?.toLowerCase().includes(q) || item.mpData?.issueDescription?.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [improvements, searchTerm, selectedMachineId]);
+
+  // Multi-Selection handlers (ระบบการลบแบบเลือกทั้งหมด เลือกทีละตัวงานได้)
+  const handleSelectAllFilteredKnowledge = () => {
+    if (filteredItems.length === 0) return;
+    const allSelected = filteredItems.every(i => selectedKnowledgeIds.has(i.id));
+    if (allSelected) {
+      const next = new Set(selectedKnowledgeIds);
+      filteredItems.forEach(i => next.delete(i.id));
+      setSelectedKnowledgeIds(next);
+    } else {
+      const next = new Set(selectedKnowledgeIds);
+      filteredItems.forEach(i => next.add(i.id));
+      setSelectedKnowledgeIds(next);
+    }
+  };
+
+  const handleToggleKnowledgeSelection = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const next = new Set(selectedKnowledgeIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedKnowledgeIds(next);
+  };
+
+  const handleClearKnowledgeSelection = () => {
+    setSelectedKnowledgeIds(new Set());
+  };
+
+  const handleConfirmBulkDeleteKnowledge = () => {
+    if (selectedKnowledgeIds.size === 0) return;
+    
+    // Delete from knowledgeItems
+    selectedKnowledgeIds.forEach(id => {
+      deleteKnowledgeItem(id);
+    });
+
+    // Also delete any Kaizen/Improvement items whose id or sourceImprovementId was selected
+    setImprovements(prev => prev.filter(imp => !selectedKnowledgeIds.has(imp.id) && !selectedKnowledgeIds.has(`kno-${imp.id}`) && !selectedKnowledgeIds.has(`why-breakdown-${imp.id}`)));
+
+    setSelectedKnowledgeIds(new Set());
+    setIsBulkDeleteModalOpen(false);
+  };
 
   // Kaizen handlers for Save/Edit/Delete
   const handleSaveKaizenProject = (projData: Partial<ImprovementProject>) => {
@@ -1123,7 +1225,7 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
         </div>
 
         {/* Active Pill Type Filter switcher */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-bold pt-2 border-t border-slate-800/80">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1.5 text-xs font-bold pt-2 border-t border-slate-800/80 scrollbar-thin scrollbar-thumb-cyan-500/50 scrollbar-track-slate-900 scroll-smooth">
           <button
             type="button"
             onClick={() => setActiveTypeTab('ALL')}
@@ -1173,6 +1275,7 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
           </button>
           <button
             type="button"
+            id="tab-knowledge-why"
             onClick={() => setActiveTypeTab('WHY_WHY')}
             className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTypeTab === 'WHY_WHY'
@@ -1181,12 +1284,72 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
             }`}
           >
             <Sparkles size={13} />
-            <span>🧠 เคส Why-Why ในอดีต ({stats.whyCount})</span>
+            <span>🧠 เคส Why-Why ({stats.whyCount})</span>
+          </button>
+
+          {/* แถบ FA ต่อจาก why why */}
+          <button
+            type="button"
+            id="tab-knowledge-fa"
+            onClick={() => setActiveTypeTab('FA')}
+            className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTypeTab === 'FA'
+                ? 'bg-rose-500 text-white shadow-md font-black'
+                : 'text-rose-300 hover:text-white bg-rose-950/40 border border-rose-900/40'
+            }`}
+          >
+            <ShieldAlert size={13} />
+            <span>🔍 FA (Failure Analysis) ({allKaizenFAList.length})</span>
+          </button>
+
+          {/* แถบ OPL ต่อจาก why why */}
+          <button
+            type="button"
+            id="tab-knowledge-opl"
+            onClick={() => setActiveTypeTab('OPL')}
+            className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTypeTab === 'OPL'
+                ? 'bg-amber-400 text-slate-950 shadow-md font-black'
+                : 'text-amber-300 hover:text-white bg-amber-950/40 border border-amber-900/40'
+            }`}
+          >
+            <BookOpen size={13} />
+            <span>💡 OPL (One Point Lesson) ({allKaizenOPLList.length})</span>
+          </button>
+
+          {/* แถบ Kaizen ต่อจาก why why */}
+          <button
+            type="button"
+            id="tab-knowledge-kaizen"
+            onClick={() => setActiveTypeTab('KAIZEN')}
+            className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTypeTab === 'KAIZEN'
+                ? 'bg-cyan-400 text-slate-950 shadow-md font-black'
+                : 'text-cyan-300 hover:text-white bg-cyan-950/40 border border-cyan-900/40'
+            }`}
+          >
+            <Wrench size={13} />
+            <span>🚀 โครงการ Kaizen ({allKaizenProjectsList.length})</span>
+          </button>
+
+          {/* แถบ MP ต่อจาก why why */}
+          <button
+            type="button"
+            id="tab-knowledge-mp"
+            onClick={() => setActiveTypeTab('MP_INFO')}
+            className={`px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTypeTab === 'MP_INFO'
+                ? 'bg-emerald-400 text-slate-950 shadow-md font-black'
+                : 'text-emerald-300 hover:text-white bg-emerald-950/40 border border-emerald-900/40'
+            }`}
+          >
+            <FileText size={13} />
+            <span>📋 MP (Information Sheet) ({allKaizenMPList.length})</span>
           </button>
         </div>
       </div>
 
-      {/* 3. WHY-WHY FULL SYSTEM VIEW OR KNOWLEDGE CARDS GRID */}
+      {/* 3. FULL SYSTEM SUITES (WHY_WHY • FA • OPL • KAIZEN • MP) OR KNOWLEDGE CARDS GRID */}
       {activeTypeTab === 'WHY_WHY' ? (
         <div className="space-y-4" id="kaizen-why-why-full-suite">
           {/* Header Banner for Why-Why Full System */}
@@ -1242,8 +1405,324 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
             onUpdateProject={handleUpdateKaizenProject}
           />
         </div>
+      ) : activeTypeTab === 'FA' ? (
+        <div className="space-y-4" id="kaizen-fa-full-suite">
+          {/* Header Banner for Failure Analysis */}
+          <div className="bg-gradient-to-r from-rose-950/70 via-slate-900 to-pink-950/70 border border-rose-500/40 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                <ShieldAlert size={22} />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                  <span>การวิเคราะห์ชิ้นส่วนชำรุดเชิงลึก (Failure Analysis - FA)</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-900/60 text-rose-300 border border-rose-500/40">
+                    {allKaizenFAList.length} รายงาน FA
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  วิเคราะห์โหมดความเสียหาย (Failure Mode), การสึกหรอ, การล้าตัวของชิ้นส่วน พร้อมรูปภาพชิ้นงาน และมาตรการป้องกันการเกิดซ้ำ
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              id="btn-create-kaizen-fa"
+              onClick={() => {
+                setEditingKaizenProject({ category: 'FA' } as any);
+                setIsKaizenCreateModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-black text-xs rounded-xl shadow-lg transition cursor-pointer shrink-0"
+            >
+              <Plus size={16} />
+              <span>สร้างรายงาน FA ใหม่</span>
+            </button>
+          </div>
+
+          <FailureAnalysisView
+            faList={allKaizenFAList}
+            machines={machines}
+            onSelectProject={(proj) => setSelectedKaizenProject(proj)}
+            onOpenPDF={(pdf) => setViewPdfModal(pdf)}
+            onOpenPhoto={(photo) => setActivePhoto(photo)}
+            onOpenCreateModal={() => {
+              setEditingKaizenProject({ category: 'FA' } as any);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onDeleteProject={handleDeleteKaizenProject}
+            onEditProject={(proj) => {
+              setSelectedKaizenProject(null);
+              setEditingKaizenProject(proj);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onUpdateProject={handleUpdateKaizenProject}
+          />
+        </div>
+      ) : activeTypeTab === 'OPL' ? (
+        <div className="space-y-4" id="kaizen-opl-full-suite">
+          {/* Header Banner for OPL */}
+          <div className="bg-gradient-to-r from-amber-950/70 via-slate-900 to-yellow-950/70 border border-amber-500/40 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                <BookOpen size={22} />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                  <span>บทเรียนหน้าเดียวเพื่อการสอนงาน (One Point Lesson - OPL)</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-900/60 text-amber-300 border border-amber-500/40">
+                    {allKaizenOPLList.length} แผ่น OPL
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  เอกสารสอนงาน 5-10 นาที ถ่ายทอดความรู้พื้นฐาน การแก้ไขปัญหาเฉพาะจุด และกรณีตัวอย่างการปรับปรุง
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              id="btn-create-kaizen-opl"
+              onClick={() => {
+                setEditingKaizenProject({ category: 'OPL' } as any);
+                setIsKaizenCreateModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition cursor-pointer shrink-0"
+            >
+              <Plus size={16} />
+              <span>สร้าง OPL ใหม่</span>
+            </button>
+          </div>
+
+          <OPLView
+            oplList={allKaizenOPLList}
+            machines={machines}
+            onSelectProject={(proj) => setSelectedKaizenProject(proj)}
+            onOpenPDF={(pdf) => setViewPdfModal(pdf)}
+            onOpenPhoto={(photo) => setActivePhoto(photo)}
+            onOpenCreateModal={() => {
+              setEditingKaizenProject({ category: 'OPL' } as any);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onDeleteProject={handleDeleteKaizenProject}
+            onEditProject={(proj) => {
+              setSelectedKaizenProject(null);
+              setEditingKaizenProject(proj);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onUpdateProject={handleUpdateKaizenProject}
+          />
+        </div>
+      ) : activeTypeTab === 'KAIZEN' ? (
+        <div className="space-y-4" id="kaizen-kanban-full-suite">
+          {/* Header Banner for Kaizen */}
+          <div className="bg-gradient-to-r from-cyan-950/70 via-slate-900 to-blue-950/70 border border-cyan-500/40 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                <Wrench size={22} />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                  <span>กระดานโครงการไคเซ็น (Kaizen Kanban Board)</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-900/60 text-cyan-300 border border-cyan-500/40">
+                    {allKaizenProjectsList.length} โครงการ
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  ติดตามความคืบหน้าการปรับปรุงเครื่องจักรแบบ Kanban (ยังไม่เริ่ม • กำลังทำ • ทดสอบ • เสร็จแล้ว)
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              id="btn-create-kaizen-project"
+              onClick={() => {
+                setEditingKaizenProject({ category: 'KAIZEN' } as any);
+                setIsKaizenCreateModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition cursor-pointer shrink-0"
+            >
+              <Plus size={16} />
+              <span>สร้างโครงการ Kaizen ใหม่</span>
+            </button>
+          </div>
+
+          <KaizenKanbanView
+            projects={allKaizenProjectsList}
+            machines={machines}
+            onSelectProject={(proj) => setSelectedKaizenProject(proj)}
+            onOpenPDF={(pdf) => setViewPdfModal(pdf)}
+            onOpenPhoto={(photo) => setActivePhoto(photo)}
+            onOpenCreateModal={() => {
+              setEditingKaizenProject({ category: 'KAIZEN' } as any);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onDeleteProject={handleDeleteKaizenProject}
+            onEditProject={(proj) => {
+              setSelectedKaizenProject(null);
+              setEditingKaizenProject(proj);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onUpdateProject={handleUpdateKaizenProject}
+          />
+        </div>
+      ) : activeTypeTab === 'MP_INFO' ? (
+        <div className="space-y-4" id="kaizen-mp-full-suite">
+          {/* Header Banner for MP Information */}
+          <div className="bg-gradient-to-r from-emerald-950/70 via-slate-900 to-teal-950/70 border border-emerald-500/40 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <FileText size={22} />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                  <span>แบบฟอร์มข้อมูลการบำรุงรักษาเพื่อการออกแบบ (MP Information Sheet)</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-900/60 text-emerald-300 border border-emerald-500/40">
+                    {allKaizenMPList.length} แผ่นข้อมูล MP
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Maintenance Prevention (MP Pillar) รวบรวมข้อเสนอแนะในการปรับปรุงออกแบบเครื่องจักรใหม่ หรือส่งต่อผู้ผลิตเครื่องจักร
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              id="btn-create-kaizen-mp"
+              onClick={() => {
+                setEditingKaizenProject({ category: 'MP_INFO' } as any);
+                setIsKaizenCreateModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition cursor-pointer shrink-0"
+            >
+              <Plus size={16} />
+              <span>สร้าง MP Sheet ใหม่</span>
+            </button>
+          </div>
+
+          <MPInformationView
+            mpList={allKaizenMPList}
+            machines={machines}
+            onSelectProject={(proj) => setSelectedKaizenProject(proj)}
+            onOpenPDF={(pdf) => setViewPdfModal(pdf)}
+            onOpenPhoto={(photo) => setActivePhoto(photo)}
+            onOpenCreateModal={() => {
+              setEditingKaizenProject({ category: 'MP_INFO' } as any);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onDeleteProject={handleDeleteKaizenProject}
+            onEditProject={(proj) => {
+              setSelectedKaizenProject(null);
+              setEditingKaizenProject(proj);
+              setIsKaizenCreateModalOpen(true);
+            }}
+            onUpdateProject={handleUpdateKaizenProject}
+          />
+        </div>
       ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="knowledge-cards-grid">
+      <div className="space-y-4">
+        {/* SELECTION & BULK DELETE BAR (ระบบการลบแบบเลือกทั้งหมด เลือกทีละตัวงานได้) */}
+        <div 
+          id="knowledge-bulk-action-bar"
+          className={`p-3.5 sm:p-4 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3 border transition-all ${
+            selectedKnowledgeIds.size > 0
+              ? 'bg-gradient-to-r from-slate-900 via-rose-950/70 to-slate-900 text-white border-rose-500/50 shadow-rose-950/30'
+              : 'bg-slate-900/90 text-slate-300 border-slate-800'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${
+              selectedKnowledgeIds.size > 0 
+                ? 'bg-rose-500/20 border-rose-400/40 text-rose-300' 
+                : 'bg-slate-800/80 border-slate-750 text-slate-400'
+            }`}>
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-bold flex items-center gap-2">
+                {selectedKnowledgeIds.size > 0 ? (
+                  <>
+                    <span className="text-white">เลือกรายการองค์ความรู้อยู่:</span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-500 text-slate-950 font-black font-mono text-xs">
+                      {selectedKnowledgeIds.size} รายการ
+                    </span>
+                    <span className="text-slate-400 text-xs font-normal hidden sm:inline">
+                      (จากในหน้านี้ {filteredItems.length} รายการ / ทั้งหมด {knowledgeItems.length} รายการ)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span>ระบบจัดการและลบรายการ (เลือกทั้งหมด / เลือกทีละตัวงาน)</span>
+                    <span className="text-slate-400 text-xs font-normal hidden sm:inline">
+                      (มีทั้งหมด {knowledgeItems.length} รายการในคลัง)
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                {selectedKnowledgeIds.size > 0
+                  ? 'สามารถกดลบรายการที่เลือกทั้งหมดพร้อมกัน หรือยกเลิกการเลือกได้ทันที'
+                  : 'สามารถติ๊กเลือกทีละตัวงานในช่องสี่เหลี่ยมบนการ์ด หรือกดปุ่มด้านขวาเพื่อเลือกทั้งหมดได้'}
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              id="btn-knowledge-select-all"
+              onClick={handleSelectAllFilteredKnowledge}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition border cursor-pointer ${
+                filteredItems.length > 0 && filteredItems.every(i => selectedKnowledgeIds.has(i.id))
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/30'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+              }`}
+            >
+              {filteredItems.length > 0 && filteredItems.every(i => selectedKnowledgeIds.has(i.id))
+                ? '✓ ยกเลิกเลือกทั้งหมด'
+                : `☑ เลือกทั้งหมด (${filteredItems.length})`}
+            </button>
+
+            {selectedKnowledgeIds.size > 0 && (
+              <button
+                type="button"
+                id="btn-knowledge-clear-selection"
+                onClick={handleClearKnowledgeSelection}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition border border-slate-700 cursor-pointer"
+              >
+                ล้างการเลือก
+              </button>
+            )}
+
+            {selectedKnowledgeIds.size > 0 ? (
+              <button
+                type="button"
+                id="btn-bulk-delete-knowledge"
+                onClick={() => setIsBulkDeleteModalOpen(true)}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer animate-pulse"
+                title="ลบรายการที่เลือกทั้งหมด"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ลบรายการที่เลือก ({selectedKnowledgeIds.size})</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="px-4 py-1.5 bg-slate-800/60 text-slate-500 text-xs font-semibold rounded-xl border border-slate-750 flex items-center gap-1.5 cursor-not-allowed"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ลบรายการที่เลือก (0)</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* KNOWLEDGE CARDS GRID */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="knowledge-cards-grid">
         {filteredItems.length === 0 ? (
           <div className="col-span-full py-12 text-center bg-slate-900/40 border border-slate-800 rounded-3xl p-6">
             <BookOpen size={40} className="mx-auto text-slate-600 mb-3" />
@@ -1262,13 +1741,27 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
             return (
               <div 
                 key={item.id}
-                className="bg-[#0b1325] border border-slate-800 hover:border-slate-700 rounded-3xl p-5 shadow-xl hover:shadow-2xl transition flex flex-col justify-between group relative overflow-hidden"
+                className={`bg-[#0b1325] border rounded-3xl p-5 shadow-xl hover:shadow-2xl transition flex flex-col justify-between group relative overflow-hidden ${
+                  selectedKnowledgeIds.has(item.id)
+                    ? 'border-cyan-400 ring-2 ring-cyan-400/30 bg-slate-900/90'
+                    : 'border-slate-800 hover:border-slate-700'
+                }`}
               >
-                {/* Header Row: Type Badge & Machine ID */}
+                {/* Header Row: Checkbox, Type Badge & Machine ID */}
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-3">
-                    {/* Pillar Badge */}
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id={`chk-knowledge-${item.id}`}
+                        checked={selectedKnowledgeIds.has(item.id)}
+                        onChange={(e) => handleToggleKnowledgeSelection(item.id, e as any)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-400 focus:ring-cyan-400 cursor-pointer accent-cyan-400"
+                        title="เลือกตัวงานนี้เพื่อลบ"
+                      />
+                      {/* Pillar Badge */}
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
                       isManual 
                         ? 'bg-blue-950 text-blue-300 border-blue-800/60'
                         : isWI
@@ -1303,6 +1796,7 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
                         item.type === 'FA' ? 'FA ANALYSIS' : 'COST DOWN 5'
                       }</span>
                     </span>
+                    </div>
 
                     {/* Machine Badge */}
                     <span className="font-mono text-cyan-400 font-extrabold text-xs bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700">
@@ -1421,8 +1915,8 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
                       </button>
                     )}
 
-                    {/* Delete Button */}
-                    {canDelete && (
+                    {/* Delete Button (ลบทีละตัวงานได้) */}
+                    {(canDelete || canEdit || !currentUser) && (
                       <button
                         type="button"
                         id={`btn-delete-knowledge-${item.id}`}
@@ -1439,6 +1933,7 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
             );
           })
         )}
+      </div>
       </div>
       )}
 
@@ -2774,6 +3269,67 @@ export const ActiveKnowledgeHub: React.FC<ActiveKnowledgeHubProps> = ({ initialF
               >
                 <Trash2 size={14} />
                 <span>ยืนยันลบถาวร</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5.2.1 BULK DELETE CONFIRMATION MODAL (ระบบการลบแบบเลือกทั้งหมด) */}
+      {isBulkDeleteModalOpen && selectedKnowledgeIds.size > 0 && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-[#0b1325] border border-rose-500/40 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-rose-500/20 text-rose-400 shrink-0">
+                <Trash2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-white">
+                  ยืนยันการลบองค์ความรู้แบบกลุ่ม (Bulk Delete)?
+                </h3>
+                <p className="text-xs text-rose-300 font-semibold">
+                  ลบทั้งหมด {selectedKnowledgeIds.size} รายการที่เลือก
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-900/80 rounded-2xl border border-slate-800 text-xs space-y-2 max-h-56 overflow-y-auto">
+              <span className="text-slate-400 block text-[11px] font-bold">รายการที่จะถูกลบ:</span>
+              <div className="space-y-1.5 divide-y divide-slate-800">
+                {knowledgeItems
+                  .filter(k => selectedKnowledgeIds.has(k.id))
+                  .map(k => (
+                    <div key={k.id} className="pt-1.5 flex items-center justify-between text-slate-300 text-[11px]">
+                      <div className="flex items-center gap-2 truncate pr-2">
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-400 font-mono text-[9px]">{k.machineId}</span>
+                        <span className="truncate">{k.title}</span>
+                      </div>
+                      <span className="text-slate-500 text-[10px] shrink-0">{k.type}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            <p className="text-xs text-rose-400/90 leading-relaxed bg-rose-950/20 p-2.5 rounded-xl border border-rose-900/30">
+              ⚠️ การลบนี้จะมีผลถาวร รายการที่เลือกทั้งหมดจะถูกลบออกจากคลังองค์ความรู้ทันที
+            </p>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-bulk-delete-knowledge"
+                onClick={handleConfirmBulkDeleteKnowledge}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-lg shadow-rose-950/50 transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 size={14} />
+                <span>ยืนยันลบทั้งหมด {selectedKnowledgeIds.size} รายการ</span>
               </button>
             </div>
           </div>

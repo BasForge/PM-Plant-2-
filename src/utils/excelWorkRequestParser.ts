@@ -238,7 +238,7 @@ export const SAMPLE_EXCEL_WORK_REQUESTS: ParsedWorkRequestItem[] = [
     status: 'รอตอบรับ',
     rawStatus: 'เปิดงาน',
     isMachineFound: true,
-    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_CPRAM_Plant2.xlsx'
+    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_Plant2.xlsx'
   },
   {
     tempId: 'sample-wr-2',
@@ -259,7 +259,7 @@ export const SAMPLE_EXCEL_WORK_REQUESTS: ParsedWorkRequestItem[] = [
     status: 'รอตอบรับ',
     rawStatus: 'เปิดงาน',
     isMachineFound: true,
-    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_CPRAM_Plant2.xlsx'
+    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_Plant2.xlsx'
   },
   {
     tempId: 'sample-wr-3',
@@ -280,7 +280,7 @@ export const SAMPLE_EXCEL_WORK_REQUESTS: ParsedWorkRequestItem[] = [
     status: 'ตอบรับแล้ว/มีแผนงาน',
     rawStatus: 'ตอบรับแล้ว',
     isMachineFound: true,
-    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_CPRAM_Plant2.xlsx'
+    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_Plant2.xlsx'
   },
   {
     tempId: 'sample-wr-4',
@@ -301,7 +301,7 @@ export const SAMPLE_EXCEL_WORK_REQUESTS: ParsedWorkRequestItem[] = [
     status: 'รอตอบรับ',
     rawStatus: 'เปิดงาน',
     isMachineFound: true,
-    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_CPRAM_Plant2.xlsx'
+    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_Plant2.xlsx'
   },
   {
     tempId: 'sample-wr-5',
@@ -322,7 +322,7 @@ export const SAMPLE_EXCEL_WORK_REQUESTS: ParsedWorkRequestItem[] = [
     status: 'รอตอบรับ',
     rawStatus: 'เปิดงาน',
     isMachineFound: true,
-    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_CPRAM_Plant2.xlsx'
+    sourceFileName: 'ตัวอย่างใบแจ้งซ่อม_Plant2.xlsx'
   }
 ];
 

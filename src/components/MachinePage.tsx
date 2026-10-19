@@ -800,7 +800,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
                     นำเข้าข้อมูลทะเบียนเครื่องจักรจากไฟล์ PDF
                   </h3>
                   <p className="text-xs text-slate-400">
-                    รองรับแบบฟอร์มทะเบียนเครื่องจักร F-QMS-011/01 (เช่น CPRAM Food Services)
+                    รองรับแบบฟอร์มทะเบียนเครื่องจักร F-QMS-011/01 (มาตรฐานโรงงาน)
                   </p>
                 </div>
               </div>
@@ -1134,7 +1134,7 @@ export const MachinePage: React.FC<MachinePageProps> = ({ onNavigateToTbm }) => 
                     type="number"
                     min="1"
                     max="10000"
-                    placeholder="เช่น 600 (มาตรฐาน CPRAM TPM)"
+                    placeholder="เช่น 600 (มาตรฐาน TPM โรงงาน)"
                     value={newPlannedHours}
                     onChange={(e) => setNewPlannedHours(Number(e.target.value))}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3.5 py-2 text-cyan-300 font-mono text-sm focus:outline-none focus:border-cyan-500"

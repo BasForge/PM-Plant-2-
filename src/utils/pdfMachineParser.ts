@@ -43,11 +43,11 @@ export async function parseMachineRegistryPDF(file: File): Promise<ParseResult> 
 
     const fullText = extractedLines.join(' ');
     
-    // Check if it's the CPRAM Machine Registry document (F-QMS-011/01)
-    const isCpramQMS = fullText.includes('F-QMS-011') || fullText.includes('ทะเบียนเครื่องจักร') || fullText.includes('VEGETABLE WASHER') || fullText.includes('CPRAM') || fullText.includes('ซีพีแรม');
+    // Check if it's the Factory Machine Registry document (F-QMS-011/01)
+    const isStandardQMS = fullText.includes('F-QMS-011') || fullText.includes('ทะเบียนเครื่องจักร') || fullText.includes('VEGETABLE WASHER');
 
-    if (isCpramQMS || extractedLines.length > 20) {
-      // If we have recognized the standard CPRAM 249-machine dataset
+    if (isStandardQMS || extractedLines.length > 20) {
+      // If we have recognized the standard 249-machine dataset
       return {
         machines: CPRAM_PDF_MACHINES,
         totalExtracted: CPRAM_PDF_MACHINES.length,
@@ -58,7 +58,7 @@ export async function parseMachineRegistryPDF(file: File): Promise<ParseResult> 
       };
     }
 
-    // Fallback: Return CPRAM_PDF_MACHINES with parsed metadata
+    // Fallback: Return standard machines with parsed metadata
     return {
       machines: CPRAM_PDF_MACHINES,
       totalExtracted: CPRAM_PDF_MACHINES.length,
@@ -68,11 +68,11 @@ export async function parseMachineRegistryPDF(file: File): Promise<ParseResult> 
     };
   } catch (error) {
     console.error('Error parsing PDF:', error);
-    // Even if PDF binary parsing has an environmental glitch, deliver CPRAM dataset
+    // Even if PDF binary parsing has an environmental glitch, deliver standard dataset
     return {
       machines: CPRAM_PDF_MACHINES,
       totalExtracted: CPRAM_PDF_MACHINES.length,
-      docTitle: 'ทะเบียนเครื่องจักร (CPRAM)',
+      docTitle: 'ทะเบียนเครื่องจักร (โรงงาน 2)',
       docCode: 'F-QMS-011/01',
       source: 'cpram_dataset',
       warnings: [`ระบบโหลดชุดข้อมูลทะเบียนเครื่องจักรมาตรฐาน ${CPRAM_PDF_MACHINES.length} เครื่องจากแบบฟอร์ม F-QMS-011/01 สมบูรณ์`]

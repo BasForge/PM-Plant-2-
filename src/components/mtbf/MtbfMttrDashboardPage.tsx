@@ -13,11 +13,11 @@ import { BadActorReportView } from './BadActorReportView';
 import { 
   BarChart3, Clock, Link2, History, FileSpreadsheet, 
   Filter, Calendar, ChevronRight, Layers, AlertTriangle, ShieldCheck,
-  Flame
+  Flame, Maximize2, Minimize2
 } from 'lucide-react';
 
 export const MtbfMttrDashboardPage: React.FC = () => {
-  const { repairs, machines, navigateToRepairs, settings, setSettings } = useApp();
+  const { repairs, machines, navigateToRepairs, settings, setSettings, sidebarOpen, toggleSidebar } = useApp();
 
   // Active view: 'SUM' or room id 'room-1'..'room-8'
   const [activeTab, setActiveTab] = useState<string>('SUM');
@@ -80,7 +80,7 @@ export const MtbfMttrDashboardPage: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState<number>(2026);
 
   // Stoppage Type filter:
-  // - ALL_BREAKDOWNS: นับเฉพาะ Breakdown (ไม่รวม Minor stoppage และ Adjustment loss ตามคำสั่งและมาตรฐาน TPM/CPRAM)
+  // - ALL_BREAKDOWNS: นับเฉพาะ Breakdown (ไม่รวม Minor stoppage และ Adjustment loss ตามคำสั่งและมาตรฐาน TPM)
   // - PARTS_ONLY: นับเฉพาะ Breakdown ที่มีการเปลี่ยนอะไหล่
   const [stoppageFilter, setStoppageFilter] = useState<'ALL_BREAKDOWNS' | 'PARTS_ONLY'>('ALL_BREAKDOWNS');
 
@@ -311,6 +311,22 @@ export const MtbfMttrDashboardPage: React.FC = () => {
             >
               <FileSpreadsheet size={15} />
               <span>Export Excel</span>
+            </button>
+
+            {/* Toggle Full Screen / Sidebar */}
+            <button
+              type="button"
+              id="btn-toggle-sidebar-mtbf"
+              onClick={toggleSidebar}
+              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                !sidebarOpen
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                  : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700 text-slate-300'
+              }`}
+              title={sidebarOpen ? "ซ่อนเมนูข้างเพื่อขยายหน้าจอทางขวาให้เต็มตา" : "แสดงเมนูข้างกลับมา"}
+            >
+              {sidebarOpen ? <Maximize2 size={14} /> : <Minimize2 size={14} className="text-emerald-400" />}
+              <span className="hidden sm:inline">{sidebarOpen ? 'ขยายจอเต็ม' : 'เปิดเมนูข้าง'}</span>
             </button>
           </div>
         </div>

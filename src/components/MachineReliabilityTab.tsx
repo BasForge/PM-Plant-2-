@@ -93,7 +93,7 @@ export const MachineReliabilityTab: React.FC<MachineReliabilityTabProps> = ({
     return repairs;
   }, [repairs, timeRange, selectedMonth]);
 
-  // Calculate reliability metrics per machine using CPRAM TPM Standards:
+  // Calculate reliability metrics per machine using TPM Standards:
   // คำนวณเฉพาะเหตุการณ์ Breakdown เท่านั้น (ไม่รวม Minor stoppage และ Adjustment loss ตามเกณฑ์มาตรฐาน TPM)
   // 1. % Breakdown = (Breakdown Time / Planned Production Time) * 100
   // 2. MTTR = Total Breakdown Repair Time / Number of Failures
@@ -395,7 +395,7 @@ export const MachineReliabilityTab: React.FC<MachineReliabilityTabProps> = ({
               TPM – Planned Maintenance (PM Pillar)
             </span>
             <span className="text-xs text-slate-400 font-mono">
-              เกณฑ์มาตรฐาน CPRAM & ISO 14224
+              เกณฑ์มาตรฐาน TPM &amp; ISO 14224
             </span>
           </div>
           <h2 className="text-xl font-black text-slate-100 tracking-tight mt-1 flex items-center gap-2">
@@ -461,7 +461,7 @@ export const MachineReliabilityTab: React.FC<MachineReliabilityTabProps> = ({
         </div>
       </div>
 
-      {/* 2. INFORMATIVE STANDARD GUIDE BANNER (CPRAM PM PILLAR & ISO 14224) */}
+      {/* 2. INFORMATIVE STANDARD GUIDE BANNER (PM PILLAR & ISO 14224) */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
         <div 
           className="flex justify-between items-center cursor-pointer select-none"
@@ -476,7 +476,7 @@ export const MachineReliabilityTab: React.FC<MachineReliabilityTabProps> = ({
                 มาตรฐานการคำนวณ PM Pillar (PM KPI Calculation Standard)
               </h3>
               <p className="text-[10.5px] text-slate-400">
-                สูตรมาตรฐาน JIPM TPM / CPRAM: ทิศทางความสำเร็จคือ <strong className="text-emerald-400">% Breakdown ↓</strong> + <strong className="text-cyan-400">MTTR ↓</strong> + <strong className="text-amber-400">MTBF ↑</strong>
+                สูตรมาตรฐาน JIPM TPM โรงงาน: ทิศทางความสำเร็จคือ <strong className="text-emerald-400">% Breakdown ↓</strong> + <strong className="text-cyan-400">MTTR ↓</strong> + <strong className="text-amber-400">MTBF ↑</strong>
                 <span className="ml-2 text-cyan-300 font-medium">*(คำนวณเฉพาะเหตุการณ์ Breakdown ไม่รวม Minor stoppage และ Adjustment loss)*</span>
               </p>
             </div>

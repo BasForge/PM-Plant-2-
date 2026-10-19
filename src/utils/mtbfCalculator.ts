@@ -81,7 +81,7 @@ export function resolveRepairToRoomAndMachine(
     }
   }
 
-  // 3. Smart Matching ตามรหัสและชื่อเครื่องในสายผลิต CPRAM โรงงาน 2
+  // 3. Smart Matching ตามรหัสและชื่อเครื่องในสายผลิต โรงงาน 2
   if (normRawId === 'ATS03') {
     const r5 = rooms.find(r => r.id === 'room-5');
     const tsy = r5?.machines.find(m => m.id === 'TSY01') || r5?.machines.find(m => m.id === 'ATS03') || { id: 'ATS03', name: 'TOP SEALER ยำสาหร่าย', ranking: 'A' };
@@ -169,7 +169,7 @@ export function resolveRepairToRoomAndMachine(
     if (r5 && onr) return { room: r5, machine: onr, isExplicitlyMapped: false };
   }
 
-  // 4. Lookup จากฐานข้อมูลทะเบียนเครื่องจักร CPRAM Master Database
+  // 4. Lookup จากฐานข้อมูลทะเบียนเครื่องจักร Master Database
   const master = CPRAM_PDF_MACHINES.find(m => m.id.toUpperCase() === normRawId);
   if (master) {
     const loc = master.location || master.lineGroup || '';
@@ -242,7 +242,7 @@ export function calculateMTBFMTTRData(params: {
     if (!rDate.startsWith(currentYearStr)) continue;
 
     // กรองประเภทงาน:
-    // ตามคำสั่งและมาตรฐาน TPM/CPRAM: นำเฉพาะเบรกดาวน์ (BREAKDOWN) มาคิด MTTR / MTBF
+    // ตามคำสั่งและมาตรฐาน TPM: นำเฉพาะเบรกดาวน์ (BREAKDOWN) มาคิด MTTR / MTBF
     // ส่วน Minor stoppage (< 15 นาที ไม่เปลี่ยนอะไหล่) และ Adjustment loss (> 15 นาที ไม่เปลี่ยนอะไหล่) ไม่นำมาคิดเด็ดขาด!
     const stoppageType = getRepairStoppageType(r);
     if (stoppageType !== 'BREAKDOWN') {

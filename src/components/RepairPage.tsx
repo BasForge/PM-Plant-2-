@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   RepairLog, 
@@ -18,7 +18,8 @@ import {
   Trash2, AlertTriangle, CheckCircle, HelpCircle, ArrowUpDown,
   Edit, FileSpreadsheet, Upload, X, MessageSquare, Tag, Check, Sparkles,
   CheckCircle2, Clock, Wrench, Package, PenLine, PlusCircle, CheckSquare,
-  FileText, BookOpen, ExternalLink, Paperclip, Eye, Download
+  FileText, BookOpen, ExternalLink, Paperclip, Eye, Download,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Maximize2, Minimize2
 } from 'lucide-react';
 import { notifyRepairOpened, notifyRepairClosed, sendLineNotification } from '../utils/lineNotify';
 import { compressImageFile } from '../utils/imageUtils';
@@ -29,13 +30,16 @@ import { DateTimePicker24H } from './common/DateTimePicker24H';
 import { WorkOrderDetailModal } from './workOrder/WorkOrderDetailModal';
 import { PDFViewerModal } from './kaizen/PDFViewerModal';
 import { ContextualKnowledgeAssistant } from './knowledge/ContextualKnowledgeAssistant';
+import { CPRAMLossesModal } from './repair/CPRAMLossesModal';
 
 export const RepairPage: React.FC = () => {
   const { 
     repairs, setRepairs, machines, technicians, spareParts, setSpareParts, settings, canEdit, canDelete,
+    currentUser,
     repairNavigationFilter, clearRepairNavigationFilter, setActivePage,
     workOrders, setWorkOrders, createEmergencyBreakdownWorkOrder,
-    navigateToKaizen, improvements, setImprovements
+    navigateToKaizen, improvements, setImprovements,
+    sidebarOpen, toggleSidebar
   } = useApp();
 
   // Search/Filters states
@@ -91,10 +95,10 @@ export const RepairPage: React.FC = () => {
   // Auto-delete linked Work Order state when deleting repairs
   const [deleteLinkedWorkOrder, setDeleteLinkedWorkOrder] = useState<boolean>(true);
 
-  // FA, OPL, Kaizen attachments states
+  // FA, OPL, Kaizen, MP attachments states
   const [formAttachments, setFormAttachments] = useState<RepairAttachmentItem[]>([]);
   const [formSyncToKaizen, setFormSyncToKaizen] = useState<boolean>(true);
-  const [activeAttachmentTab, setActiveAttachmentTab] = useState<'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN'>('FA');
+  const [activeAttachmentTab, setActiveAttachmentTab] = useState<'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN' | 'MP_INFO'>('WHY_WHY');
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
 
   // Quick Attachment Modal for any repair directly from table/row/detail
@@ -102,6 +106,22 @@ export const RepairPage: React.FC = () => {
 
   // Preview modal for attachments (PDF, Excel)
   const [previewPDF, setPreviewPDF] = useState<PDFFileAttachment | null>(null);
+
+  // Table Density and Screen-Fit State (แก้ปัญหามองไม่เห็นเต็มหน้าจอทางขวา)
+  const [isFitToScreen, setIsFitToScreen] = useState<boolean>(true);
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const handleScrollTable = (direction: 'left' | 'right' | 'start' | 'end') => {
+    if (!tableScrollRef.current) return;
+    if (direction === 'start') {
+      tableScrollRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+    } else if (direction === 'end') {
+      tableScrollRef.current.scrollTo({ left: tableScrollRef.current.scrollWidth, behavior: 'smooth' });
+    } else {
+      const amount = direction === 'left' ? -350 : 350;
+      tableScrollRef.current.scrollBy({ left: amount, behavior: 'smooth' });
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -160,10 +180,11 @@ export const RepairPage: React.FC = () => {
 
   const [formOtherCost, setFormOtherCost] = useState<number>(0);
 
-  // Stoppage Classification state (Breakdown / Minor stoppage / Adjustment loss)
+  // Stoppage Classification state (Breakdown / Minor stoppage / Adjustment loss / CP RAM Standard)
   const [formStoppageType, setFormStoppageType] = useState<StoppageType>('BREAKDOWN');
   const [formHasPartsReplaced, setFormHasPartsReplaced] = useState<boolean>(false);
   const [isStoppageManual, setIsStoppageManual] = useState<boolean>(false);
+  const [showCPRAMLossesModal, setShowCPRAMLossesModal] = useState<boolean>(false);
 
   // Helper companion to add part from inventory to current list
   const handleAddPartToForm = () => {
@@ -652,6 +673,14 @@ export const RepairPage: React.FC = () => {
         rootCauseSummary: repLog.why5 || repLog.why4 || repLog.why3 || repLog.why2 || repLog.why1 || 'วิเคราะห์สาเหตุรากเหง้าตามลำดับ 5 Whys',
         countermeasure: repLog.correctiveAction || 'มาตรการแก้ไขและป้องกันการเกิดซ้ำ',
         standardizationRef: repLog.workOrderNo || repLog.workOrderId || `BD-REF-${repLog.id}`
+      } : undefined,
+      mpData: att.category === 'MP_INFO' ? {
+        mpCategory: 'ความน่าเชื่อถือ/ยืดอายุการใช้งาน (Reliability)',
+        issueDescription: repLog.symptoms,
+        proposedDesignChange: repLog.correctiveAction || 'ปรับปรุงแก้ไขเพื่อป้องกันชำรุดซ้ำ (Maintenance Prevention)',
+        expectedBenefits: 'ยืดอายุการใช้งานเครื่องจักรและลดเวลา Downtime',
+        feedbackTarget: 'แผนกวิศวกรรมและซ่อมบำรุง (Maintenance Engineering)',
+        referenceSource: `ใบงานซ่อม ${repLog.id}`
       } : undefined
     };
 
@@ -664,7 +693,7 @@ export const RepairPage: React.FC = () => {
     });
   };
 
-  const handleAttachmentUpload = (file: File, category: 'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN', targetRepair?: RepairLog) => {
+  const handleAttachmentUpload = (file: File, category: 'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN' | 'MP_INFO', targetRepair?: RepairLog) => {
     const reader = new FileReader();
     const fileExt = file.name.split('.').pop()?.toLowerCase();
     let fileType: 'pdf' | 'excel' | 'image' | 'word' | 'other' = 'other';
@@ -699,7 +728,8 @@ export const RepairPage: React.FC = () => {
             ...(currentTarget.faFile ? [currentTarget.faFile] : []),
             ...(currentTarget.oplFile ? [currentTarget.oplFile] : []),
             ...(currentTarget.whyWhyFile ? [currentTarget.whyWhyFile] : []),
-            ...(currentTarget.kaizenFile ? [currentTarget.kaizenFile] : [])
+            ...(currentTarget.kaizenFile ? [currentTarget.kaizenFile] : []),
+            ...(currentTarget.mpFile ? [currentTarget.mpFile] : [])
           ];
           const updatedAtts = [...existingAtts.filter(a => a.id !== newAtt.id), newAtt];
           const updated: RepairLog = {
@@ -708,6 +738,7 @@ export const RepairPage: React.FC = () => {
             oplFile: effectiveCategory === 'OPL' ? newAtt : currentTarget.oplFile,
             whyWhyFile: effectiveCategory === 'WHY_WHY' ? newAtt : currentTarget.whyWhyFile,
             kaizenFile: effectiveCategory === 'KAIZEN' ? newAtt : currentTarget.kaizenFile,
+            mpFile: effectiveCategory === 'MP_INFO' ? newAtt : currentTarget.mpFile,
             repairAttachments: updatedAtts
           };
           syncAttachmentToKaizen(newAtt, updated);
@@ -717,17 +748,17 @@ export const RepairPage: React.FC = () => {
           }
           return prevRepairs.map(r => r.id === targetRepair.id ? updated : r);
         });
-        showToast(`📎 แนบไฟล์ ${effectiveCategory}: ${file.name} และเชื่อมโยงไปแถบ Kaizen เรียบร้อย`);
+        showToast(`📎 แนบไฟล์ ${effectiveCategory === 'MP_INFO' ? 'MP' : effectiveCategory}: ${file.name} และเชื่อมโยงไปแถบ Kaizen เรียบร้อย`);
       } else {
         // Inside Create / Edit Form
         setFormAttachments(prev => [...prev.filter(a => a.category !== effectiveCategory || a.name !== file.name), newAtt]);
-        showToast(`📎 เพิ่มไฟล์ ${effectiveCategory}: ${file.name} เรียบร้อยแล้ว`);
+        showToast(`📎 เพิ่มไฟล์ ${effectiveCategory === 'MP_INFO' ? 'MP' : effectiveCategory}: ${file.name} เรียบร้อยแล้ว`);
       }
     };
     reader.readAsDataURL(file);
   };
 
-  const handlePasteEvent = (e: React.ClipboardEvent, category: 'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN', targetRepair?: RepairLog) => {
+  const handlePasteEvent = (e: React.ClipboardEvent, category: 'FA' | 'OPL' | 'WHY_WHY' | 'KAIZEN' | 'MP_INFO', targetRepair?: RepairLog) => {
     if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
       e.preventDefault();
       const file = e.clipboardData.files[0];
@@ -741,7 +772,8 @@ export const RepairPage: React.FC = () => {
         ...(targetRepair.faFile ? [targetRepair.faFile] : []),
         ...(targetRepair.oplFile ? [targetRepair.oplFile] : []),
         ...(targetRepair.whyWhyFile ? [targetRepair.whyWhyFile] : []),
-        ...(targetRepair.kaizenFile ? [targetRepair.kaizenFile] : [])
+        ...(targetRepair.kaizenFile ? [targetRepair.kaizenFile] : []),
+        ...(targetRepair.mpFile ? [targetRepair.mpFile] : [])
       ];
       const updatedAtts = existingAtts.filter(a => a.id !== id);
       const updated: RepairLog = {
@@ -750,6 +782,7 @@ export const RepairPage: React.FC = () => {
         oplFile: targetRepair.oplFile?.id === id ? undefined : targetRepair.oplFile,
         whyWhyFile: targetRepair.whyWhyFile?.id === id ? undefined : targetRepair.whyWhyFile,
         kaizenFile: targetRepair.kaizenFile?.id === id ? undefined : targetRepair.kaizenFile,
+        mpFile: targetRepair.mpFile?.id === id ? undefined : targetRepair.mpFile,
         repairAttachments: updatedAtts
       };
       setRepairs(prev => prev.map(r => r.id === targetRepair.id ? updated : r));
@@ -825,18 +858,19 @@ export const RepairPage: React.FC = () => {
     setCustomPartUnit('ชิ้น');
     setSaveCustomToMaster(false);
 
-    // Initialize FA/OPL/Kaizen attachments from existing log
+    // Initialize FA/OPL/Kaizen/MP attachments from existing log
     const initialAtts = log.repairAttachments && log.repairAttachments.length > 0
       ? log.repairAttachments
       : [
           ...(log.faFile ? [log.faFile] : []),
           ...(log.oplFile ? [log.oplFile] : []),
           ...(log.whyWhyFile ? [log.whyWhyFile] : []),
-          ...(log.kaizenFile ? [log.kaizenFile] : [])
+          ...(log.kaizenFile ? [log.kaizenFile] : []),
+          ...(log.mpFile ? [log.mpFile] : [])
         ];
     setFormAttachments(initialAtts);
     setFormSyncToKaizen(true);
-    setActiveAttachmentTab(log.whyWhyFile ? 'WHY_WHY' : log.faFile ? 'FA' : log.oplFile ? 'OPL' : log.kaizenFile ? 'KAIZEN' : 'WHY_WHY');
+    setActiveAttachmentTab(log.whyWhyFile ? 'WHY_WHY' : log.faFile ? 'FA' : log.oplFile ? 'OPL' : log.kaizenFile ? 'KAIZEN' : log.mpFile ? 'MP_INFO' : 'WHY_WHY');
     
     setShowFormModal(true);
   };
@@ -1355,17 +1389,25 @@ export const RepairPage: React.FC = () => {
   const totalCount = repairs.length;
   const totalDuration = repairs.reduce((sum, r) => sum + (r.duration || 0), 0);
 
+  const shutdownLogs = repairs.filter(r => getRepairStoppageType(r) === 'SHUTDOWN');
+  const shutdownCount = shutdownLogs.length;
+  const shutdownDuration = shutdownLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
+
   const breakdownLogs = repairs.filter(r => getRepairStoppageType(r) === 'BREAKDOWN');
   const breakdownCount = breakdownLogs.length;
   const breakdownDuration = breakdownLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
 
-  const minorLogs = repairs.filter(r => getRepairStoppageType(r) === 'MINOR_STOPPAGE');
-  const minorCount = minorLogs.length;
-  const minorDuration = minorLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
+  const startupLogs = repairs.filter(r => getRepairStoppageType(r) === 'STARTUP');
+  const startupCount = startupLogs.length;
+  const startupDuration = startupLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
 
   const adjustmentLogs = repairs.filter(r => getRepairStoppageType(r) === 'ADJUSTMENT_LOSS');
   const adjustmentCount = adjustmentLogs.length;
   const adjustmentDuration = adjustmentLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
+
+  const minorLogs = repairs.filter(r => getRepairStoppageType(r) === 'MINOR_STOPPAGE');
+  const minorCount = minorLogs.length;
+  const minorDuration = minorLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
 
   // Filter & Sort core logs
   const filteredRepairs = repairs
@@ -1635,34 +1677,50 @@ export const RepairPage: React.FC = () => {
 
       {/* LOSS CLASSIFICATION SUMMARY CARDS & QUICK SELECTOR */}
       <div className="space-y-2.5" id="stoppage-classification-dashboard">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 flex-wrap">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
               <Tag size={15} className="text-cyan-400" />
-              การจำแนกข้อมูลงานซ่อมตามนิยามความสูญเสีย (Failure & Loss Classification)
+              การจำแนกข้อมูลงานซ่อมตาม 5 หัวข้อเครื่องหยุดและความสูญเสีย (5 Machine Stoppage &amp; Loss Classification)
             </span>
             <span className="text-[11px] text-slate-400 hidden lg:inline">
-              • คลิกการ์ดหมวดหมู่เพื่อกรองดูข้อมูลที่แยกประเภทได้ทันที
+              • คลิกการ์ดหัวข้อเพื่อกรองดูข้อมูลที่แยกประเภทได้ทันที
             </span>
           </div>
-          {stoppageFilter !== 'ALL' && (
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Factory Breakdown Standard Definition Button */}
             <button
               type="button"
-              onClick={() => setStoppageFilter('ALL')}
-              className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1.5 self-start sm:self-auto bg-slate-800 hover:bg-slate-750 px-2.5 py-1 rounded-lg border border-slate-700 transition"
+              id="btn-open-factory-breakdown-definition"
+              onClick={() => setShowCPRAMLossesModal(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-500/20 via-rose-500/20 to-amber-500/20 hover:from-blue-500/30 hover:to-amber-500/30 border border-cyan-500/50 text-cyan-200 hover:text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="เปิดดูตารางนิยาม 5 หัวข้อเครื่องหยุด และ Loss Classification ฉบับเต็มของโรงงาน"
             >
-              ✕ ล้างตัวกรองหมวดหมู่ (แสดงทั้งหมด {totalCount} ครั้ง)
+              <BookOpen size={14} className="text-rose-400" />
+              <span>📖 ตารางนิยาม 5 หัวข้อเครื่องหยุดของโรงงาน (Loss 1 / 4 / 5 / 7 / 12)</span>
             </button>
-          )}
+
+            {stoppageFilter !== 'ALL' && (
+              <button
+                type="button"
+                onClick={() => setStoppageFilter('ALL')}
+                className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1.5 self-start sm:self-auto bg-slate-800 hover:bg-slate-750 px-2.5 py-1 rounded-lg border border-slate-700 transition"
+              >
+                ✕ ล้างตัวกรองหมวดหมู่ ({totalCount} ครั้ง)
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        {/* 6 Cards Grid (ALL + 5 Machine Stoppage Topics) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
           {/* Card 1: ALL */}
           <button
             type="button"
             id="filter-card-all"
             onClick={() => setStoppageFilter('ALL')}
-            className={`text-left p-4 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+            className={`text-left p-3.5 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
               stoppageFilter === 'ALL'
                 ? 'bg-slate-800 border-cyan-500 ring-2 ring-cyan-500/25 shadow-lg shadow-cyan-950/40'
                 : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-slate-650'
@@ -1670,33 +1728,69 @@ export const RepairPage: React.FC = () => {
           >
             <div>
               <div className="flex justify-between items-start mb-2">
-                <span className="text-xs font-bold text-slate-200">ทั้งหมด (All Records)</span>
+                <span className="text-xs font-bold text-slate-200">ทั้งหมด (All)</span>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                   stoppageFilter === 'ALL' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'bg-slate-750 text-slate-400'
                 }`}>
-                  {stoppageFilter === 'ALL' ? '✓ กำลังดูอยู่' : 'รวมทุกประเภท'}
+                  {stoppageFilter === 'ALL' ? '✓ เลือกดู' : 'รวมทั้งหมด'}
                 </span>
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black font-mono text-slate-100">{totalCount}</span>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-xl font-black font-mono text-slate-100">{totalCount}</span>
                 <span className="text-xs text-slate-400">ครั้ง</span>
                 <span className="text-xs text-slate-600">|</span>
-                <span className="text-xs font-mono font-bold text-cyan-400">{totalDuration.toLocaleString()} นาที</span>
+                <span className="text-xs font-mono font-bold text-cyan-400">{totalDuration.toLocaleString()} น.</span>
               </div>
             </div>
-            <p className="text-[11px] text-slate-400 mt-3 border-t border-slate-750/70 pt-2 line-clamp-2">
-              รวมข้อมูลประวัติงานซ่อมบำรุงและเครื่องเสียทุกกรณีในโรงงาน
+            <p className="text-[10px] text-slate-400 mt-2.5 border-t border-slate-750/70 pt-2 line-clamp-2">
+              รวมบันทึกประวัติซ่อมบำรุงและเครื่องหยุดทุกกรณี
             </p>
           </button>
 
-          {/* Card 2: BREAKDOWN */}
+          {/* Card 2: SHUTDOWN / PLAN DOWNTIME */}
+          <button
+            type="button"
+            id="filter-card-shutdown"
+            onClick={() => setStoppageFilter('SHUTDOWN')}
+            className={`text-left p-3.5 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+              stoppageFilter === 'SHUTDOWN'
+                ? 'bg-blue-950/40 border-blue-500 ring-2 ring-blue-500/30 shadow-lg shadow-blue-950/40'
+                : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-blue-500/50'
+            }`}
+          >
+            <div>
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-400 shadow-sm shadow-blue-400/50"></span>
+                  <span className="text-xs font-bold text-blue-300 truncate" title="Shutdown / Plan Downtime">Shutdown / Plan</span>
+                </div>
+                <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded-full ${
+                  stoppageFilter === 'SHUTDOWN' ? 'bg-blue-500/25 text-blue-200 border border-blue-500/40' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                }`}>
+                  {stoppageFilter === 'SHUTDOWN' ? '✓ เลือกดู' : 'Loss 1'}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-xl font-black font-mono text-blue-300">{shutdownCount}</span>
+                <span className="text-xs text-blue-400">ครั้ง</span>
+                <span className="text-xs text-slate-600">|</span>
+                <span className="text-xs font-mono font-bold text-blue-400">{shutdownDuration.toLocaleString()} น.</span>
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-1.5 rounded-lg border border-slate-750/80 space-y-0.5">
+              <p><strong>นิยาม:</strong> หยุดตามแผนล่วงหน้า (PM, ล้างเครื่อง, อบรม)</p>
+              <p className="text-[9px] text-blue-400 font-semibold">• Plan Downtime</p>
+            </div>
+          </button>
+
+          {/* Card 3: BREAKDOWN */}
           <button
             type="button"
             id="filter-card-breakdown"
             onClick={() => setStoppageFilter('BREAKDOWN')}
-            className={`text-left p-4 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+            className={`text-left p-3.5 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
               stoppageFilter === 'BREAKDOWN'
-                ? 'bg-rose-950/30 border-rose-500 ring-2 ring-rose-500/30 shadow-lg shadow-rose-950/40'
+                ? 'bg-rose-950/40 border-rose-500 ring-2 ring-rose-500/30 shadow-lg shadow-rose-950/40'
                 : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-rose-500/50'
             }`}
           >
@@ -1706,67 +1800,69 @@ export const RepairPage: React.FC = () => {
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50"></span>
                   <span className="text-xs font-bold text-rose-300">Breakdown</span>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded-full ${
                   stoppageFilter === 'BREAKDOWN' ? 'bg-rose-500/25 text-rose-200 border border-rose-500/40' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                 }`}>
-                  {stoppageFilter === 'BREAKDOWN' ? '✓ กำลังเลือกดู' : 'เครื่องเสีย'}
+                  {stoppageFilter === 'BREAKDOWN' ? '✓ เลือกดู' : 'Loss 4'}
                 </span>
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black font-mono text-rose-300">{breakdownCount}</span>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-xl font-black font-mono text-rose-300">{breakdownCount}</span>
                 <span className="text-xs text-rose-400">ครั้ง</span>
                 <span className="text-xs text-slate-600">|</span>
-                <span className="text-xs font-mono font-bold text-rose-400">{breakdownDuration.toLocaleString()} นาที</span>
+                <span className="text-xs font-mono font-bold text-rose-400">{breakdownDuration.toLocaleString()} น.</span>
               </div>
             </div>
-            <p className="text-[10.5px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-2 rounded-lg border border-slate-750/80">
-              <strong>นิยาม:</strong> เครื่องเสียที่ไม่ทราบล่วงหน้า มีการเปลี่ยนอะไหล่ หน่วยเป็นครั้ง แต่เก็บเวลาด้วย
-            </p>
+            <div className="text-[10px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-1.5 rounded-lg border border-slate-750/80 space-y-0.5">
+              <p><strong>นิยาม:</strong> ชิ้นส่วนชำรุด <strong>(ซ่อมแซม/เปลี่ยนอะไหล่)</strong> หรือ &gt; 1 นาที</p>
+              <p className="text-[9px] text-rose-400 font-semibold">• คิด MTTR / MTBF</p>
+            </div>
           </button>
 
-          {/* Card 3: MINOR STOPPAGE */}
+          {/* Card 4: STARTUP / START UP2 */}
           <button
             type="button"
-            id="filter-card-minor"
-            onClick={() => setStoppageFilter('MINOR_STOPPAGE')}
-            className={`text-left p-4 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
-              stoppageFilter === 'MINOR_STOPPAGE'
-                ? 'bg-amber-950/30 border-amber-500 ring-2 ring-amber-500/30 shadow-lg shadow-amber-950/40'
-                : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-amber-500/50'
+            id="filter-card-startup"
+            onClick={() => setStoppageFilter('STARTUP')}
+            className={`text-left p-3.5 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+              stoppageFilter === 'STARTUP'
+                ? 'bg-purple-950/40 border-purple-500 ring-2 ring-purple-500/30 shadow-lg shadow-purple-950/40'
+                : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-purple-500/50'
             }`}
           >
             <div>
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50"></span>
-                  <span className="text-xs font-bold text-amber-300">Minor stoppage</span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-400 shadow-sm shadow-purple-400/50"></span>
+                  <span className="text-xs font-bold text-purple-300">Start up2</span>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  stoppageFilter === 'MINOR_STOPPAGE' ? 'bg-amber-500/25 text-amber-200 border border-amber-500/40' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded-full ${
+                  stoppageFilter === 'STARTUP' ? 'bg-purple-500/25 text-purple-200 border border-purple-500/40' : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                 }`}>
-                  {stoppageFilter === 'MINOR_STOPPAGE' ? '✓ กำลังเลือกดู' : '&lt; 15 นาที'}
+                  {stoppageFilter === 'STARTUP' ? '✓ เลือกดู' : 'Loss 5'}
                 </span>
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black font-mono text-amber-300">{minorCount}</span>
-                <span className="text-xs text-amber-400">ครั้ง</span>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-xl font-black font-mono text-purple-300">{startupCount}</span>
+                <span className="text-xs text-purple-400">ครั้ง</span>
                 <span className="text-xs text-slate-600">|</span>
-                <span className="text-xs font-mono font-bold text-amber-400">{minorDuration.toLocaleString()} นาที</span>
+                <span className="text-xs font-mono font-bold text-purple-400">{startupDuration.toLocaleString()} น.</span>
               </div>
             </div>
-            <p className="text-[10.5px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-2 rounded-lg border border-slate-750/80">
-              <strong>นิยาม:</strong> เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ น้อยกว่า 15 นาที หน่วยเป็นครั้ง
-            </p>
+            <div className="text-[10px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-1.5 rounded-lg border border-slate-750/80 space-y-0.5">
+              <p><strong>นิยาม:</strong> ช่วงเริ่มเดินเครื่อง รออุณหภูมิ/แรงดันก่อนเริ่มผลิต</p>
+              <p className="text-[9px] text-purple-400 font-semibold">• Start Up Loss</p>
+            </div>
           </button>
 
-          {/* Card 4: ADJUSTMENT LOSS */}
+          {/* Card 5: ADJUSTMENT LOSS */}
           <button
             type="button"
             id="filter-card-adjustment"
             onClick={() => setStoppageFilter('ADJUSTMENT_LOSS')}
-            className={`text-left p-4 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+            className={`text-left p-3.5 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
               stoppageFilter === 'ADJUSTMENT_LOSS'
-                ? 'bg-orange-950/30 border-orange-500 ring-2 ring-orange-500/30 shadow-lg shadow-orange-950/40'
+                ? 'bg-orange-950/40 border-orange-500 ring-2 ring-orange-500/30 shadow-lg shadow-orange-950/40'
                 : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-orange-500/50'
             }`}
           >
@@ -1774,24 +1870,61 @@ export const RepairPage: React.FC = () => {
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-orange-400 shadow-sm shadow-orange-400/50"></span>
-                  <span className="text-xs font-bold text-orange-300">Adjustment loss</span>
+                  <span className="text-xs font-bold text-orange-300 truncate" title="Adjustment loss">Adjustment</span>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded-full ${
                   stoppageFilter === 'ADJUSTMENT_LOSS' ? 'bg-orange-500/25 text-orange-200 border border-orange-500/40' : 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
                 }`}>
-                  {stoppageFilter === 'ADJUSTMENT_LOSS' ? '✓ กำลังเลือกดู' : '&gt; 15 นาที'}
+                  {stoppageFilter === 'ADJUSTMENT_LOSS' ? '✓ เลือกดู' : 'Loss 7'}
                 </span>
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black font-mono text-orange-300">{adjustmentCount}</span>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-xl font-black font-mono text-orange-300">{adjustmentCount}</span>
                 <span className="text-xs text-orange-400">ครั้ง</span>
                 <span className="text-xs text-slate-600">|</span>
-                <span className="text-xs font-mono font-bold text-orange-400">{adjustmentDuration.toLocaleString()} นาที</span>
+                <span className="text-xs font-mono font-bold text-orange-400">{adjustmentDuration.toLocaleString()} น.</span>
               </div>
             </div>
-            <p className="text-[10.5px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-2 rounded-lg border border-slate-750/80">
-              <strong>นิยาม:</strong> เครื่องเสียที่ไม่ทราบล่วงหน้า ไม่มีการเปลี่ยนอะไหล่ มากกว่า 15 นาที หน่วยเป็นครั้ง
-            </p>
+            <div className="text-[10px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-1.5 rounded-lg border border-slate-750/80 space-y-0.5">
+              <p><strong>นิยาม:</strong> ไม่ชำรุด ปรับแต่งคุณภาพสินค้าเกิน 15 นาที (&gt; 15 นาที)</p>
+              <p className="text-[9px] text-orange-400 font-semibold">• บันทึกเวลาปรับแต่ง</p>
+            </div>
+          </button>
+
+          {/* Card 6: MINOR STOPPAGE */}
+          <button
+            type="button"
+            id="filter-card-minor"
+            onClick={() => setStoppageFilter('MINOR_STOPPAGE')}
+            className={`text-left p-3.5 rounded-xl border transition-all relative overflow-hidden flex flex-col justify-between ${
+              stoppageFilter === 'MINOR_STOPPAGE'
+                ? 'bg-amber-950/40 border-amber-500 ring-2 ring-amber-500/30 shadow-lg shadow-amber-950/40'
+                : 'bg-slate-850/80 border-slate-750 hover:bg-slate-800 hover:border-amber-500/50'
+            }`}
+          >
+            <div>
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50"></span>
+                  <span className="text-xs font-bold text-amber-300 truncate" title="Minor stoppage">Minor stop</span>
+                </div>
+                <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded-full ${
+                  stoppageFilter === 'MINOR_STOPPAGE' ? 'bg-amber-500/25 text-amber-200 border border-amber-500/40' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                }`}>
+                  {stoppageFilter === 'MINOR_STOPPAGE' ? '✓ เลือกดู' : 'Loss 12'}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-xl font-black font-mono text-amber-300">{minorCount}</span>
+                <span className="text-xs text-amber-400">ครั้ง</span>
+                <span className="text-xs text-slate-600">|</span>
+                <span className="text-xs font-mono font-bold text-amber-400">{minorDuration.toLocaleString()} น.</span>
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-300 mt-2.5 leading-relaxed bg-slate-900/70 p-1.5 rounded-lg border border-slate-750/80 space-y-0.5">
+              <p><strong>นิยาม:</strong> ไม่ชำรุด ปรับแต่งน้อยกว่า 15 นาที (&lt; 15 นาที)</p>
+              <p className="text-[9px] text-amber-400 font-semibold">• บันทึกจำนวนครั้ง</p>
+            </div>
           </button>
         </div>
       </div>
@@ -1848,10 +1981,12 @@ export const RepairPage: React.FC = () => {
               onChange={(e) => setStoppageFilter(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-sans"
             >
-              <option value="ALL">-- ทุกประเภทความสูญเสีย --</option>
-              <option value="BREAKDOWN">🔴 Breakdown (มีเปลี่ยนอะไหล่)</option>
-              <option value="MINOR_STOPPAGE">🟡 Minor stoppage (&lt; 15 นาที)</option>
-              <option value="ADJUSTMENT_LOSS">🟠 Adjustment loss (&gt; 15 นาที)</option>
+              <option value="ALL">-- ทุกประเภทความสูญเสีย (All) --</option>
+              <option value="SHUTDOWN">🔵 1. Shutdown / Plan Downtime (หยุดตามแผน)</option>
+              <option value="BREAKDOWN">🔴 4. Breakdown (ชำรุดเสียหาย / มีเปลี่ยนอะไหล่ / &gt; 1 นาที)</option>
+              <option value="STARTUP">🟣 5. Start up2 (ช่วงเริ่มต้นการผลิต)</option>
+              <option value="ADJUSTMENT_LOSS">🟠 7. Adjustment loss (ปรับแต่งคุณภาพ &gt; 15 นาที)</option>
+              <option value="MINOR_STOPPAGE">🟡 12. Minor stoppage (หยุดเล็กๆ น้อยๆ &lt; 15 นาที)</option>
             </select>
           </div>
 
@@ -1966,56 +2101,84 @@ export const RepairPage: React.FC = () => {
         </div>
       )}
 
-      {/* BULK ACTION TOOLBAR (เมื่อเลือกรายการประวัติซ่อมอย่างน้อย 1 รายการ) */}
-      {selectedIds.size > 0 && (
-        <div 
-          id="repair-bulk-action-bar"
-          className="bg-gradient-to-r from-slate-900 via-rose-950/70 to-slate-900 text-white p-3.5 sm:p-4 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3 border border-rose-500/40 animate-in fade-in slide-in-from-top-2"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center text-rose-300 shrink-0">
-              <CheckSquare className="w-5 h-5" />
+      {/* BULK ACTION & SELECTION TOOLBAR (ระบบการลบแบบเลือกทั้งหมด เลือกทีละตัวงานได้) */}
+      <div 
+        id="repair-bulk-action-bar"
+        className={`p-3.5 sm:p-4 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3 border transition-all ${
+          selectedIds.size > 0
+            ? 'bg-gradient-to-r from-slate-900 via-rose-950/70 to-slate-900 text-white border-rose-500/50 shadow-rose-950/30'
+            : 'bg-slate-900/90 text-slate-300 border-slate-800'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${
+            selectedIds.size > 0 
+              ? 'bg-rose-500/20 border-rose-400/40 text-rose-300' 
+              : 'bg-slate-800/80 border-slate-750 text-slate-400'
+          }`}>
+            <CheckSquare className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-xs sm:text-sm font-bold flex items-center gap-2">
+              {selectedIds.size > 0 ? (
+                <>
+                  <span className="text-white">เลือกประวัติงานซ่อมอยู่:</span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-rose-500 text-slate-950 font-black font-mono text-xs">
+                    {selectedIds.size} รายการ
+                  </span>
+                  <span className="text-slate-400 text-xs font-normal hidden sm:inline">
+                    (จากในตาราง {filteredRepairs.length} งาน / ทั้งหมด {repairs.length} งาน)
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-white">ระบบเลือกและจัดการลบข้อมูลประวัติซ่อม</span>
+                  <span className="text-[11px] text-slate-400 font-normal">
+                    (ทั้งหมดในตาราง {filteredRepairs.length} งาน)
+                  </span>
+                </>
+              )}
             </div>
-            <div>
-              <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-                <span>เลือกประวัติงานซ่อมอยู่: <strong className="text-amber-300 font-mono text-sm sm:text-base">{selectedIds.size}</strong> รายการ</span>
-                <span className="text-slate-400 text-xs font-normal">
-                  (จากในตาราง {filteredRepairs.length} งาน / ทั้งหมด {repairs.length} งาน)
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-300">
-                สามารถกดเลือกทั้งหมดในตาราง, เลือกทั้งหมดในระบบ หรือลบประวัติซ่อมที่เลือกพร้อมกันได้ทันที
-              </div>
+            <div className="text-[11px] text-slate-400">
+              {selectedIds.size > 0
+                ? 'สามารถกดเลือกทั้งหมดในตาราง, เลือกทั้งหมดในระบบ หรือลบประวัติซ่อมที่เลือกพร้อมกันได้ทันที'
+                : 'สามารถติ๊กเลือกทีละตัวงานในช่องสี่เหลี่ยม หรือกดปุ่มเพื่อเลือกทั้งหมดในตาราง/ระบบได้ทันที'}
             </div>
           </div>
+        </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            id="btn-bulk-toggle-select-filtered"
+            onClick={handleSelectAllFiltered}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition border cursor-pointer flex items-center gap-1.5 ${
+              filteredRepairs.length > 0 && filteredRepairs.every((r) => selectedIds.has(r.id))
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                : 'bg-slate-800 hover:bg-slate-750 text-slate-200 border-slate-700'
+            }`}
+          >
+            <CheckSquare size={13} className="text-cyan-400" />
+            <span>
+              {filteredRepairs.length > 0 && filteredRepairs.every((r) => selectedIds.has(r.id))
+                ? 'ยกเลิกเลือกในตาราง'
+                : `เลือกทั้งหมดในตาราง (${filteredRepairs.length})`}
+            </span>
+          </button>
+
+          {repairs.length > filteredRepairs.length && (
             <button
               type="button"
-              id="btn-bulk-toggle-select-filtered"
-              onClick={handleSelectAllFiltered}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition border border-slate-700 cursor-pointer flex items-center gap-1.5"
+              id="btn-bulk-select-all-global"
+              onClick={handleSelectAllTotal}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-amber-300 text-xs font-semibold rounded-xl transition border border-amber-600/30 cursor-pointer flex items-center gap-1.5"
+              title="เลือกประวัติงานซ่อมทั้งหมดในระบบโดยไม่สนตัวกรอง"
             >
-              <CheckSquare size={13} className="text-cyan-400" />
-              <span>
-                {filteredRepairs.length > 0 && filteredRepairs.every((r) => selectedIds.has(r.id))
-                  ? 'ยกเลิกเลือกในตาราง'
-                  : `เลือกทั้งหมดในตาราง (${filteredRepairs.length})`}
-              </span>
+              <span>เลือกทั้งหมดในระบบ ({repairs.length})</span>
             </button>
+          )}
 
-            {repairs.length > filteredRepairs.length && (
-              <button
-                type="button"
-                id="btn-bulk-select-all-global"
-                onClick={handleSelectAllTotal}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-semibold rounded-xl transition border border-amber-600/30 cursor-pointer flex items-center gap-1.5"
-                title="เลือกประวัติงานซ่อมทั้งหมดในระบบโดยไม่สนตัวกรอง"
-              >
-                <span>เลือกทั้งหมดในระบบ ({repairs.length})</span>
-              </button>
-            )}
-
+          {selectedIds.size > 0 && (
             <button
               type="button"
               id="btn-bulk-clear-selection"
@@ -2024,39 +2187,120 @@ export const RepairPage: React.FC = () => {
             >
               ล้างการเลือก
             </button>
+          )}
 
-            <div className="h-5 w-px bg-slate-700 mx-1 hidden sm:block" />
+          <div className="h-5 w-px bg-slate-700 mx-1 hidden sm:block" />
 
-            {canDelete ? (
+          {selectedIds.size > 0 ? (
+            <button
+              type="button"
+              id="btn-bulk-delete-repairs"
+              onClick={() => setIsBulkDeleteModalOpen(true)}
+              className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer animate-pulse"
+              title="ลบรายการประวัติซ่อมที่เลือกทั้งหมด"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>ลบประวัติซ่อมที่เลือก ({selectedIds.size})</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="px-4 py-1.5 bg-slate-800/60 text-slate-500 text-xs font-semibold rounded-xl border border-slate-750 flex items-center gap-1.5 cursor-not-allowed"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>ลบประวัติซ่อมที่เลือก (0)</span>
+            </button>
+          )}
+
+          {/* Fit Screen Toggle & Horizontal Scroll Helpers (แก้ปัญหามองไม่เห็นเต็มหน้าจอทางขวา) */}
+          <div className="flex items-center gap-1.5 border-l border-slate-700/80 pl-2 ml-1 flex-wrap">
+            {/* 1. ปุ่มปรับพอดีจอ 100% */}
+            <button
+              type="button"
+              id="btn-toggle-fit-screen"
+              onClick={() => setIsFitToScreen(!isFitToScreen)}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                isFitToScreen
+                  ? 'bg-gradient-to-r from-cyan-500/25 to-blue-500/25 text-cyan-300 border-cyan-400 shadow-cyan-500/10 ring-1 ring-cyan-400/40'
+                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750 hover:text-white'
+              }`}
+              title={isFitToScreen ? "กำลังใช้โหมดพอดีจอ (Fit Screen) เห็นครบทุกคอลัมน์ถึงขวาสุด - คลิกเพื่อสลับเป็นโหมดขยาย" : "คลิกเพื่อปรับตารางให้พอดีหน้าจอ เห็นครบทุกคอลัมน์ถึงขวาสุด"}
+            >
+              {isFitToScreen ? <Minimize2 size={13} className="text-cyan-400" /> : <Maximize2 size={13} />}
+              <span>{isFitToScreen ? '🖥️ พอดีจอ 100%' : '↔️ โหมดขยายตาราง'}</span>
+            </button>
+
+            {/* 2. ปุ่มขยายเต็มจอ (ซ่อน/แสดงเมนูข้าง เพื่อให้เห็นตารางขวาสุดเต็มตา) */}
+            <button
+              type="button"
+              id="btn-toggle-sidebar-repair"
+              onClick={toggleSidebar}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl border transition flex items-center gap-1.5 cursor-pointer ${
+                !sidebarOpen
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs'
+                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-750 hover:text-slate-200'
+              }`}
+              title={sidebarOpen ? "ซ่อนเมนูข้างชั่วคราว เพื่อขยายตารางให้เห็นฝั่งขวาสุด 100%" : "แสดงเมนูข้างกลับมา"}
+            >
+              {sidebarOpen ? <Maximize2 size={13} /> : <Minimize2 size={13} className="text-emerald-400" />}
+              <span className="hidden sm:inline">{sidebarOpen ? 'ขยายจอเต็ม' : 'เปิดเมนูข้าง'}</span>
+            </button>
+
+            {/* 3. แถบเลื่อนคอลัมน์ด่วน พร้อมปุ่มขวาสุด (ดูคอลัมน์จัดการ) */}
+            <div className="flex items-center gap-0.5 bg-slate-900 p-0.5 rounded-xl border border-slate-700/80">
               <button
                 type="button"
-                id="btn-bulk-delete-repairs"
-                onClick={() => setIsBulkDeleteModalOpen(true)}
-                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-lg shadow-rose-600/30 cursor-pointer"
-                title="ลบรายการประวัติซ่อมที่เลือกทั้งหมด"
+                id="btn-scroll-table-start"
+                onClick={() => handleScrollTable('start')}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                title="เลื่อนไปซ้ายสุด (วัน/เครื่อง)"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>ลบประวัติซ่อมที่เลือก ({selectedIds.size})</span>
+                <ChevronsLeft size={14} />
               </button>
-            ) : (
-              <div 
-                className="px-3.5 py-1.5 bg-slate-800/80 text-slate-400 text-xs rounded-xl border border-slate-700 flex items-center gap-1.5"
-                title="เฉพาะสิทธิ์ Admin เท่านั้นที่สามารถลบได้"
+              <button
+                type="button"
+                id="btn-scroll-table-left"
+                onClick={() => handleScrollTable('left')}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                title="เลื่อนดูคอลัมน์ซ้าย"
               >
-                <span>🔒 สิทธิ์ Admin เท่านั้นที่ลบได้</span>
-              </div>
-            )}
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                type="button"
+                id="btn-scroll-table-right"
+                onClick={() => handleScrollTable('right')}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                title="เลื่อนดูคอลัมน์ขวา"
+              >
+                <ChevronRight size={14} />
+              </button>
+              <button
+                type="button"
+                id="btn-scroll-table-end"
+                onClick={() => handleScrollTable('end')}
+                className="px-2 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900/90 text-cyan-300 border border-cyan-500/40 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer shadow-xs"
+                title="เลื่อนไปขวาสุดทันที (ดูคอลัมน์จัดการ/ช่างซ่อม)"
+              >
+                <span>ขวาสุด</span>
+                <ChevronsRight size={13} />
+              </button>
+            </div>
           </div>
         </div>
-      )}
+      </div>
 
       {/* REPAIR HISTORICAL LOGS TABLE */}
-      <div id="repair-table-container" className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-lg">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs" id="repairs-history-table">
+      <div id="repair-table-container" className="bg-slate-850/95 border border-slate-750 rounded-2xl overflow-hidden shadow-2xl relative">
+        <div 
+          ref={tableScrollRef}
+          className="overflow-x-auto scrollbar-thin scrollbar-thumb-cyan-500/60 scrollbar-track-slate-900 scroll-smooth"
+        >
+          <table className={`w-full text-left border-collapse ${isFitToScreen ? 'text-[11px]' : 'text-xs'}`} id="repairs-history-table">
             <thead>
-              <tr className="bg-slate-800/90 border-b border-slate-700 text-slate-300 font-medium tracking-wide uppercase py-4">
-                <th className="py-4 px-3 w-12 text-center">
+              <tr className="bg-[#0e1626] border-b border-slate-700/80 text-slate-300 font-semibold tracking-wide uppercase select-none">
+                <th className={`sticky left-0 bg-[#0e1626] z-20 text-center ${isFitToScreen ? 'py-2 px-1 w-9' : 'py-3.5 px-3 w-12'}`}>
                   <div className="flex items-center justify-center">
                     <input
                       type="checkbox"
@@ -2068,24 +2312,28 @@ export const RepairPage: React.FC = () => {
                     />
                   </div>
                 </th>
-                <th className="py-4 px-4 w-28">วันที่เสีย</th>
-                <th className="py-4 px-3 w-28 font-mono">เครื่อง (ID)</th>
-                <th className="py-4 px-4">ชื่อเครื่องจักร</th>
-                <th className="py-4 px-3 text-center w-36">ประเภทความสูญเสีย</th>
-                <th className="py-4 px-3 text-center w-28">ใบสั่งงาน (WO)</th>
-                <th className="py-4 px-3 text-center">MTTR (นาที)</th>
-                <th className="py-4 px-3 text-center">Std. MTTR</th>
-                <th className="py-4 px-4">อาการเสียชำรุด</th>
-                <th className="py-4 px-4">Why 1 (วิเคราะห์แรกพบ)</th>
-                <th className="py-4 px-3 text-right">ค่าซ่อมทั้งหมด</th>
-                <th className="py-4 px-3 text-center">ช่างซ่อม</th>
-                <th className="py-4 px-3 text-center w-24 font-semibold text-slate-350">จัดการ</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5 w-18 text-[10.5px]' : 'py-3.5 px-3 w-28'}`}>วันที่เสีย</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1 w-18 text-[10.5px]' : 'py-3.5 px-3 w-28'} font-mono`}>เครื่อง (ID)</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5 max-w-[95px] text-[10.5px]' : 'py-3.5 px-4'}`}>ชื่อเครื่องจักร</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1 w-20 text-center text-[10px]' : 'py-3.5 px-3 text-center w-36'}`}>ประเภทสูญเสีย</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1 w-16 text-center text-[10px]' : 'py-3.5 px-3 text-center w-28'}`}>ใบสั่งงาน (WO)</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1 w-12 text-center text-[10.5px]' : 'py-3.5 px-3 text-center'}`}>MTTR</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1 w-10 text-center text-[10px]' : 'py-3.5 px-3 text-center'}`}>Std.</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5 max-w-[95px] text-[10.5px]' : 'py-3.5 px-4'}`}>อาการเสียชำรุด</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1.5 max-w-[95px] text-[10.5px]' : 'py-3.5 px-4'}`}>Why 1 (แรกพบ)</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1 w-[130px] text-center text-[10.5px]' : 'py-3.5 px-3 text-center min-w-[210px]'}`}>แถบเชื่อมโยง (FA • OPL • Kaizen • MP)</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1 w-16 text-right text-[10.5px]' : 'py-3.5 px-3 text-right'}`}>ค่าซ่อม</th>
+                <th className={`${isFitToScreen ? 'py-2 px-1 max-w-[85px] text-center text-[10.5px]' : 'py-3.5 px-3 text-center'}`}>ช่างซ่อม</th>
+                {/* จัดการ (STICKY RIGHT COLUMN: ตรึงไว้ขวาสุดตลอดเวลาไม่ให้หลุดจอ) */}
+                <th className={`sticky right-0 bg-[#0e1626] z-20 text-center border-l border-slate-700/80 shadow-[-6px_0_12px_rgba(0,0,0,0.45)] ${isFitToScreen ? 'py-2 px-1 w-20 text-[10.5px]' : 'py-3.5 px-3 w-24'} font-semibold text-slate-200`}>
+                  จัดการ
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/50">
               {filteredRepairs.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="py-12 text-center text-slate-500 bg-slate-900/10">
+                  <td colSpan={14} className="py-12 text-center text-slate-500 bg-slate-900/10">
                     ไม่พบข้อมูลแจ้งซ่อมสำหรับตัวกรองที่เลือก
                   </td>
                 </tr>
@@ -2111,7 +2359,7 @@ export const RepairPage: React.FC = () => {
                       onDoubleClick={() => setSelectedRepairDetail(r)}
                       title="ดับเบิ้ลคลิก (Double-click) เพื่อดูรายละเอียด Why-Why เชิงลึก"
                     >
-                      <td className="py-4 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className={`text-center ${isFitToScreen ? 'py-2 px-1' : 'py-4 px-3'}`} onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center">
                           <input
                             type="checkbox"
@@ -2123,92 +2371,151 @@ export const RepairPage: React.FC = () => {
                           />
                         </div>
                       </td>
-                      <td className="py-4 px-4 text-slate-400 font-mono">
-                        <div className="flex flex-col gap-1">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5 text-[10px]' : 'py-4 px-4 text-xs'} text-slate-400 font-mono`}>
+                        <div className="flex flex-col gap-0.5">
                           <span>{r.date}</span>
                           {r.status === 'กำลังซ่อม' ? (
-                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 py-0.5 rounded text-[9px] font-bold text-center animate-pulse">
+                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 py-0.2 rounded text-[8.5px] font-bold text-center animate-pulse">
                               กำลังซ่อม
                             </span>
                           ) : (
-                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded text-[9px] font-bold text-center">
+                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.2 rounded text-[8.5px] font-bold text-center">
                               ปิดสำเร็จ
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-4 px-3 font-mono">
-                        <div className="flex flex-col gap-1 items-start">
-                          <span className="font-bold text-red-400 text-xs sm:text-[13px] tracking-wide">
+                      <td className={`${isFitToScreen ? 'py-2 px-1 text-[11px]' : 'py-4 px-3'} font-mono`}>
+                        <div className="flex flex-col gap-0.5 items-start">
+                          <span className="font-bold text-red-400 text-xs sm:text-[12.5px] tracking-wide">
                             {r.machineId}
                           </span>
                           {mach ? (
-                            <span className="text-[9.5px] text-slate-400 font-sans hidden sm:inline truncate max-w-[120px]" title={mach.name}>
+                            <span className="text-[9px] text-slate-400 font-sans hidden sm:inline truncate max-w-[95px]" title={mach.name}>
                               {mach.name}
                             </span>
                           ) : (
-                            <span className="text-[9px] text-amber-400/80 font-sans">
+                            <span className="text-[8.5px] text-amber-400/80 font-sans">
                               (ไม่อยู่ในทะเบียน)
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-4 px-4 font-medium text-slate-200">
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5 text-[10.5px] max-w-[95px]' : 'py-4 px-4'} font-medium text-slate-200`}>
                         <div className="flex flex-col">
-                          <span>{mach?.name || 'เครื่องจักรทั่วไป'}</span>
+                          <span className="truncate max-w-[95px]" title={mach?.name || 'เครื่องจักรทั่วไป'}>{mach?.name || 'เครื่องจักรทั่วไป'}</span>
                           {mach?.lineGroup && (
-                            <span className="text-[10px] text-slate-400 font-normal">
+                            <span className="text-[9px] text-slate-400 font-normal truncate max-w-[95px]">
                               {mach.lineGroup}
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-4 px-3 text-center">
+                      <td className={`${isFitToScreen ? 'py-2 px-1' : 'py-4 px-3'} text-center`}>
                         {(() => {
                           const sType = getRepairStoppageType(r);
                           const hasParts = (r.usedParts && r.usedParts.length > 0) || r.hasPartsReplaced;
-                          if (sType === 'BREAKDOWN') {
+                          if (sType === 'SHUTDOWN') {
                             return (
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className="inline-flex items-center gap-1 bg-rose-500/15 text-rose-300 border border-rose-500/30 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shadow-xs">
+                              <button
+                                type="button"
+                                onClick={() => setShowCPRAMLossesModal(true)}
+                                className="flex flex-col items-center gap-0.5 group cursor-pointer"
+                                title="นิยาม Shutdown / Plan Downtime (Loss 1): เวลาหยุดตามแผน (PM, ล้างเครื่อง, อบรม) - คลิกเพื่อดูตารางนิยามโรงงาน"
+                              >
+                                <span className={`inline-flex items-center gap-1 bg-blue-500/15 text-blue-300 border border-blue-500/30 rounded-full font-bold shadow-xs group-hover:bg-blue-500/25 group-hover:border-blue-500/60 transition ${
+                                  isFitToScreen ? 'px-1.5 py-0.2 text-[9.5px]' : 'px-2.5 py-0.5 text-[10.5px]'
+                                }`}>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                                  Shutdown
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-mono hidden sm:inline group-hover:text-blue-300 transition">
+                                  1 ครั้ง • หยุดตามแผน
+                                </span>
+                              </button>
+                            );
+                          } else if (sType === 'BREAKDOWN') {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setShowCPRAMLossesModal(true)}
+                                className="flex flex-col items-center gap-0.5 group cursor-pointer"
+                                title="นิยามเบรกดาวน์ (Loss 4): ชิ้นส่วนเสียหาย (ซ่อมแซม/เปลี่ยนอะไหล่) หรือเหตุขัดข้องซ่อมเกิน 1 นาที - คลิกเพื่อดูตารางนิยามโรงงาน"
+                              >
+                                <span className={`inline-flex items-center gap-1 bg-rose-500/15 text-rose-300 border border-rose-500/30 rounded-full font-bold shadow-xs group-hover:bg-rose-500/25 group-hover:border-rose-500/60 transition ${
+                                  isFitToScreen ? 'px-1.5 py-0.2 text-[9.5px]' : 'px-2.5 py-0.5 text-[10.5px]'
+                                }`}>
                                   <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
                                   Breakdown
                                 </span>
-                                <span className="text-[9.5px] text-slate-400 font-mono">
-                                  1 ครั้ง {hasParts ? '• เปลี่ยนอะไหล่' : ''}
+                                <span className="text-[9px] text-slate-400 font-mono hidden sm:inline group-hover:text-rose-300 transition">
+                                  1 ครั้ง {hasParts ? '• เปลี่ยนอะไหล่' : '• ซ่อมชิ้นส่วน'}
                                 </span>
-                              </div>
+                              </button>
+                            );
+                          } else if (sType === 'STARTUP') {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setShowCPRAMLossesModal(true)}
+                                className="flex flex-col items-center gap-0.5 group cursor-pointer"
+                                title="นิยาม Start up2 (Loss 5): ช่วงเริ่มต้นการผลิต รออุณหภูมิ/ความดันก่อนเริ่มผลิต - คลิกเพื่อดูตารางนิยามโรงงาน"
+                              >
+                                <span className={`inline-flex items-center gap-1 bg-purple-500/15 text-purple-300 border border-purple-500/30 rounded-full font-bold shadow-xs group-hover:bg-purple-500/25 group-hover:border-purple-500/60 transition ${
+                                  isFitToScreen ? 'px-1.5 py-0.2 text-[9.5px]' : 'px-2.5 py-0.5 text-[10.5px]'
+                                }`}>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+                                  Start up2
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-mono hidden sm:inline group-hover:text-purple-300 transition">
+                                  1 ครั้ง • เริ่มเดินเครื่อง
+                                </span>
+                              </button>
                             );
                           } else if (sType === 'MINOR_STOPPAGE') {
                             return (
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className="inline-flex items-center gap-1 bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shadow-xs">
+                              <button
+                                type="button"
+                                onClick={() => setShowCPRAMLossesModal(true)}
+                                className="flex flex-col items-center gap-0.5 group cursor-pointer"
+                                title="นิยาม Minor Stoppage (Loss 12): ชิ้นส่วนไม่ชำรุด ปรับแต่ง < 15 นาที บันทึกเป็นจำนวนครั้ง - คลิกเพื่อดูตารางนิยามโรงงาน"
+                              >
+                                <span className={`inline-flex items-center gap-1 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full font-bold shadow-xs group-hover:bg-amber-500/25 group-hover:border-amber-500/60 transition ${
+                                  isFitToScreen ? 'px-1.5 py-0.2 text-[9.5px]' : 'px-2.5 py-0.5 text-[10.5px]'
+                                }`}>
                                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                                  Minor stoppage
+                                  Minor
                                 </span>
-                                <span className="text-[9.5px] text-slate-400 font-mono">
-                                  1 ครั้ง • ไม่เปลี่ยนอะไหล่ (&lt;15น.)
+                                <span className="text-[9px] text-slate-400 font-mono hidden sm:inline group-hover:text-amber-300 transition">
+                                  1 ครั้ง • ไม่เปลี่ยนอะไหล่
                                 </span>
-                              </div>
+                              </button>
                             );
                           } else {
                             return (
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className="inline-flex items-center gap-1 bg-orange-500/15 text-orange-300 border border-orange-500/30 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shadow-xs">
+                              <button
+                                type="button"
+                                onClick={() => setShowCPRAMLossesModal(true)}
+                                className="flex flex-col items-center gap-0.5 group cursor-pointer"
+                                title="นิยาม Adjustment Loss (Loss 7): ชิ้นส่วนไม่ชำรุด ปรับแต่งคุณภาพสินค้า > 15 นาที - คลิกเพื่อดูตารางนิยามโรงงาน"
+                              >
+                                <span className={`inline-flex items-center gap-1 bg-orange-500/15 text-orange-300 border border-orange-500/30 rounded-full font-bold shadow-xs group-hover:bg-orange-500/25 group-hover:border-orange-500/60 transition ${
+                                  isFitToScreen ? 'px-1.5 py-0.2 text-[9.5px]' : 'px-2.5 py-0.5 text-[10.5px]'
+                                }`}>
                                   <span className="w-1.5 h-1.5 rounded-full bg-orange-400"></span>
-                                  Adjustment loss
+                                  Adjustment
                                 </span>
-                                <span className="text-[9.5px] text-slate-400 font-mono">
-                                  1 ครั้ง • ไม่เปลี่ยนอะไหล่ (&gt;15น.)
+                                <span className="text-[9px] text-slate-400 font-mono hidden sm:inline group-hover:text-orange-300 transition">
+                                  1 ครั้ง • ปรับตั้ง
                                 </span>
-                              </div>
+                              </button>
                             );
                           }
                         })()}
                       </td>
 
                       {/* Work Order Column (No Work Order - No Work) */}
-                      <td className="py-4 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className={`${isFitToScreen ? 'py-2 px-1' : 'py-4 px-3'} text-center`} onClick={(e) => e.stopPropagation()}>
                         {(() => {
                           const activeWO = workOrders.find(w => 
                             w.id === r.workOrderId || 
@@ -2224,7 +2531,9 @@ export const RepairPage: React.FC = () => {
                                   setSelectedDetailWO(activeWO);
                                   setIsDetailWOModalOpen(true);
                                 }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-900 transition shadow-xs cursor-pointer"
+                                className={`inline-flex items-center gap-1 rounded-full font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-900 transition shadow-xs cursor-pointer ${
+                                  isFitToScreen ? 'px-1.5 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
+                                }`}
                                 title={`คลิกดูใบสั่งงาน Work Order #${activeWO.workOrderNo || activeWO.id} (${activeWO.status})`}
                               >
                                 <span>🎯 {activeWO.workOrderNo || activeWO.id}</span>
@@ -2237,7 +2546,7 @@ export const RepairPage: React.FC = () => {
                           const deletedId = r.workOrderNo || r.workOrderId;
 
                           return (
-                            <div className="inline-flex flex-col items-center justify-center gap-1">
+                            <div className="inline-flex flex-col items-center justify-center gap-0.5">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -2251,10 +2560,12 @@ export const RepairPage: React.FC = () => {
                                   setRepairs(prev => prev.map(rep => rep.id === r.id ? { ...rep, workOrderId: created.id, workOrderNo: created.id } : rep));
                                   showToast(`⚡ ออกใบสั่งงานฉุกเฉินใหม่ ${created.id} สำหรับเครื่อง [${r.machineId}] เรียบร้อยแล้ว`);
                                 }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9.5px] font-bold bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/40 transition cursor-pointer shadow-xs active:scale-95"
+                                className={`inline-flex items-center gap-1 rounded-full font-bold bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/40 transition cursor-pointer shadow-xs active:scale-95 ${
+                                  isFitToScreen ? 'px-1.5 py-0.5 text-[8.5px]' : 'px-2.5 py-1 text-[9.5px]'
+                                }`}
                                 title={hadDeletedWO ? `ใบงานเดิม (${deletedId}) โดนลบไปแล้ว คลิกเพื่อออก Fast-Track Emergency WO ใหม่ทันที` : "กดเพื่อออก Fast-Track Emergency WO ทันทีให้ถูกต้องตามวินัย CMMS"}
                               >
-                                <span>+ ออก WO</span>
+                                <span>+ WO</span>
                               </button>
                               {hadDeletedWO && (
                                 <button
@@ -2263,32 +2574,32 @@ export const RepairPage: React.FC = () => {
                                     setRepairs(prev => prev.map(rep => rep.id === r.id ? { ...rep, workOrderId: undefined, workOrderNo: undefined } : rep));
                                     showToast(`🧹 ล้างการเชื่อมโยงใบสั่งงานที่โดนลบ (${deletedId}) เรียบร้อยแล้ว`);
                                   }}
-                                  className="text-[9px] font-mono text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 cursor-pointer transition"
+                                  className="text-[8px] font-mono text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-0.5 cursor-pointer transition"
                                   title={`ใบสั่งงาน ${deletedId} ถูกลบออกจากระบบแล้ว คลิกเพื่อล้างเลขเดิม`}
                                 >
                                   <span className="line-through">{deletedId}</span>
-                                  <span className="text-[8px] bg-rose-950/80 px-1 py-0.2 rounded border border-rose-800/40 text-rose-300 font-sans">ลบแล้ว</span>
+                                  <span className="text-[7.5px] bg-rose-950/80 px-1 py-0.2 rounded border border-rose-800/40 text-rose-300 font-sans">ลบแล้ว</span>
                                 </button>
                               )}
                             </div>
                           );
                         })()}
                       </td>
-                      <td className="py-4 px-3 text-center font-mono font-bold">
+                      <td className={`${isFitToScreen ? 'py-2 px-1 text-[10.5px]' : 'py-4 px-3'} text-center font-mono font-bold`}>
                         <span className={isExceed120Percent ? "text-rose-400 font-extrabold" : "text-slate-300"}>
-                          {r.duration} นาที
+                          {r.duration}น.
                         </span>
                       </td>
-                      <td className="py-4 px-3 text-center font-mono text-slate-450 text-[11px]">
-                        {std} นาที
+                      <td className={`${isFitToScreen ? 'py-2 px-1 text-[9.5px]' : 'py-4 px-3 text-[11px]'} text-center font-mono text-slate-450`}>
+                        {std}น.
                       </td>
-                      <td className="py-4 px-4 max-w-[160px]" title={r.symptoms}>
-                        <div className="flex flex-col gap-1">
-                          <span className="truncate">{r.symptoms}</span>
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5 max-w-[95px] text-[10.5px]' : 'py-4 px-4 max-w-[160px]'}`} title={r.symptoms}>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="truncate max-w-[95px]">{r.symptoms}</span>
                           {r.excelFile && (
-                            <span className="inline-flex items-center gap-1 text-[9px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded font-medium self-start font-sans">
-                              <FileSpreadsheet size={11} />
-                              แนบไฟล์ Excel
+                            <span className="inline-flex items-center gap-1 text-[8.5px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1 py-0.2 rounded font-medium self-start font-sans">
+                              <FileSpreadsheet size={9} />
+                              Excel
                             </span>
                           )}
                           {/* FA / OPL / Why-Why / Kaizen Badges with link to Kaizen */}
@@ -2301,8 +2612,8 @@ export const RepairPage: React.FC = () => {
                             ];
                             if (!atts || atts.length === 0) return null;
                             return (
-                              <div className="flex flex-wrap gap-1 mt-0.5">
-                                {atts.map((att) => (
+                              <div className="flex flex-wrap gap-0.5 mt-0.5">
+                                {atts.slice(0, 2).map((att) => (
                                   <button
                                     key={att.id}
                                     type="button"
@@ -2310,7 +2621,7 @@ export const RepairPage: React.FC = () => {
                                       e.stopPropagation();
                                       handleNavigateToKaizenProject(att, r.machineId);
                                     }}
-                                    className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[8.5px] font-bold font-mono transition cursor-pointer border ${
+                                    className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[8px] font-bold font-mono transition cursor-pointer border ${
                                       att.category === 'FA'
                                         ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
                                         : att.category === 'OPL'
@@ -2321,8 +2632,8 @@ export const RepairPage: React.FC = () => {
                                     }`}
                                     title={`คลิกเพื่อเปิดในหน้า Kaizen (${att.name})`}
                                   >
-                                    <ExternalLink size={8} />
-                                    <span>{att.category === 'WHY_WHY' ? 'Why-Why' : att.category}</span>
+                                    <ExternalLink size={7} />
+                                    <span>{att.category === 'WHY_WHY' ? 'Why' : att.category}</span>
                                   </button>
                                 ))}
                               </div>
@@ -2330,9 +2641,9 @@ export const RepairPage: React.FC = () => {
                           })()}
                         </div>
                       </td>
-                      <td className="py-4 px-4 max-w-[180px] text-slate-350 italic" title={r.why1}>
-                        <div className="flex flex-col gap-1">
-                          <span className="truncate">{r.why1 || "-"}</span>
+                      <td className={`${isFitToScreen ? 'py-2 px-1.5 max-w-[95px] text-[10.5px]' : 'py-4 px-4 max-w-[180px]'} text-slate-350 italic`} title={r.why1}>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="truncate max-w-[95px]">{r.why1 || "-"}</span>
                           {(r.whyWhyFile || r.repairAttachments?.some(a => a.category === 'WHY_WHY') || r.excelFile || (r.why1 && r.why1.trim().length > 0)) && (
                             <button
                               type="button"
@@ -2345,38 +2656,159 @@ export const RepairPage: React.FC = () => {
                                   sourceRepairId: r.id
                                 });
                               }}
-                              className="inline-flex items-center gap-1 text-[9px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold font-sans hover:bg-amber-500/25 transition cursor-pointer self-start"
+                              className="inline-flex items-center gap-1 text-[8.5px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1 py-0.2 rounded font-bold font-sans hover:bg-amber-500/25 transition cursor-pointer self-start"
                               title="คลิกเพื่อเปิดในหน้า Kaizen (Why-Why Analysis)"
                             >
-                              <HelpCircle size={10} />
-                              <span>ไฟล์ Why-Why → Kaizen</span>
+                              <HelpCircle size={9} />
+                              <span>Why-Why</span>
                             </button>
                           )}
                         </div>
                       </td>
-                      <td className="py-4 px-3 text-right font-mono font-semibold text-cyan-400 whitespace-nowrap">
+                      {/* แถบเชื่อมโยง (FA • OPL • Kaizen • MP) ต่อจาก Why Why */}
+                      <td className={`${isFitToScreen ? 'py-2 px-1 max-w-[130px]' : 'py-4 px-3'} text-center`} onClick={(e) => e.stopPropagation()}>
+                        {(() => {
+                          const atts = r.repairAttachments || [
+                            ...(r.faFile ? [r.faFile] : []),
+                            ...(r.oplFile ? [r.oplFile] : []),
+                            ...(r.whyWhyFile ? [r.whyWhyFile] : []),
+                            ...(r.kaizenFile ? [r.kaizenFile] : []),
+                            ...(r.mpFile ? [r.mpFile] : [])
+                          ];
+                          const faAtts = atts.filter(a => a.category === 'FA');
+                          const oplAtts = atts.filter(a => a.category === 'OPL');
+                          const kaizenAtts = atts.filter(a => a.category === 'KAIZEN');
+                          const mpAtts = atts.filter(a => a.category === 'MP_INFO');
+
+                          return (
+                            <div className={`flex items-center justify-center gap-1 ${isFitToScreen ? 'flex-nowrap' : 'flex-wrap max-w-[240px]'} mx-auto`}>
+                              {/* 1. แถบ FA */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (faAtts.length > 0) {
+                                    handleNavigateToKaizenProject(faAtts[0], r.machineId);
+                                  } else {
+                                    setActiveAttachmentTab('FA');
+                                    setRepairForQuickAttachment(r);
+                                  }
+                                }}
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition flex items-center gap-0.5 cursor-pointer border ${
+                                  faAtts.length > 0
+                                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500/30 shadow-xs'
+                                    : 'bg-slate-900/80 text-slate-400 hover:text-rose-300 border-slate-700 hover:border-rose-500/40'
+                                }`}
+                                title={faAtts.length > 0 ? `เปิด Failure Analysis (${faAtts.length} ไฟล์)` : `+ เพิ่มเอกสาร FA [${r.machineId}]`}
+                              >
+                                <span>🔍</span>
+                                <span>FA</span>
+                                <span className="font-mono text-[8px] opacity-80">{faAtts.length > 0 ? `(${faAtts.length})` : '+'}</span>
+                              </button>
+
+                              {/* 2. แถบ OPL */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (oplAtts.length > 0) {
+                                    handleNavigateToKaizenProject(oplAtts[0], r.machineId);
+                                  } else {
+                                    setActiveAttachmentTab('OPL');
+                                    setRepairForQuickAttachment(r);
+                                  }
+                                }}
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition flex items-center gap-0.5 cursor-pointer border ${
+                                  oplAtts.length > 0
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30 shadow-xs'
+                                    : 'bg-slate-900/80 text-slate-400 hover:text-amber-300 border-slate-700 hover:border-amber-500/40'
+                                }`}
+                                title={oplAtts.length > 0 ? `เปิด One Point Lesson (${oplAtts.length} ไฟล์)` : `+ เพิ่มเอกสาร OPL [${r.machineId}]`}
+                              >
+                                <span>💡</span>
+                                <span>OPL</span>
+                                <span className="font-mono text-[8px] opacity-80">{oplAtts.length > 0 ? `(${oplAtts.length})` : '+'}</span>
+                              </button>
+
+                              {/* 3. แถบ Kaizen */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (kaizenAtts.length > 0) {
+                                    handleNavigateToKaizenProject(kaizenAtts[0], r.machineId);
+                                  } else {
+                                    setActiveAttachmentTab('KAIZEN');
+                                    setRepairForQuickAttachment(r);
+                                  }
+                                }}
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition flex items-center gap-0.5 cursor-pointer border ${
+                                  kaizenAtts.length > 0
+                                    ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50 hover:bg-indigo-500/30 shadow-xs'
+                                    : 'bg-slate-900/80 text-slate-400 hover:text-indigo-300 border-slate-700 hover:border-indigo-500/40'
+                                }`}
+                                title={kaizenAtts.length > 0 ? `เปิดโครงการ Kaizen (${kaizenAtts.length} ไฟล์)` : `+ เพิ่มโครงการ Kaizen [${r.machineId}]`}
+                              >
+                                <span>🚀</span>
+                                <span>KZ</span>
+                                <span className="font-mono text-[8px] opacity-80">{kaizenAtts.length > 0 ? `(${kaizenAtts.length})` : '+'}</span>
+                              </button>
+
+                              {/* 4. แถบ MP */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (mpAtts.length > 0) {
+                                    handleNavigateToKaizenProject(mpAtts[0], r.machineId);
+                                  } else {
+                                    setActiveAttachmentTab('MP_INFO');
+                                    setRepairForQuickAttachment(r);
+                                  }
+                                }}
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition flex items-center gap-0.5 cursor-pointer border ${
+                                  mpAtts.length > 0
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/30 shadow-xs'
+                                    : 'bg-slate-900/80 text-slate-400 hover:text-emerald-300 border-slate-700 hover:border-emerald-500/40'
+                                }`}
+                                title={mpAtts.length > 0 ? `เปิด MP Information Sheet (${mpAtts.length} ไฟล์)` : `+ เพิ่มเอกสาร MP [${r.machineId}]`}
+                              >
+                                <span>📋</span>
+                                <span>MP</span>
+                                <span className="font-mono text-[8px] opacity-80">{mpAtts.length > 0 ? `(${mpAtts.length})` : '+'}</span>
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td className={`${isFitToScreen ? 'py-2 px-1 text-[10px]' : 'py-4 px-3'} text-right font-mono font-semibold text-cyan-400 whitespace-nowrap`}>
                         {((r.usedParts?.reduce((sum, item) => sum + item.totalCost, 0) || 0) + (r.otherCost || 0)).toLocaleString()} ฿
                       </td>
-                      <td className="py-4 px-3 text-center">
-                        <div className="flex flex-wrap gap-1 justify-center max-w-[140px] mx-auto">
+                      <td className={`${isFitToScreen ? 'py-2 px-1 max-w-[85px]' : 'py-4 px-3'} text-center`}>
+                        <div className="flex flex-wrap gap-0.5 justify-center max-w-[85px] mx-auto">
                           {(r.technicians && r.technicians.length > 0 ? r.technicians : [r.technician]).map(tech => (
-                            <span key={tech} className="bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-750 text-[10.5px] whitespace-nowrap">
+                            <span key={tech} className={`bg-slate-900 text-slate-300 rounded border border-slate-750 whitespace-nowrap truncate max-w-[80px] ${
+                              isFitToScreen ? 'px-1 py-0.2 text-[9px]' : 'px-2 py-0.5 text-[10.5px]'
+                            }`} title={tech}>
                               {tech}
                             </span>
                           ))}
                         </div>
                       </td>
-                      <td className="py-4 px-3 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
+                      {/* จัดการ (STICKY RIGHT COLUMN: ตรึงไว้ขวาสุดตลอดเวลาไม่ให้หลุดจอ) */}
+                      <td className={`sticky right-0 z-10 text-center border-l border-slate-700/80 shadow-[-6px_0_12px_rgba(0,0,0,0.45)] ${
+                        isSelected 
+                          ? 'bg-[#1e1320]' 
+                          : isRedRow 
+                          ? 'bg-[#221017]' 
+                          : 'bg-[#0e1626]'
+                      } ${isFitToScreen ? 'py-2 px-1 w-20' : 'py-4 px-3 w-24'}`}>
+                        <div className="flex items-center justify-center gap-1">
                           {/* Quick Attach FA / OPL / Kaizen Button */}
                           <button
                             type="button"
                             id={`btn-attach-rep-${r.id}`}
                             onClick={() => setRepairForQuickAttachment(r)}
-                            className="text-slate-400 hover:text-indigo-400 p-1 rounded-md transition hover:bg-slate-900 relative"
+                            className="text-slate-400 hover:text-indigo-400 p-1 rounded-md transition hover:bg-slate-900 relative cursor-pointer"
                             title="📎 แนบ / จัดการไฟล์ FA, OPL, Kaizen และเชื่อมต่อไปยังแถบ Kaizen"
                           >
-                            <Paperclip size={14} />
+                            <Paperclip size={isFitToScreen ? 12 : 14} />
                             {(r.repairAttachments?.length || (r.faFile ? 1 : 0) + (r.oplFile ? 1 : 0) + (r.kaizenFile ? 1 : 0)) > 0 && (
                               <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
                             )}
@@ -2385,24 +2817,24 @@ export const RepairPage: React.FC = () => {
                             <button
                               id={`btn-edit-rep-${r.id}`}
                               onClick={() => handleEditClick(r)}
-                              className="text-slate-500 hover:text-cyan-400 p-1 rounded-md transition hover:bg-slate-900"
+                              className="text-slate-400 hover:text-cyan-400 p-1 rounded-md transition hover:bg-slate-900 cursor-pointer"
                               title="แก้ไขประวัติงานซ่อม"
                             >
-                              <Edit size={14} />
+                              <Edit size={isFitToScreen ? 12 : 14} />
                             </button>
                           )}
-                          {canDelete && (
+                          {(canDelete || canEdit || !currentUser) && (
                             <button
                               id={`btn-delete-rep-${r.id}`}
                               onClick={() => handleDeleteRepair(r.id)}
-                              className="text-slate-500 hover:text-rose-400 p-1 rounded-md transition hover:bg-slate-900"
-                              title="ลบประวัติงานซ่อม (เฉพาะ Admin)"
+                              className="text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 p-1 rounded-md transition cursor-pointer"
+                              title="ลบประวัติงานซ่อมรายการนี้"
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={isFitToScreen ? 12 : 14} />
                             </button>
                           )}
-                          {!canEdit && !canDelete && (
-                            <span className="text-[10px] text-slate-500 italic">ดูอย่างเดียว</span>
+                          {!canEdit && !canDelete && !!currentUser && (
+                            <span className="text-[9px] text-slate-500 italic">ดู</span>
                           )}
                         </div>
                       </td>
@@ -2778,14 +3210,20 @@ export const RepairPage: React.FC = () => {
               {/* Row 2.5: Stoppage & Loss Classification Definition Block */}
               <div className="bg-slate-900/60 p-4 border border-slate-700/80 rounded-xl space-y-3.5" id="form-stoppage-classification-block">
                 <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-2 border-b border-slate-800">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-wide flex items-center gap-1.5">
                       <Tag size={13} />
-                      การจำแนกประเภทความสูญเสีย (Failure Classification ตามนิยาม)
+                      การจำแนกประเภทความสูญเสีย (Failure Classification ตามนิยามโรงงาน)
                     </span>
-                    <span className="text-[10px] text-slate-400">
-                      • หน่วยบันทึก: <strong>ครั้ง</strong> (เก็บบันทึกเวลา MTTR ควบคู่)
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowCPRAMLossesModal(true)}
+                      className="text-[10px] font-bold text-rose-300 hover:text-white bg-rose-500/15 hover:bg-rose-500/25 px-2 py-0.5 rounded border border-rose-500/30 flex items-center gap-1 cursor-pointer transition shadow-xs"
+                      title="เปิดดูตารางนิยามเบรกดาวน์และความสูญเสียโรงงานฉบับเต็ม"
+                    >
+                      <BookOpen size={11} className="text-rose-400" />
+                      <span>📖 เปิดดูนิยามเบรกดาวน์ &amp; Losses โรงงานฉบับเต็ม</span>
+                    </button>
                   </div>
 
                   <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -2796,13 +3234,48 @@ export const RepairPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 3 Selectable classification cards according to exact user definition */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-                  {/* Option 1: Breakdown */}
+                {/* 5 Selectable classification cards according to exact 5 stoppage topics definition */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                  {/* Option 1: Shutdown / Plan Downtime */}
+                  <label
+                    className={`p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between select-none ${
+                      formStoppageType === 'SHUTDOWN'
+                        ? 'bg-blue-950/50 border-blue-500/80 ring-1 ring-blue-500/40'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/40'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="formStoppageRadio"
+                            value="SHUTDOWN"
+                            checked={formStoppageType === 'SHUTDOWN'}
+                            onChange={() => {
+                              setFormStoppageType('SHUTDOWN');
+                              setFormHasPartsReplaced(false);
+                              setIsStoppageManual(true);
+                            }}
+                            className="accent-blue-500"
+                          />
+                          <span className="text-xs font-bold text-blue-300">Shutdown / Plan (Loss 1)</span>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">
+                          Plan Downtime
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-300 leading-relaxed">
+                        หยุดตามแผนงานล่วงหน้า เช่น ล้างทำความสะอาดประจำรอบ, ซ่อมบำรุงตามแผน (PM), อบรม
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Option 2: Breakdown */}
                   <label
                     className={`p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between select-none ${
                       formStoppageType === 'BREAKDOWN'
-                        ? 'bg-rose-950/40 border-rose-500/80 ring-1 ring-rose-500/40'
+                        ? 'bg-rose-950/50 border-rose-500/80 ring-1 ring-rose-500/40'
                         : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/40'
                     }`}
                   >
@@ -2821,23 +3294,23 @@ export const RepairPage: React.FC = () => {
                             }}
                             className="accent-rose-500"
                           />
-                          <span className="text-xs font-bold text-rose-300">Breakdown</span>
+                          <span className="text-xs font-bold text-rose-300">Breakdown (Loss 4)</span>
                         </div>
                         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300">
-                          หน่วย: ครั้ง
+                          หน่วย: ครั้ง (เก็บเวลา)
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-300 leading-relaxed">
-                        เครื่องเสียที่ไม่ทราบล่วงหน้า <strong>มีการเปลี่ยนอะไหล่</strong> หน่วยเป็นครั้ง แต่เก็บเวลาด้วย
+                        ชิ้นส่วนชำรุดเสียหาย <strong>(มีการซ่อมแซม หรือเปลี่ยนอะไหล่)</strong> หรือเหตุขัดข้องซ่อมเกิน 1 นาที (คิด MTBF/MTTR)
                       </p>
                     </div>
                   </label>
 
-                  {/* Option 2: Minor stoppage */}
+                  {/* Option 3: Start up2 */}
                   <label
                     className={`p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between select-none ${
-                      formStoppageType === 'MINOR_STOPPAGE'
-                        ? 'bg-amber-950/40 border-amber-500/80 ring-1 ring-amber-500/40'
+                      formStoppageType === 'STARTUP'
+                        ? 'bg-purple-950/50 border-purple-500/80 ring-1 ring-purple-500/40'
                         : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/40'
                     }`}
                   >
@@ -2847,32 +3320,32 @@ export const RepairPage: React.FC = () => {
                           <input
                             type="radio"
                             name="formStoppageRadio"
-                            value="MINOR_STOPPAGE"
-                            checked={formStoppageType === 'MINOR_STOPPAGE'}
+                            value="STARTUP"
+                            checked={formStoppageType === 'STARTUP'}
                             onChange={() => {
-                              setFormStoppageType('MINOR_STOPPAGE');
+                              setFormStoppageType('STARTUP');
                               setFormHasPartsReplaced(false);
                               setIsStoppageManual(true);
                             }}
-                            className="accent-amber-500"
+                            className="accent-purple-500"
                           />
-                          <span className="text-xs font-bold text-amber-300">Minor stoppage</span>
+                          <span className="text-xs font-bold text-purple-300">Start up2 (Loss 5)</span>
                         </div>
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
-                          &lt; 15 นาที
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">
+                          ช่วงเริ่มเดินเครื่อง
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-300 leading-relaxed">
-                        เครื่องเสียที่ไม่ทราบล่วงหน้า <strong>ไม่มีการเปลี่ยนอะไหล่ น้อยกว่า 15 นาที</strong> หน่วยเป็นครั้ง
+                        หยุดช่วงเริ่มเดินเครื่อง รออุณหภูมิตู้อบ/น้ำมัน หรือแรงดันน้ำ/ลม ให้ได้มาตรฐานก่อนเริ่มผลิต
                       </p>
                     </div>
                   </label>
 
-                  {/* Option 3: Adjustment loss */}
+                  {/* Option 4: Adjustment loss */}
                   <label
                     className={`p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between select-none ${
                       formStoppageType === 'ADJUSTMENT_LOSS'
-                        ? 'bg-orange-950/40 border-orange-500/80 ring-1 ring-orange-500/40'
+                        ? 'bg-orange-950/50 border-orange-500/80 ring-1 ring-orange-500/40'
                         : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/40'
                     }`}
                   >
@@ -2891,14 +3364,49 @@ export const RepairPage: React.FC = () => {
                             }}
                             className="accent-orange-500"
                           />
-                          <span className="text-xs font-bold text-orange-300">Adjustment loss</span>
+                          <span className="text-xs font-bold text-orange-300">Adjustment (Loss 7)</span>
                         </div>
                         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300">
                           &gt; 15 นาที
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-300 leading-relaxed">
-                        เครื่องเสียที่ไม่ทราบล่วงหน้า <strong>ไม่มีการเปลี่ยนอะไหล่ มากกว่า 15 นาที</strong> หน่วยเป็นครั้ง
+                        ชิ้นส่วน<strong>ไม่ชำรุดเสียหาย</strong> หยุดปรับแต่งคุณภาพสินค้าเกิน 15 นาที บันทึกเวลาที่ปรับแต่ง
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Option 5: Minor stoppage */}
+                  <label
+                    className={`p-3 rounded-lg border cursor-pointer transition-all flex flex-col justify-between select-none ${
+                      formStoppageType === 'MINOR_STOPPAGE'
+                        ? 'bg-amber-950/50 border-amber-500/80 ring-1 ring-amber-500/40'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/40'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="formStoppageRadio"
+                            value="MINOR_STOPPAGE"
+                            checked={formStoppageType === 'MINOR_STOPPAGE'}
+                            onChange={() => {
+                              setFormStoppageType('MINOR_STOPPAGE');
+                              setFormHasPartsReplaced(false);
+                              setIsStoppageManual(true);
+                            }}
+                            className="accent-amber-500"
+                          />
+                          <span className="text-xs font-bold text-amber-300">Minor stoppage (Loss 12)</span>
+                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                          &lt; 15 นาที
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-300 leading-relaxed">
+                        ชิ้นส่วน<strong>ไม่ชำรุดเสียหาย</strong> และใช้เวลาปรับแต่งน้อยกว่า 15 นาที บันทึกเป็นจำนวนครั้งที่เครื่องหยุด
                       </p>
                     </div>
                   </label>
@@ -3628,12 +4136,29 @@ export const RepairPage: React.FC = () => {
                   </label>
                 </div>
 
-                {/* Category Selection Tabs */}
-                <div className="flex gap-2 p-1 bg-slate-950/90 rounded-xl border border-slate-800">
+                {/* Category Selection Tabs (Why-Why followed by FA, OPL, Kaizen, MP) */}
+                <div className="flex gap-1.5 p-1 bg-slate-950/90 rounded-xl border border-slate-800 overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => setActiveAttachmentTab('WHY_WHY')}
+                    className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                      activeAttachmentTab === 'WHY_WHY'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                    }`}
+                  >
+                    <span>❓ Why-Why Analysis</span>
+                    {formAttachments.filter(a => a.category === 'WHY_WHY').length > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[9px] flex items-center justify-center font-mono font-bold">
+                        {formAttachments.filter(a => a.category === 'WHY_WHY').length}
+                      </span>
+                    )}
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setActiveAttachmentTab('FA')}
-                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
                       activeAttachmentTab === 'FA'
                         ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
@@ -3650,7 +4175,7 @@ export const RepairPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setActiveAttachmentTab('OPL')}
-                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
                       activeAttachmentTab === 'OPL'
                         ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
@@ -3666,34 +4191,34 @@ export const RepairPage: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => setActiveAttachmentTab('WHY_WHY')}
-                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                      activeAttachmentTab === 'WHY_WHY'
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                    onClick={() => setActiveAttachmentTab('KAIZEN')}
+                    className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                      activeAttachmentTab === 'KAIZEN'
+                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                     }`}
                   >
-                    <span>❓ Why-Why Analysis</span>
-                    {formAttachments.filter(a => a.category === 'WHY_WHY').length > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[9px] flex items-center justify-center font-mono font-bold">
-                        {formAttachments.filter(a => a.category === 'WHY_WHY').length}
+                    <span>🚀 Kaizen (โครงการ)</span>
+                    {formAttachments.filter(a => a.category === 'KAIZEN').length > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] flex items-center justify-center font-mono font-bold">
+                        {formAttachments.filter(a => a.category === 'KAIZEN').length}
                       </span>
                     )}
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => setActiveAttachmentTab('KAIZEN')}
-                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                      activeAttachmentTab === 'KAIZEN'
-                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                    onClick={() => setActiveAttachmentTab('MP_INFO')}
+                    className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                      activeAttachmentTab === 'MP_INFO'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                     }`}
                   >
-                    <span>🚀 Kaizen (โครงการปรับปรุง)</span>
-                    {formAttachments.filter(a => a.category === 'KAIZEN').length > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] flex items-center justify-center font-mono font-bold">
-                        {formAttachments.filter(a => a.category === 'KAIZEN').length}
+                    <span>📋 MP (Information)</span>
+                    {formAttachments.filter(a => a.category === 'MP_INFO').length > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] flex items-center justify-center font-mono font-bold">
+                        {formAttachments.filter(a => a.category === 'MP_INFO').length}
                       </span>
                     )}
                   </button>
@@ -3945,13 +4470,9 @@ export const RepairPage: React.FC = () => {
                           การจำแนกประเภทความสูญเสีย (Loss Classification)
                         </span>
                         <span className={`px-2.5 py-0.5 rounded-full font-bold text-xs border ${
-                          sType === 'BREAKDOWN'
-                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                            : sType === 'MINOR_STOPPAGE'
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            : 'bg-orange-500/20 text-orange-300 border-orange-500/40'
+                          info?.badgeClass || 'bg-slate-800 text-slate-300 border-slate-700'
                         }`}>
-                          {info.label}
+                          {info?.label || sType}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-[11px] font-mono">
@@ -4060,6 +4581,155 @@ export const RepairPage: React.FC = () => {
                   )}
                 </div>
               </div>
+
+              {/* แถบเอกสารและโครงการวิเคราะห์ (FA • OPL • Kaizen • MP) ต่อจาก Why-Why Analysis */}
+              {(() => {
+                const atts = selectedRepairDetail.repairAttachments || [
+                  ...(selectedRepairDetail.faFile ? [selectedRepairDetail.faFile] : []),
+                  ...(selectedRepairDetail.oplFile ? [selectedRepairDetail.oplFile] : []),
+                  ...(selectedRepairDetail.whyWhyFile ? [selectedRepairDetail.whyWhyFile] : []),
+                  ...(selectedRepairDetail.kaizenFile ? [selectedRepairDetail.kaizenFile] : []),
+                  ...(selectedRepairDetail.mpFile ? [selectedRepairDetail.mpFile] : [])
+                ];
+                const faAtts = atts.filter(a => a.category === 'FA');
+                const oplAtts = atts.filter(a => a.category === 'OPL');
+                const kaizenAtts = atts.filter(a => a.category === 'KAIZEN');
+                const mpAtts = atts.filter(a => a.category === 'MP_INFO');
+
+                return (
+                  <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-750 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-700/60 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-slate-200 uppercase tracking-wide flex items-center gap-1.5">
+                          📂 แถบเอกสารผลงานและโครงการวิเคราะห์ (FA • OPL • Kaizen • MP)
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                          {atts.length} ไฟล์
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRepairForQuickAttachment(selectedRepairDetail)}
+                        className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10.5px] px-3 py-1.5 rounded-lg transition shadow-sm cursor-pointer"
+                      >
+                        <Plus size={12} />
+                        <span>+ แนบไฟล์เพิ่ม</span>
+                      </button>
+                    </div>
+
+                    {/* Quick navigation tags for FA, OPL, Kaizen, MP */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (faAtts.length > 0) {
+                            handleNavigateToKaizenProject(faAtts[0], selectedRepairDetail.machineId);
+                          } else {
+                            setActiveAttachmentTab('FA');
+                            setRepairForQuickAttachment(selectedRepairDetail);
+                          }
+                        }}
+                        className={`p-2 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                          faAtts.length > 0
+                            ? 'bg-rose-950/30 border-rose-500/40 hover:bg-rose-950/50 text-rose-300'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-rose-500/30 text-slate-400'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold flex items-center gap-1">🔍 FA</span>
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-slate-900 border border-slate-750">
+                            {faAtts.length}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-1 truncate">
+                          {faAtts.length > 0 ? faAtts[0].name : '+ เพิ่มเอกสาร FA'}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (oplAtts.length > 0) {
+                            handleNavigateToKaizenProject(oplAtts[0], selectedRepairDetail.machineId);
+                          } else {
+                            setActiveAttachmentTab('OPL');
+                            setRepairForQuickAttachment(selectedRepairDetail);
+                          }
+                        }}
+                        className={`p-2 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                          oplAtts.length > 0
+                            ? 'bg-amber-950/30 border-amber-500/40 hover:bg-amber-950/50 text-amber-300'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-amber-500/30 text-slate-400'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold flex items-center gap-1">💡 OPL</span>
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-slate-900 border border-slate-750">
+                            {oplAtts.length}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-1 truncate">
+                          {oplAtts.length > 0 ? oplAtts[0].name : '+ เพิ่มบทเรียน OPL'}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (kaizenAtts.length > 0) {
+                            handleNavigateToKaizenProject(kaizenAtts[0], selectedRepairDetail.machineId);
+                          } else {
+                            setActiveAttachmentTab('KAIZEN');
+                            setRepairForQuickAttachment(selectedRepairDetail);
+                          }
+                        }}
+                        className={`p-2 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                          kaizenAtts.length > 0
+                            ? 'bg-indigo-950/30 border-indigo-500/40 hover:bg-indigo-950/50 text-indigo-300'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-indigo-500/30 text-slate-400'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold flex items-center gap-1">🚀 Kaizen</span>
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-slate-900 border border-slate-750">
+                            {kaizenAtts.length}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-1 truncate">
+                          {kaizenAtts.length > 0 ? kaizenAtts[0].name : '+ เพิ่มงาน Kaizen'}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (mpAtts.length > 0) {
+                            handleNavigateToKaizenProject(mpAtts[0], selectedRepairDetail.machineId);
+                          } else {
+                            setActiveAttachmentTab('MP_INFO');
+                            setRepairForQuickAttachment(selectedRepairDetail);
+                          }
+                        }}
+                        className={`p-2 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                          mpAtts.length > 0
+                            ? 'bg-emerald-950/30 border-emerald-500/40 hover:bg-emerald-950/50 text-emerald-300'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-emerald-500/30 text-slate-400'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold flex items-center gap-1">📋 MP</span>
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-slate-900 border border-slate-750">
+                            {mpAtts.length}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-1 truncate">
+                          {mpAtts.length > 0 ? mpAtts[0].name : '+ เพิ่มแผ่นข้อมูล MP'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Used Spare Parts & Cost breakdown in Detail Modal */}
               <div className="bg-slate-900/30 border border-slate-750 p-4 rounded-xl space-y-3">
@@ -4225,13 +4895,14 @@ export const RepairPage: React.FC = () => {
                 </div>
               )}
 
-              {/* FA / OPL / Kaizen Attachments & Kaizen Links Card */}
+              {/* FA / OPL / Why-Why / Kaizen / MP Attachments & Kaizen Links Card */}
               {(() => {
                 const atts = selectedRepairDetail.repairAttachments || [
                   ...(selectedRepairDetail.faFile ? [selectedRepairDetail.faFile] : []),
                   ...(selectedRepairDetail.oplFile ? [selectedRepairDetail.oplFile] : []),
                   ...(selectedRepairDetail.whyWhyFile ? [selectedRepairDetail.whyWhyFile] : []),
-                  ...(selectedRepairDetail.kaizenFile ? [selectedRepairDetail.kaizenFile] : [])
+                  ...(selectedRepairDetail.kaizenFile ? [selectedRepairDetail.kaizenFile] : []),
+                  ...(selectedRepairDetail.mpFile ? [selectedRepairDetail.mpFile] : [])
                 ];
                 return (
                   <div className="bg-gradient-to-br from-slate-900/90 to-indigo-950/40 border border-indigo-500/30 p-4 rounded-xl space-y-3">
@@ -4240,7 +4911,7 @@ export const RepairPage: React.FC = () => {
                         <Paperclip className="text-indigo-400" size={18} />
                         <div>
                           <p className="text-[11px] font-bold text-slate-200">
-                            เอกสารวิเคราะห์และปรับปรุง (FA / OPL / Why-Why / Kaizen)
+                            เอกสารวิเคราะห์และปรับปรุง (FA / OPL / Why-Why / Kaizen / MP)
                           </p>
                           <p className="text-[10px] text-slate-400">
                             {atts.length > 0 ? `แนบไว้ทั้งหมด ${atts.length} ไฟล์ พร้อมเชื่อมต่อไปยังหน้า Kaizen` : 'ยังไม่มีไฟล์แนบ สามารถกดเพิ่มได้ทันที'}
@@ -4272,9 +4943,11 @@ export const RepairPage: React.FC = () => {
                                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
                                   : att.category === 'WHY_WHY'
                                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                                  : att.category === 'KAIZEN'
+                                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
                               }`}>
-                                {att.category === 'WHY_WHY' ? 'Why-Why' : att.category}
+                                {att.category === 'WHY_WHY' ? 'Why-Why' : att.category === 'MP_INFO' ? 'MP' : att.category}
                               </span>
                               <div className="min-w-0">
                                 <p className="text-slate-200 font-medium truncate text-[11px]" title={att.name}>
@@ -4828,33 +5501,38 @@ export const RepairPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Category tabs */}
-            <div className="flex gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800">
-              {(['FA', 'OPL', 'WHY_WHY', 'KAIZEN'] as const).map(cat => {
+            {/* Category tabs (Why-Why followed by FA, OPL, Kaizen, MP) */}
+            <div className="flex gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800 overflow-x-auto">
+              {(['WHY_WHY', 'FA', 'OPL', 'KAIZEN', 'MP_INFO'] as const).map(cat => {
                 const count = (repairForQuickAttachment.repairAttachments || [
+                  ...(repairForQuickAttachment.whyWhyFile ? [repairForQuickAttachment.whyWhyFile] : []),
                   ...(repairForQuickAttachment.faFile ? [repairForQuickAttachment.faFile] : []),
                   ...(repairForQuickAttachment.oplFile ? [repairForQuickAttachment.oplFile] : []),
-                  ...(repairForQuickAttachment.whyWhyFile ? [repairForQuickAttachment.whyWhyFile] : []),
-                  ...(repairForQuickAttachment.kaizenFile ? [repairForQuickAttachment.kaizenFile] : [])
+                  ...(repairForQuickAttachment.kaizenFile ? [repairForQuickAttachment.kaizenFile] : []),
+                  ...(repairForQuickAttachment.mpFile ? [repairForQuickAttachment.mpFile] : [])
                 ]).filter(a => a.category === cat).length;
                 return (
                   <button
                     key={cat}
                     type="button"
                     onClick={() => setActiveAttachmentTab(cat)}
-                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
                       activeAttachmentTab === cat
-                        ? cat === 'FA'
+                        ? cat === 'WHY_WHY'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm font-extrabold'
+                          : cat === 'FA'
                           ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm'
                           : cat === 'OPL'
                           ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
-                          : cat === 'WHY_WHY'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm font-extrabold'
-                          : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                          : cat === 'KAIZEN'
+                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <span>{cat === 'FA' ? '🔍 FA' : cat === 'OPL' ? '💡 OPL' : cat === 'WHY_WHY' ? '❓ Why-Why' : '🚀 Kaizen'}</span>
+                    <span>
+                      {cat === 'WHY_WHY' ? '❓ Why-Why' : cat === 'FA' ? '🔍 FA' : cat === 'OPL' ? '💡 OPL' : cat === 'KAIZEN' ? '🚀 Kaizen' : '📋 MP'}
+                    </span>
                     {count > 0 && (
                       <span className="w-4 h-4 rounded-full bg-slate-800 text-slate-200 text-[9px] flex items-center justify-center font-mono font-bold border border-slate-700">
                         {count}
@@ -5042,6 +5720,22 @@ export const RepairPage: React.FC = () => {
           }}
         />
       )}
+
+      {/* Factory Breakdown & Losses Standard Modal */}
+      <CPRAMLossesModal
+        isOpen={showCPRAMLossesModal}
+        onClose={() => setShowCPRAMLossesModal(false)}
+        onSelectLossType={(type) => {
+          setFormStoppageType(type);
+          if (type === 'BREAKDOWN') {
+            setFormHasPartsReplaced(true);
+          } else {
+            setFormHasPartsReplaced(false);
+          }
+          setIsStoppageManual(true);
+        }}
+        currentSelectedType={formStoppageType}
+      />
     </div>
   );
 };

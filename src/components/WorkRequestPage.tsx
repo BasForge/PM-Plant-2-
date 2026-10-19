@@ -139,7 +139,7 @@ export const WorkRequestPage: React.FC = () => {
     }
   };
 
-  // View mode: 'table' (ตารางแถว CPRAM) or 'cards' (แสดงรายละเอียด)
+  // View mode: 'table' (ตารางแถวมาตรฐาน) or 'cards' (แสดงรายละเอียด)
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   // Sorting options
   const [sortBy, setSortBy] = useState<'seq_asc' | 'seq_desc' | 'ticket_desc' | 'ticket_asc' | 'date_desc' | 'date_asc' | 'machine' | 'priority'>('seq_asc');
@@ -1454,7 +1454,7 @@ export const WorkRequestPage: React.FC = () => {
                   ? 'bg-white text-blue-700 shadow-2xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
-              title="แสดงผลแบบเป็นแถว (ตารางรายงาน CPRAM)"
+              title="แสดงผลแบบเป็นแถว (ตารางรายงาน)"
             >
               <LayoutList className="w-3.5 h-3.5" />
               <span>แบบเป็นแถว (ตาราง)</span>
@@ -1610,7 +1610,7 @@ export const WorkRequestPage: React.FC = () => {
             </button>
           </div>
         ) : viewMode === 'table' ? (
-          /* VIEW MODE 1: Table View (CPRAM Style Row-based Table) */
+          /* VIEW MODE 1: Table View (Row-based Table) */
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse min-w-[1060px]">
@@ -3235,7 +3235,7 @@ export const WorkRequestPage: React.FC = () => {
                     ใบแจ้งซ่อมและตอบรับงานซ่อมบำรุง
                   </h2>
                   <div className="text-xs text-slate-500 mt-1">
-                    CPRAM MAINTENANCE MANAGEMENT & ENGINEERING WORK ORDER
+                    PLANT MAINTENANCE MANAGEMENT &amp; ENGINEERING WORK ORDER
                   </div>
                 </div>
                 <div className="text-right">

@@ -148,6 +148,9 @@ export interface AppContextType {
   resetToDefaults: () => void;
   exportData: () => string;
   importData: (jsonStr: string) => boolean;
+  sidebarOpen: boolean;
+  setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  toggleSidebar: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -244,6 +247,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return null;
   });
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('app_sidebar_open');
+      if (saved !== null) return saved === 'true';
+    } catch {
+      // ignore
+    }
+    return true;
+  });
+
+  const toggleSidebar = () => {
+    setSidebarOpen(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('app_sidebar_open', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [firebaseStatus, setFirebaseStatus] = useState<FirebaseSyncStatus>('syncing');
   const [lastFirebaseSync, setLastFirebaseSync] = useState<string | null>(null);
@@ -257,7 +282,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   
   const [settings, setSettings] = useState<SystemSettings>({
     workingHoursPerDay: 8, // 8 hours * 60 = 480 mins
-    defaultPlannedProductionHours: 600, // ค่ามาตรฐาน 600 ชม./เดือน (ตามเอกสารมาตรฐาน TPM CPRAM PM Pillar)
+    defaultPlannedProductionHours: 600, // ค่ามาตรฐาน 600 ชม./เดือน (ตามเอกสารมาตรฐาน TPM PM Pillar)
     lineNotifyEnabled: false,
     lineNotifyToken: '',
     stdMttr: {
@@ -2004,7 +2029,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isQuotaExceeded: isCloudQuotaExceeded(),
       resetToDefaults,
       exportData,
-      importData
+      importData,
+      sidebarOpen,
+      setSidebarOpen,
+      toggleSidebar
     }}>
       {children}
     </AppContext.Provider>
