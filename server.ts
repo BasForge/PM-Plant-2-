@@ -114,4 +114,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("Critical error starting server:", err);
+  process.exit(1);
+});
