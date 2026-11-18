@@ -18,6 +18,8 @@ import { evaluateWorkOrderReadiness, generateWorkOrderNo } from '../utils/workOr
 import { DEFAULT_USER_ACCOUNTS } from '../data/preloadedUsers';
 import { KnowledgeItem, KnowledgeType } from '../types/knowledge';
 import { PRELOADED_KNOWLEDGE_ITEMS } from '../data/preloadedKnowledge';
+import { LevelingFootItem } from '../types/levelingFoot';
+import { PRELOADED_LEVELING_FOOT_ITEMS } from '../data/preloadedLevelingFoot';
 import { 
   loadDatabaseFromFirebase, 
   saveDatabaseToFirebase, 
@@ -83,6 +85,8 @@ export interface AppContextType {
   setWorkOrders: React.Dispatch<React.SetStateAction<WorkOrder[]>>;
   knowledgeItems: KnowledgeItem[];
   setKnowledgeItems: React.Dispatch<React.SetStateAction<KnowledgeItem[]>>;
+  levelingFootItems: LevelingFootItem[];
+  setLevelingFootItems: React.Dispatch<React.SetStateAction<LevelingFootItem[]>>;
   addKnowledgeItem: (item: Omit<KnowledgeItem, 'id' | 'createdAt' | 'updatedAt'>) => KnowledgeItem;
   updateKnowledgeItem: (id: string, updates: Partial<KnowledgeItem>) => void;
   deleteKnowledgeItem: (id: string) => void;
@@ -193,6 +197,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+  const [levelingFootItems, setLevelingFootItems] = useState<LevelingFootItem[]>(PRELOADED_LEVELING_FOOT_ITEMS);
   const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>(() => {
     try {
       const stored = localStorage.getItem('app_cmms_knowledge_items');
@@ -586,6 +591,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setCd5Projects(cloudData.cd5Projects && cloudData.cd5Projects.length > 0 ? cloudData.cd5Projects : PRELOADED_CD5_PROJECTS);
             setWorkRequests(sanitizeWorkRequests(cloudData.workRequests && cloudData.workRequests.length > 0 ? cloudData.workRequests : PRELOADED_WORK_REQUESTS));
             setWorkOrders(cloudData.workOrders && cloudData.workOrders.length > 0 ? cloudData.workOrders : PRELOADED_WORK_ORDERS);
+            setLevelingFootItems(
+              cloudData.levelingFootItems && cloudData.levelingFootItems.length > 0
+                ? cloudData.levelingFootItems
+                : PRELOADED_LEVELING_FOOT_ITEMS
+            );
             if (cloudData.knowledgeItems && cloudData.knowledgeItems.length > 0) {
               setKnowledgeItems(cloudData.knowledgeItems);
             }
@@ -642,6 +652,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const cd5 = serverData.cd5Projects || PRELOADED_CD5_PROJECTS;
             const reqs = sanitizeWorkRequests(serverData.workRequests || PRELOADED_WORK_REQUESTS);
             const wos = serverData.workOrders || PRELOADED_WORK_ORDERS;
+            const lfItems = (serverData.levelingFootItems && serverData.levelingFootItems.length > 0)
+              ? serverData.levelingFootItems
+              : PRELOADED_LEVELING_FOOT_ITEMS;
             const userList = ensureAllDefaultUsers(serverData.users);
             const stt = serverData.settings || settings;
 
@@ -658,6 +671,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setCd5Projects(cd5);
             setWorkRequests(reqs);
             setWorkOrders(wos);
+            setLevelingFootItems(lfItems);
             if (serverData.knowledgeItems && serverData.knowledgeItems.length > 0) {
               setKnowledgeItems(serverData.knowledgeItems);
             }
@@ -684,6 +698,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               cd5Projects: cd5,
               workRequests: reqs,
               workOrders: wos,
+              levelingFootItems: lfItems,
               knowledgeItems: serverData.knowledgeItems || knowledgeItems,
               users: userList,
               settings: stt
@@ -711,6 +726,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const storedCd5 = localStorage.getItem('maint_cd5_projects');
           const storedWorkRequests = localStorage.getItem('maint_work_requests');
           const storedWorkOrders = localStorage.getItem('maint_work_orders');
+          const storedLevelingFoot = localStorage.getItem('maint_leveling_foot_items');
           const storedUsers = localStorage.getItem('maint_users');
           const storedKnowledge = localStorage.getItem('app_cmms_knowledge_items');
 
@@ -733,6 +749,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const cd5 = storedCd5 ? JSON.parse(storedCd5) : PRELOADED_CD5_PROJECTS;
           const reqs = storedWorkRequests ? JSON.parse(storedWorkRequests) : PRELOADED_WORK_REQUESTS;
           const wos = storedWorkOrders ? JSON.parse(storedWorkOrders) : PRELOADED_WORK_ORDERS;
+          const lfItems: LevelingFootItem[] = storedLevelingFoot ? JSON.parse(storedLevelingFoot) : PRELOADED_LEVELING_FOOT_ITEMS;
           const userList: UserAccount[] = ensureAllDefaultUsers(storedUsers ? JSON.parse(storedUsers) : DEFAULT_USER_ACCOUNTS);
           const lvs = storedLeaves ? JSON.parse(storedLeaves) : [
             { id: 'lv-001', technician: 'ช่างอุ้ย', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
@@ -755,6 +772,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setCd5Projects(cd5);
           setWorkRequests(reqs);
           setWorkOrders(wos);
+          setLevelingFootItems(lfItems.length > 0 ? lfItems : PRELOADED_LEVELING_FOOT_ITEMS);
           setUsers(userList);
           setSettings(stt);
 
@@ -778,6 +796,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             cd5Projects: cd5,
             workRequests: reqs,
             workOrders: wos,
+            levelingFootItems: lfItems.length > 0 ? lfItems : PRELOADED_LEVELING_FOOT_ITEMS,
             knowledgeItems: storedKnowledge ? JSON.parse(storedKnowledge) : knowledgeItems,
             users: userList,
             settings: stt
@@ -846,6 +865,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('maint_cd5_projects', JSON.stringify(cd5Projects));
       localStorage.setItem('maint_work_requests', JSON.stringify(workRequests));
       localStorage.setItem('maint_work_orders', JSON.stringify(workOrders));
+      localStorage.setItem('maint_leveling_foot_items', JSON.stringify(levelingFootItems));
       localStorage.setItem('maint_settings', JSON.stringify(settings));
       localStorage.setItem('maint_users', JSON.stringify(users));
     } catch (e) {
@@ -866,6 +886,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cd5Projects,
       workRequests,
       workOrders,
+      levelingFootItems,
       knowledgeItems,
       settings,
       users
@@ -944,7 +965,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timerId);
   }, [
     machines, technicians, employees, pmPlans, schedules,
-    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, knowledgeItems, settings, users, isLoaded
+    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, levelingFootItems, knowledgeItems, settings, users, isLoaded
   ]);
 
   // Real-time listener for multi-user collaboration via Cloud Firestore
@@ -982,6 +1003,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           if (cloudData.workOrders && cloudData.workOrders.length > 0) {
             setWorkOrders(cloudData.workOrders);
+          }
+          if (cloudData.levelingFootItems && cloudData.levelingFootItems.length > 0) {
+            setLevelingFootItems(cloudData.levelingFootItems);
           }
           if (cloudData.knowledgeItems && cloudData.knowledgeItems.length > 0) {
             setKnowledgeItems(cloudData.knowledgeItems);
@@ -1037,6 +1061,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (cloudData.workOrders && cloudData.workOrders.length > 0) {
           setWorkOrders(cloudData.workOrders);
         }
+        if (cloudData.levelingFootItems && cloudData.levelingFootItems.length > 0) {
+          setLevelingFootItems(cloudData.levelingFootItems);
+        }
         if (cloudData.knowledgeItems && cloudData.knowledgeItems.length > 0) {
           setKnowledgeItems(cloudData.knowledgeItems);
         }
@@ -1050,7 +1077,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         const payload = {
           machines, technicians, employees, pmPlans, schedules,
-          repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, knowledgeItems, settings, users
+          repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, levelingFootItems, knowledgeItems, settings, users
         };
         await saveDatabaseToFirebase(payload);
         lastSavedJsonRef.current = serializeDbState(payload);
@@ -1889,6 +1916,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSetupLogs(PRELOADED_SETUPS);
     setCd5Projects(PRELOADED_CD5_PROJECTS);
     setWorkRequests(PRELOADED_WORK_REQUESTS);
+    setLevelingFootItems(PRELOADED_LEVELING_FOOT_ITEMS);
     setUsers(DEFAULT_USER_ACCOUNTS);
     const preloadingLeaves = [
       { id: 'lv-001', technician: 'ช่างอุ้ย', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
@@ -1934,6 +1962,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('maint_leaves', JSON.stringify(preloadingLeaves));
     localStorage.setItem('maint_users', JSON.stringify(DEFAULT_USER_ACCOUNTS));
     localStorage.setItem('maint_work_requests', JSON.stringify(PRELOADED_WORK_REQUESTS));
+    localStorage.setItem('maint_leveling_foot_items', JSON.stringify(PRELOADED_LEVELING_FOOT_ITEMS));
     setSpareParts(PRELOADED_SPARE_PARTS);
     localStorage.setItem('maint_spare_parts', JSON.stringify(PRELOADED_SPARE_PARTS));
     localStorage.setItem('maint_cd5_projects', JSON.stringify(PRELOADED_CD5_PROJECTS));
@@ -1955,6 +1984,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cd5Projects,
       workRequests,
       workOrders,
+      levelingFootItems,
       settings,
       users
     };
@@ -1977,6 +2007,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (dataObj.cd5Projects) setCd5Projects(dataObj.cd5Projects);
       if (dataObj.workRequests && Array.isArray(dataObj.workRequests)) setWorkRequests(sanitizeWorkRequests(dataObj.workRequests));
       if (dataObj.workOrders && Array.isArray(dataObj.workOrders)) setWorkOrders(dataObj.workOrders);
+      if (dataObj.levelingFootItems && Array.isArray(dataObj.levelingFootItems)) setLevelingFootItems(dataObj.levelingFootItems);
       if (dataObj.settings) setSettings(dataObj.settings);
       if (dataObj.users && Array.isArray(dataObj.users)) setUsers(dataObj.users);
       
@@ -2010,6 +2041,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       workRequests, setWorkRequests,
       workOrders, setWorkOrders,
       knowledgeItems, setKnowledgeItems,
+      levelingFootItems, setLevelingFootItems,
       addKnowledgeItem, updateKnowledgeItem, deleteKnowledgeItem,
       addWorkOrder, updateWorkOrder, deleteWorkOrder,
       deleteRepair, deleteRepairsBatch,

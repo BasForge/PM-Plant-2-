@@ -25,6 +25,7 @@ import { MtbfMttrDashboardPage } from './components/mtbf/MtbfMttrDashboardPage';
 import { WorkOrderHub } from './components/workOrder/WorkOrderHub';
 import { ActiveKnowledgeHub } from './components/knowledge/ActiveKnowledgeHub';
 import { ActiveCMMSUnifiedHub } from './components/ActiveCMMSUnifiedHub';
+import { LevelingFootDashboardPage } from './components/LevelingFootDashboardPage';
 import { getOverdueAndRescheduledSummary, getTodayDateString } from './utils/pmAlerts';
 
 import { 
@@ -32,7 +33,7 @@ import {
   BarChart3, Settings, Menu, ChevronLeft, ChevronRight, Clock, ShieldCheck, Send, Presentation, Users,
   Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell, Cloud,
   LogOut, Shield, UserCheck, Eye, BellRing, Factory, CalendarRange, BookOpen,
-  Maximize2, Minimize2
+  Maximize2, Minimize2, SlidersHorizontal
 } from 'lucide-react';
 
 // Isolated memoized clock component to prevent the root App and active page from re-rendering every second
@@ -190,6 +191,7 @@ function AppContent() {
       case 9:
       case 16: return <MtbfMttrDashboardPage />;
       case 12: return <TechnicianPortfolioPage />;
+      case 19: return <LevelingFootDashboardPage />;
       default: return <SchedulePage />;
     }
   };
@@ -205,7 +207,8 @@ function AppContent() {
     { id: 18, label: "📚 ศูนย์คลังความรู้ Active CMMS", icon: BookOpen, desc: "Manual, WI, Troubleshoot, Why-Why & Kaizen" },
     { id: 7, label: "📋 ระบบจ่ายงาน & Setup เครื่อง", icon: Send, desc: "ศูนย์สั่งจ่ายงาน & บันทึก Setup" },
     { id: 10, label: "📦 คลังอะไหล่สำรอง", icon: Package, desc: "ควบคุมความปลอดภัยสต็อก" },
-    { id: 12, label: "🏆 Portfolio ช่าง", icon: Award, desc: "ประวัติผลงาน Kaizen & ปรับปรุง" }
+    { id: 12, label: "🏆 Portfolio ช่าง", icon: Award, desc: "ประวัติผลงาน Kaizen & ปรับปรุง" },
+    { id: 19, label: "🔩 สำรวจ & เปลี่ยนขาฉิ่ง", icon: SlidersHorizontal, desc: "High Case Dashboard & กราฟ" }
   ];
 
   // RBAC Filter: Production users can ONLY see the Work Request tab
@@ -223,9 +226,9 @@ function AppContent() {
           sidebarOpen ? 'w-64' : 'w-16'
         }`}
       >
-        <div>
+        <div className="flex-1 min-h-0 flex flex-col">
           {/* Logo Brand portion */}
-          <div className="p-4 border-b border-slate-800/80 flex items-center justify-between gap-2.5">
+          <div className="p-4 border-b border-slate-800/80 flex items-center justify-between gap-2.5 shrink-0">
             {sidebarOpen ? (
               <div className="flex items-center gap-2">
                 <div className="p-1.5 bg-cyan-500/10 rounded-lg border border-cyan-500/20 text-cyan-400">
@@ -258,7 +261,7 @@ function AppContent() {
 
           {/* Production Role Portal Banner */}
           {isProductionUser && sidebarOpen && (
-            <div className="mx-3 mt-3 p-3 rounded-xl bg-gradient-to-r from-orange-950/60 to-amber-950/40 border border-orange-500/40 text-orange-200">
+            <div className="mx-3 mt-3 p-3 rounded-xl bg-gradient-to-r from-orange-950/60 to-amber-950/40 border border-orange-500/40 text-orange-200 shrink-0">
               <div className="flex items-center gap-2">
                 <Factory size={16} className="text-orange-400 shrink-0" />
                 <div>
@@ -270,7 +273,7 @@ function AppContent() {
           )}
 
           {/* Navigation Items buttons */}
-          <nav className="p-3 space-y-1 mt-4" id="app-sidebar-nav">
+          <nav className="p-3 space-y-1 mt-2 flex-1 overflow-y-auto" id="app-sidebar-nav">
             {visibleNavigationItems.map((item) => {
               const IconComp = item.icon;
               const isSelected = activePage === item.id 

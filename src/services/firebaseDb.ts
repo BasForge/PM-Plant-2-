@@ -31,6 +31,7 @@ import {
   WorkOrder
 } from '../types';
 import { KnowledgeItem } from '../types/knowledge';
+import { LevelingFootItem } from '../types/levelingFoot';
 
 export interface AppDatabaseState {
   machines: Machine[];
@@ -48,6 +49,7 @@ export interface AppDatabaseState {
   workRequests?: WorkRequest[];
   workOrders?: WorkOrder[];
   knowledgeItems?: KnowledgeItem[];
+  levelingFootItems?: LevelingFootItem[];
   settings: SystemSettings;
 }
 
@@ -275,7 +277,8 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         usersSnap,
         workRequestsSnap,
         workOrdersSnap,
-        repairsCatalogSnap
+        repairsCatalogSnap,
+        levelingFootSnap
       ] = await Promise.all([
         getDoc(doc(firestore, 'catalog', 'technicians')),
         getDoc(doc(firestore, 'catalog', 'employees')),
@@ -290,7 +293,8 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         getDoc(doc(firestore, 'catalog', 'users')),
         getDoc(doc(firestore, 'catalog', 'workRequests')),
         getDoc(doc(firestore, 'catalog', 'workOrders')),
-        getDoc(doc(firestore, 'catalog', 'repairs'))
+        getDoc(doc(firestore, 'catalog', 'repairs')),
+        getDoc(doc(firestore, 'catalog', 'levelingFootItems'))
       ]);
 
       let repairs: RepairLog[] = await loadCatalogList<RepairLog>(repairsCatalogSnap, 'repairs');
@@ -321,6 +325,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         users: await loadCatalogList<UserAccount>(usersSnap, 'users'),
         workRequests: await loadCatalogList<WorkRequest>(workRequestsSnap, 'workRequests'),
         workOrders: await loadCatalogList<WorkOrder>(workOrdersSnap, 'workOrders'),
+        levelingFootItems: levelingFootSnap.exists() ? await loadCatalogList<LevelingFootItem>(levelingFootSnap, 'levelingFootItems') : undefined,
         settings: settingSnap.exists() ? (settingSnap.data().data || {}) : {} as SystemSettings,
       };
     }
@@ -418,6 +423,7 @@ export async function saveDatabaseToFirebase(data: AppDatabaseState): Promise<vo
       workRequests: { list: cleanData.workRequests || [] },
       workOrders: { list: cleanData.workOrders || [] },
       repairs: { list: cleanData.repairs || [] },
+      levelingFootItems: { list: cleanData.levelingFootItems || [] },
       settings: { data: cleanData.settings || {} }
     };
 

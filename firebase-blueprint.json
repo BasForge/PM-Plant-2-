@@ -184,6 +184,31 @@
         "department": { "type": "string", "description": "Department or manufacturing line" }
       },
       "required": ["id", "username", "password", "name", "role"]
+    },
+    "levelingFootItems": {
+      "title": "Leveling Foot Survey Items",
+      "description": "High Case leveling foot inspection, replacement tracking, cost, and completion photos",
+      "properties": {
+        "id": { "type": "string", "description": "Unique leveling foot survey item ID" },
+        "orderNo": { "type": "number", "description": "Row order index" },
+        "zone": { "type": "string", "description": "Facility zone (e.g. High case)" },
+        "area": { "type": "string", "description": "Room or production area" },
+        "lineGroup": { "type": "string", "description": "Line group name" },
+        "machineName": { "type": "string", "description": "Machine or equipment name" },
+        "rowType": { "type": "string", "description": "ITEM, CANNOT_REPLACE, SOLID_FOOT, or NO_BELT" },
+        "footType": { "type": "string", "description": "Foot construction type" },
+        "sizeCode": { "type": "string", "description": "Thread/size code (e.g. M12x50, M20x250)" },
+        "footCount": { "type": "number", "description": "Number of leveling feet" },
+        "canImprove": { "type": "boolean", "description": "Whether improvement is feasible" },
+        "qaPlanMonth": { "type": "string", "description": "QA planned completion month" },
+        "completedDate": { "type": "string", "description": "Actual completion date YYYY-MM-DD" },
+        "note": { "type": "string", "description": "Notes and additional handling instructions" },
+        "status": { "type": "string", "description": "PENDING, COMPLETED, or CANNOT_REPLACE" },
+        "unitPrice": { "type": "number", "description": "Unit price per leveling foot (THB)" },
+        "totalCost": { "type": "number", "description": "Total cost (THB)" },
+        "photo": { "type": "string", "description": "Compressed photo data URL" }
+      },
+      "required": ["id", "machineName", "status"]
     }
   }
 }
