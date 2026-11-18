@@ -272,7 +272,7 @@ export const BadActorReportView: React.FC<BadActorReportViewProps> = ({
         isPareto80Count: false,
         bciScore: 0,
         bciTier: 'MODERATE' as const,
-        repairs: mRepairs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+        repairs: mRepairs.sort((a, b) => new Date(b.breakdownTime || b.date).getTime() - new Date(a.breakdownTime || a.date).getTime()),
         chronicPatterns: chronic,
         topSymptom
       };

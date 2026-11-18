@@ -50,9 +50,17 @@ export const BreakdownCasesModal: React.FC<BreakdownCasesModalProps> = ({
   
   // Sort newest first
   const sortedRepairs = [...matchingRepairs].sort((a, b) => {
-    const tA = new Date(a.breakdownTime || a.date).getTime();
-    const tB = new Date(b.breakdownTime || b.date).getTime();
-    return tB - tA;
+    const parseMs = (r: RepairLog) => {
+      const dateStr = (r.date || r.breakdownTime?.split('T')[0] || '').trim();
+      const timePart = r.breakdownTime?.match(/[T\s](\d{1,2}:\d{1,2})/)?.[1] || '00:00';
+      const m = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (m) {
+        const [hh, mm] = timePart.split(':').map(Number);
+        return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), hh || 0, mm || 0).getTime();
+      }
+      return new Date(r.breakdownTime || r.date).getTime() || 0;
+    };
+    return parseMs(b) - parseMs(a);
   });
 
   const totalMinutes = matchingRepairs.reduce((sum, r) => sum + (r.duration || 0), 0);
@@ -60,8 +68,8 @@ export const BreakdownCasesModal: React.FC<BreakdownCasesModalProps> = ({
 
   // Helper to export this specific cases list to CSV
   const handleExportCasesExcel = () => {
-    if (matchingRepairs.length === 0) return;
-    const rows = matchingRepairs.map((r, idx) => {
+    if (sortedRepairs.length === 0) return;
+    const rows = sortedRepairs.map((r, idx) => {
       const mach = machines.find(m => m.id === r.machineId);
       return {
         'ลำดับ': idx + 1,

@@ -15,7 +15,7 @@ import {
 } from '../types';
 import { 
   Plus, Search, SlidersHorizontal, Image as ImageIcon, 
-  Trash2, AlertTriangle, CheckCircle, HelpCircle, ArrowUpDown,
+  Trash2, AlertTriangle, CheckCircle, HelpCircle, ArrowUpDown, ArrowUp, ArrowDown,
   Edit, FileSpreadsheet, Upload, X, MessageSquare, Tag, Check, Sparkles,
   CheckCircle2, Clock, Wrench, Package, PenLine, PlusCircle, CheckSquare,
   FileText, BookOpen, ExternalLink, Paperclip, Eye, Download,
@@ -48,7 +48,7 @@ export const RepairPage: React.FC = () => {
   const [monthFilter, setMonthFilter] = useState('');
   const [mttrFilter, setMttrFilter] = useState<number>(0); // MTTR > X minutes
   const [stoppageFilter, setStoppageFilter] = useState<string>('ALL'); // 'ALL' | 'BREAKDOWN' | 'MINOR_STOPPAGE' | 'ADJUSTMENT_LOSS'
-  const [sortBy, setSortBy] = useState<'sheet' | 'date' | 'duration'>('sheet'); // default to sheet order (1 - 77) matching PDF
+  const [sortBy, setSortBy] = useState<'date' | 'date_asc' | 'duration' | 'sheet'>('date'); // default to newest breakdown date first
 
   // PDF Repair Import state
   const [showPdfModal, setShowPdfModal] = useState(false);
@@ -1409,6 +1409,53 @@ export const RepairPage: React.FC = () => {
   const minorCount = minorLogs.length;
   const minorDuration = minorLogs.reduce((sum, r) => sum + (r.duration || 0), 0);
 
+  // Helper to reliably convert a RepairLog's date & breakdownTime into a local timestamp (ms)
+  const getRepairDateMs = (r: RepairLog): number => {
+    const parseCalendarDate = (str?: string): { y: number; m: number; d: number } | null => {
+      const s = (str || '').trim();
+      if (!s) return null;
+      const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (iso) {
+        let y = parseInt(iso[1], 10);
+        if (y > 2400) y -= 543;
+        return { y, m: parseInt(iso[2], 10), d: parseInt(iso[3], 10) };
+      }
+      const dmy = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+      if (dmy) {
+        const d = parseInt(dmy[1], 10);
+        const m = parseInt(dmy[2], 10);
+        let y = parseInt(dmy[3], 10);
+        if (y < 100) y += 2000;
+        if (y > 2400) y -= 543;
+        return { y, m, d };
+      }
+      return null;
+    };
+
+    const parseTimeOfDay = (str?: string): { hh: number; mm: number; ss: number } => {
+      const s = (str || '').trim();
+      const tMatch = s.match(/(?:^|[T\s])(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+      if (tMatch) {
+        return {
+          hh: parseInt(tMatch[1], 10),
+          mm: parseInt(tMatch[2], 10),
+          ss: tMatch[3] ? parseInt(tMatch[3], 10) : 0,
+        };
+      }
+      return { hh: 0, mm: 0, ss: 0 };
+    };
+
+    // Prioritize r.date (what the table displays) for calendar date, falling back to breakdownTime
+    const cal = parseCalendarDate(r.date) || parseCalendarDate(r.breakdownTime);
+    if (cal) {
+      const tod = parseTimeOfDay(r.breakdownTime);
+      return new Date(cal.y, cal.m - 1, cal.d, tod.hh, tod.mm, tod.ss).getTime();
+    }
+
+    const fallback = new Date(r.breakdownTime || r.date || '').getTime();
+    return Number.isFinite(fallback) ? fallback : 0;
+  };
+
   // Filter & Sort core logs
   const filteredRepairs = repairs
     .filter(r => {
@@ -1432,15 +1479,21 @@ export const RepairPage: React.FC = () => {
       return matchMachine && matchTech && matchMonth && matchMttr && matchStoppage;
     })
     .sort((a, b) => {
-      if (sortBy === 'sheet') {
-        return (a.id || '').localeCompare(b.id || '');
-      } else if (sortBy === 'date') {
-        const timeA = new Date(a.breakdownTime || a.date).getTime();
-        const timeB = new Date(b.breakdownTime || b.date).getTime();
+      if (sortBy === 'date') {
+        const timeA = getRepairDateMs(a);
+        const timeB = getRepairDateMs(b);
         if (timeB !== timeA) return timeB - timeA; // Newest first
-        return (a.id || '').localeCompare(b.id || ''); // Stable tie-breaker matching PDF sheet order
+        return (a.id || '').localeCompare(b.id || '', undefined, { numeric: true });
+      } else if (sortBy === 'date_asc') {
+        const timeA = getRepairDateMs(a);
+        const timeB = getRepairDateMs(b);
+        if (timeA !== timeB) return timeA - timeB; // Oldest first
+        return (a.id || '').localeCompare(b.id || '', undefined, { numeric: true });
+      } else if (sortBy === 'duration') {
+        if (b.duration !== a.duration) return b.duration - a.duration; // MTTR Descending
+        return getRepairDateMs(b) - getRepairDateMs(a);
       } else {
-        return b.duration - a.duration; // MTTR Descending
+        return (a.id || '').localeCompare(b.id || '', undefined, { numeric: true });
       }
     });
 
@@ -2037,12 +2090,13 @@ export const RepairPage: React.FC = () => {
             <select
               id="filter-rep-sort"
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as 'sheet' | 'date' | 'duration')}
+              onChange={(e) => setSortBy(e.target.value as 'date' | 'date_asc' | 'duration' | 'sheet')}
               className="w-full bg-slate-900 border border-slate-750/90 rounded-lg px-3 py-1.5 text-xs text-cyan-300 font-bold focus:outline-none focus:border-cyan-500 cursor-pointer"
             >
-              <option value="sheet">📑 ลำดับตามชีต PDF (แถว 1 - 77)</option>
-              <option value="date">📅 วันที่และเวลาเสียล่าสุดก่อน</option>
+              <option value="date">📅 วันที่และเวลาเสียล่าสุดก่อน (ใหม่ → เก่า)</option>
+              <option value="date_asc">📅 วันที่และเวลาเสียเก่าสุดก่อน (เก่า → ใหม่)</option>
               <option value="duration">⏱ เวลากระทบเสียนานสุด (MTTR)</option>
+              <option value="sheet">📑 ลำดับตามรหัสอ้างอิง / ชีต</option>
             </select>
           </div>
         </div>
@@ -2312,12 +2366,36 @@ export const RepairPage: React.FC = () => {
                     />
                   </div>
                 </th>
-                <th className={`${isFitToScreen ? 'py-2 px-1.5 w-18 text-[10.5px]' : 'py-3.5 px-3 w-28'}`}>วันที่เสีย</th>
+                <th
+                  onClick={() => setSortBy(prev => prev === 'date' ? 'date_asc' : 'date')}
+                  className={`${isFitToScreen ? 'py-2 px-1.5 w-20 text-[10.5px]' : 'py-3.5 px-3 w-32'} cursor-pointer hover:bg-slate-800/70 transition-colors group`}
+                  title={sortBy === 'date' ? 'กำลังเรียงจากวันที่ล่าสุดก่อน (คลิกเพื่อเรียงเก่าสุดก่อน)' : 'คลิกเพื่อเรียงจากวันที่ล่าสุดก่อน'}
+                >
+                  <div className="flex items-center gap-1">
+                    <span className={sortBy === 'date' || sortBy === 'date_asc' ? 'text-cyan-400' : ''}>วันที่เสีย</span>
+                    {sortBy === 'date' ? (
+                      <ArrowDown size={13} className="text-cyan-400 shrink-0" />
+                    ) : sortBy === 'date_asc' ? (
+                      <ArrowUp size={13} className="text-cyan-400 shrink-0" />
+                    ) : (
+                      <ArrowUpDown size={12} className="text-slate-500 group-hover:text-cyan-400 shrink-0" />
+                    )}
+                  </div>
+                </th>
                 <th className={`${isFitToScreen ? 'py-2 px-1 w-18 text-[10.5px]' : 'py-3.5 px-3 w-28'} font-mono`}>เครื่อง (ID)</th>
                 <th className={`${isFitToScreen ? 'py-2 px-1.5 max-w-[95px] text-[10.5px]' : 'py-3.5 px-4'}`}>ชื่อเครื่องจักร</th>
                 <th className={`${isFitToScreen ? 'py-2 px-1 w-20 text-center text-[10px]' : 'py-3.5 px-3 text-center w-36'}`}>ประเภทสูญเสีย</th>
                 <th className={`${isFitToScreen ? 'py-2 px-1 w-16 text-center text-[10px]' : 'py-3.5 px-3 text-center w-28'}`}>ใบสั่งงาน (WO)</th>
-                <th className={`${isFitToScreen ? 'py-2 px-1 w-12 text-center text-[10.5px]' : 'py-3.5 px-3 text-center'}`}>MTTR</th>
+                <th
+                  onClick={() => setSortBy('duration')}
+                  className={`${isFitToScreen ? 'py-2 px-1 w-12 text-center text-[10.5px]' : 'py-3.5 px-3 text-center'} cursor-pointer hover:bg-slate-800/70 transition-colors`}
+                  title="คลิกเพื่อเรียงตาม MTTR นานสุดก่อน"
+                >
+                  <div className="flex items-center justify-center gap-1">
+                    <span className={sortBy === 'duration' ? 'text-cyan-400' : ''}>MTTR</span>
+                    {sortBy === 'duration' && <ArrowDown size={12} className="text-cyan-400 shrink-0" />}
+                  </div>
+                </th>
                 <th className={`${isFitToScreen ? 'py-2 px-1 w-10 text-center text-[10px]' : 'py-3.5 px-3 text-center'}`}>Std.</th>
                 <th className={`${isFitToScreen ? 'py-2 px-1.5 max-w-[95px] text-[10.5px]' : 'py-3.5 px-4'}`}>อาการเสียชำรุด</th>
                 <th className={`${isFitToScreen ? 'py-2 px-1.5 max-w-[95px] text-[10.5px]' : 'py-3.5 px-4'}`}>Why 1 (แรกพบ)</th>
