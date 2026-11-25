@@ -25,7 +25,7 @@ import { MtbfMttrDashboardPage } from './components/mtbf/MtbfMttrDashboardPage';
 import { WorkOrderHub } from './components/workOrder/WorkOrderHub';
 import { ActiveKnowledgeHub } from './components/knowledge/ActiveKnowledgeHub';
 import { ActiveCMMSUnifiedHub } from './components/ActiveCMMSUnifiedHub';
-import { LevelingFootDashboardPage } from './components/LevelingFootDashboardPage';
+import { QAComplianceHub } from './components/QAComplianceHub';
 import { getOverdueAndRescheduledSummary, getTodayDateString } from './utils/pmAlerts';
 
 import { 
@@ -33,7 +33,7 @@ import {
   BarChart3, Settings, Menu, ChevronLeft, ChevronRight, Clock, ShieldCheck, Send, Presentation, Users,
   Sun, Moon, Package, ClipboardCheck, WifiOff, Award, Sparkles, TrendingDown, AlertTriangle, Bell, Cloud,
   LogOut, Shield, UserCheck, Eye, BellRing, Factory, CalendarRange, BookOpen,
-  Maximize2, Minimize2, SlidersHorizontal
+  Maximize2, Minimize2
 } from 'lucide-react';
 
 // Isolated memoized clock component to prevent the root App and active page from re-rendering every second
@@ -191,7 +191,7 @@ function AppContent() {
       case 9:
       case 16: return <MtbfMttrDashboardPage />;
       case 12: return <TechnicianPortfolioPage />;
-      case 19: return <LevelingFootDashboardPage />;
+      case 19: return <QAComplianceHub />;
       default: return <SchedulePage />;
     }
   };
@@ -208,7 +208,7 @@ function AppContent() {
     { id: 7, label: "📋 ระบบจ่ายงาน & Setup เครื่อง", icon: Send, desc: "ศูนย์สั่งจ่ายงาน & บันทึก Setup" },
     { id: 10, label: "📦 คลังอะไหล่สำรอง", icon: Package, desc: "ควบคุมความปลอดภัยสต็อก" },
     { id: 12, label: "🏆 Portfolio ช่าง", icon: Award, desc: "ประวัติผลงาน Kaizen & ปรับปรุง" },
-    { id: 19, label: "🔩 สำรวจ & เปลี่ยนขาฉิ่ง", icon: SlidersHorizontal, desc: "High Case Dashboard & กราฟ" }
+    { id: 19, label: "🛡️ ขาฉิ่ง & iAssure", icon: ShieldCheck, desc: "งาน QA: สำรวจขาฉิ่ง & Videojet 6530" }
   ];
 
   // RBAC Filter: Production users can ONLY see the Work Request tab

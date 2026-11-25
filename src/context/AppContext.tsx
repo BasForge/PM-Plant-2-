@@ -20,6 +20,8 @@ import { KnowledgeItem, KnowledgeType } from '../types/knowledge';
 import { PRELOADED_KNOWLEDGE_ITEMS } from '../data/preloadedKnowledge';
 import { LevelingFootItem } from '../types/levelingFoot';
 import { PRELOADED_LEVELING_FOOT_ITEMS } from '../data/preloadedLevelingFoot';
+import { IAssureItem } from '../types/iAssure';
+import { PRELOADED_IASSURE_ITEMS } from '../data/preloadedIAssure';
 import { 
   loadDatabaseFromFirebase, 
   saveDatabaseToFirebase, 
@@ -89,6 +91,8 @@ export interface AppContextType {
   setKnowledgeItems: React.Dispatch<React.SetStateAction<KnowledgeItem[]>>;
   levelingFootItems: LevelingFootItem[];
   setLevelingFootItems: React.Dispatch<React.SetStateAction<LevelingFootItem[]>>;
+  iAssureItems: IAssureItem[];
+  setIAssureItems: React.Dispatch<React.SetStateAction<IAssureItem[]>>;
   addKnowledgeItem: (item: Omit<KnowledgeItem, 'id' | 'createdAt' | 'updatedAt'>) => KnowledgeItem;
   updateKnowledgeItem: (id: string, updates: Partial<KnowledgeItem>) => void;
   deleteKnowledgeItem: (id: string) => void;
@@ -201,6 +205,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [levelingFootItems, setLevelingFootItems] = useState<LevelingFootItem[]>(PRELOADED_LEVELING_FOOT_ITEMS);
+  const [iAssureItems, setIAssureItems] = useState<IAssureItem[]>(PRELOADED_IASSURE_ITEMS);
   const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>(() => {
     try {
       const stored = localStorage.getItem('app_cmms_knowledge_items');
@@ -600,6 +605,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 ? cloudData.levelingFootItems
                 : PRELOADED_LEVELING_FOOT_ITEMS
             );
+            setIAssureItems(
+              cloudData.iAssureItems && cloudData.iAssureItems.length > 0
+                ? cloudData.iAssureItems
+                : PRELOADED_IASSURE_ITEMS
+            );
             if (cloudData.knowledgeItems && cloudData.knowledgeItems.length > 0) {
               setKnowledgeItems(cloudData.knowledgeItems);
             }
@@ -660,6 +670,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const lfItems = (serverData.levelingFootItems && serverData.levelingFootItems.length > 0)
               ? serverData.levelingFootItems
               : PRELOADED_LEVELING_FOOT_ITEMS;
+            const iasItems = (serverData.iAssureItems && serverData.iAssureItems.length > 0)
+              ? serverData.iAssureItems
+              : PRELOADED_IASSURE_ITEMS;
             const userList = ensureAllDefaultUsers(serverData.users);
             const stt = serverData.settings || settings;
 
@@ -678,6 +691,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setWorkRequests(reqs);
             setWorkOrders(wos);
             setLevelingFootItems(lfItems);
+            setIAssureItems(iasItems);
             if (serverData.knowledgeItems && serverData.knowledgeItems.length > 0) {
               setKnowledgeItems(serverData.knowledgeItems);
             }
@@ -706,6 +720,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               workRequests: reqs,
               workOrders: wos,
               levelingFootItems: lfItems,
+              iAssureItems: iasItems,
               knowledgeItems: serverData.knowledgeItems || knowledgeItems,
               users: userList,
               settings: stt
@@ -735,6 +750,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const storedWorkRequests = localStorage.getItem('maint_work_requests');
           const storedWorkOrders = localStorage.getItem('maint_work_orders');
           const storedLevelingFoot = localStorage.getItem('maint_leveling_foot_items');
+          const storedIAssure = localStorage.getItem('maint_iassure_items');
           const storedUsers = localStorage.getItem('maint_users');
           const storedKnowledge = localStorage.getItem('app_cmms_knowledge_items');
 
@@ -759,6 +775,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const reqs = storedWorkRequests ? JSON.parse(storedWorkRequests) : PRELOADED_WORK_REQUESTS;
           const wos = storedWorkOrders ? JSON.parse(storedWorkOrders) : PRELOADED_WORK_ORDERS;
           const lfItems: LevelingFootItem[] = storedLevelingFoot ? JSON.parse(storedLevelingFoot) : PRELOADED_LEVELING_FOOT_ITEMS;
+          const iasItems: IAssureItem[] = storedIAssure ? JSON.parse(storedIAssure) : PRELOADED_IASSURE_ITEMS;
           const userList: UserAccount[] = ensureAllDefaultUsers(storedUsers ? JSON.parse(storedUsers) : DEFAULT_USER_ACCOUNTS);
           const lvs = storedLeaves ? JSON.parse(storedLeaves) : [
             { id: 'lv-001', technician: 'ช่างอุ้ย', date: '2026-06-08', type: 'ลากิจ' as const, note: 'ติดต่อราชการครอบครัว' },
@@ -783,6 +800,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setWorkRequests(reqs);
           setWorkOrders(wos);
           setLevelingFootItems(lfItems.length > 0 ? lfItems : PRELOADED_LEVELING_FOOT_ITEMS);
+          setIAssureItems(iasItems.length > 0 ? iasItems : PRELOADED_IASSURE_ITEMS);
           setUsers(userList);
           setSettings(stt);
 
@@ -808,6 +826,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             workRequests: reqs,
             workOrders: wos,
             levelingFootItems: lfItems.length > 0 ? lfItems : PRELOADED_LEVELING_FOOT_ITEMS,
+            iAssureItems: iasItems.length > 0 ? iasItems : PRELOADED_IASSURE_ITEMS,
             knowledgeItems: storedKnowledge ? JSON.parse(storedKnowledge) : knowledgeItems,
             users: userList,
             settings: stt
@@ -878,6 +897,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('maint_work_requests', JSON.stringify(workRequests));
       localStorage.setItem('maint_work_orders', JSON.stringify(workOrders));
       localStorage.setItem('maint_leveling_foot_items', JSON.stringify(levelingFootItems));
+      localStorage.setItem('maint_iassure_items', JSON.stringify(iAssureItems));
       localStorage.setItem('maint_settings', JSON.stringify(settings));
       localStorage.setItem('maint_users', JSON.stringify(users));
     } catch (e) {
@@ -900,6 +920,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       workRequests,
       workOrders,
       levelingFootItems,
+      iAssureItems,
       knowledgeItems,
       settings,
       users
@@ -978,7 +999,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timerId);
   }, [
     machines, technicians, employees, pmPlans, schedules,
-    repairs, improvements, setupLogs, leaves, spareParts, stockTransactions, cd5Projects, workRequests, workOrders, levelingFootItems, knowledgeItems, settings, users, isLoaded
+    repairs, improvements, setupLogs, leaves, spareParts, stockTransactions, cd5Projects, workRequests, workOrders, levelingFootItems, iAssureItems, knowledgeItems, settings, users, isLoaded
   ]);
 
   // Real-time listener for multi-user collaboration via Cloud Firestore
@@ -1022,6 +1043,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           if (cloudData.levelingFootItems && cloudData.levelingFootItems.length > 0) {
             setLevelingFootItems(cloudData.levelingFootItems);
+          }
+          if (cloudData.iAssureItems && cloudData.iAssureItems.length > 0) {
+            setIAssureItems(cloudData.iAssureItems);
           }
           if (cloudData.knowledgeItems && cloudData.knowledgeItems.length > 0) {
             setKnowledgeItems(cloudData.knowledgeItems);
@@ -1083,6 +1107,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (cloudData.levelingFootItems && cloudData.levelingFootItems.length > 0) {
           setLevelingFootItems(cloudData.levelingFootItems);
         }
+        if (cloudData.iAssureItems && cloudData.iAssureItems.length > 0) {
+          setIAssureItems(cloudData.iAssureItems);
+        }
         if (cloudData.knowledgeItems && cloudData.knowledgeItems.length > 0) {
           setKnowledgeItems(cloudData.knowledgeItems);
         }
@@ -1096,7 +1123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         const payload = {
           machines, technicians, employees, pmPlans, schedules,
-          repairs, improvements, setupLogs, leaves, spareParts, stockTransactions, cd5Projects, workRequests, workOrders, levelingFootItems, knowledgeItems, settings, users
+          repairs, improvements, setupLogs, leaves, spareParts, stockTransactions, cd5Projects, workRequests, workOrders, levelingFootItems, iAssureItems, knowledgeItems, settings, users
         };
         await saveDatabaseToFirebase(payload);
         lastSavedJsonRef.current = serializeDbState(payload);
@@ -1982,6 +2009,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('maint_users', JSON.stringify(DEFAULT_USER_ACCOUNTS));
     localStorage.setItem('maint_work_requests', JSON.stringify(PRELOADED_WORK_REQUESTS));
     localStorage.setItem('maint_leveling_foot_items', JSON.stringify(PRELOADED_LEVELING_FOOT_ITEMS));
+    setIAssureItems(PRELOADED_IASSURE_ITEMS);
+    localStorage.setItem('maint_iassure_items', JSON.stringify(PRELOADED_IASSURE_ITEMS));
     setSpareParts(PRELOADED_SPARE_PARTS);
     localStorage.setItem('maint_spare_parts', JSON.stringify(PRELOADED_SPARE_PARTS));
     setStockTransactions([]);
@@ -2007,6 +2036,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       workRequests,
       workOrders,
       levelingFootItems,
+      iAssureItems,
       settings,
       users
     };
@@ -2031,6 +2061,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (dataObj.workRequests && Array.isArray(dataObj.workRequests)) setWorkRequests(sanitizeWorkRequests(dataObj.workRequests));
       if (dataObj.workOrders && Array.isArray(dataObj.workOrders)) setWorkOrders(dataObj.workOrders);
       if (dataObj.levelingFootItems && Array.isArray(dataObj.levelingFootItems)) setLevelingFootItems(dataObj.levelingFootItems);
+      if (dataObj.iAssureItems && Array.isArray(dataObj.iAssureItems)) setIAssureItems(dataObj.iAssureItems);
       if (dataObj.settings) setSettings(dataObj.settings);
       if (dataObj.users && Array.isArray(dataObj.users)) setUsers(dataObj.users);
       
@@ -2066,6 +2097,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       workOrders, setWorkOrders,
       knowledgeItems, setKnowledgeItems,
       levelingFootItems, setLevelingFootItems,
+      iAssureItems, setIAssureItems,
       addKnowledgeItem, updateKnowledgeItem, deleteKnowledgeItem,
       addWorkOrder, updateWorkOrder, deleteWorkOrder,
       deleteRepair, deleteRepairsBatch,

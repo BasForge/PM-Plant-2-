@@ -241,6 +241,28 @@
         "photo": { "type": "string", "description": "Compressed photo data URL" }
       },
       "required": ["id", "machineName", "status"]
+    },
+    "iAssureItems": {
+      "title": "iAssure Videojet 6530 QA Items",
+      "description": "QA calibration, activation status, replacement parts (Light box), and test results for Videojet 6530 iAssure printers",
+      "properties": {
+        "id": { "type": "string", "description": "Unique iAssure tracking item ID" },
+        "orderNo": { "type": "number", "description": "Display order index" },
+        "machineName": { "type": "string", "description": "Machine or production line name" },
+        "status": { "type": "string", "description": "ACTIVE, PASSED_STANDBY, or FAILED" },
+        "partToReplace": { "type": "string", "description": "Component requiring replacement (e.g. Light box)" },
+        "serialNumber": { "type": "string", "description": "Videojet 6530 printer serial number" },
+        "testResult": { "type": "string", "description": "Calibration and diagnostic test results" },
+        "lightBoxCalibrate": { "type": "string", "description": "PASS, FAIL, PENDING, or NA" },
+        "iAssureCalibrate": { "type": "string", "description": "PASS, FAIL, PENDING, or NA" },
+        "prPoNo": { "type": "string", "description": "PR/PO procurement reference number" },
+        "estimatedCost": { "type": "number", "description": "Estimated part replacement cost (THB)" },
+        "targetDate": { "type": "string", "description": "QA target completion date YYYY-MM-DD" },
+        "activatedDate": { "type": "string", "description": "Actual activation date YYYY-MM-DD" },
+        "responsibleTech": { "type": "string", "description": "Responsible technician" },
+        "photo": { "type": "string", "description": "Compressed evidence photo data URL" }
+      },
+      "required": ["id", "machineName", "status"]
     }
   }
 }

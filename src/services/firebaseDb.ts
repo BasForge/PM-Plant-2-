@@ -33,6 +33,7 @@ import {
 } from '../types';
 import { KnowledgeItem } from '../types/knowledge';
 import { LevelingFootItem } from '../types/levelingFoot';
+import { IAssureItem } from '../types/iAssure';
 
 export interface AppDatabaseState {
   machines: Machine[];
@@ -52,6 +53,7 @@ export interface AppDatabaseState {
   workOrders?: WorkOrder[];
   knowledgeItems?: KnowledgeItem[];
   levelingFootItems?: LevelingFootItem[];
+  iAssureItems?: IAssureItem[];
   settings: SystemSettings;
 }
 
@@ -281,7 +283,8 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         workOrdersSnap,
         repairsCatalogSnap,
         levelingFootSnap,
-        stockTxSnap
+        stockTxSnap,
+        iAssureSnap
       ] = await Promise.all([
         getDoc(doc(firestore, 'catalog', 'technicians')),
         getDoc(doc(firestore, 'catalog', 'employees')),
@@ -298,7 +301,8 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         getDoc(doc(firestore, 'catalog', 'workOrders')),
         getDoc(doc(firestore, 'catalog', 'repairs')),
         getDoc(doc(firestore, 'catalog', 'levelingFootItems')),
-        getDoc(doc(firestore, 'catalog', 'stockTransactions'))
+        getDoc(doc(firestore, 'catalog', 'stockTransactions')),
+        getDoc(doc(firestore, 'catalog', 'iAssureItems'))
       ]);
 
       let repairs: RepairLog[] = await loadCatalogList<RepairLog>(repairsCatalogSnap, 'repairs');
@@ -331,6 +335,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         workRequests: await loadCatalogList<WorkRequest>(workRequestsSnap, 'workRequests'),
         workOrders: await loadCatalogList<WorkOrder>(workOrdersSnap, 'workOrders'),
         levelingFootItems: levelingFootSnap.exists() ? await loadCatalogList<LevelingFootItem>(levelingFootSnap, 'levelingFootItems') : undefined,
+        iAssureItems: iAssureSnap.exists() ? await loadCatalogList<IAssureItem>(iAssureSnap, 'iAssureItems') : undefined,
         settings: settingSnap.exists() ? (settingSnap.data().data || {}) : {} as SystemSettings,
       };
     }
@@ -430,6 +435,7 @@ export async function saveDatabaseToFirebase(data: AppDatabaseState): Promise<vo
       workOrders: { list: cleanData.workOrders || [] },
       repairs: { list: cleanData.repairs || [] },
       levelingFootItems: { list: cleanData.levelingFootItems || [] },
+      iAssureItems: { list: cleanData.iAssureItems || [] },
       settings: { data: cleanData.settings || {} }
     };
 
