@@ -721,14 +721,46 @@ export interface SparePart {
   category: string; // หมวดหมู่ (ระบบเครื่องกล, นิวเมติกส์, ระบบส่งกำลัง, อุปกรณ์ไฟฟ้า, ฯลฯ)
   machineIds: string[]; // เครื่องจักรที่เกี่ยวข้อง (เช่น ["RIM01", "VAC01"])
   quantity: number; // จำนวนคงเหลือในคลัง
-  minRequired: number; // จำนวนขั้นต่ำที่ต้องการ (หากน้อยกว่าหรือเท่ากับจะแจ้งเตือนสต็อกใกล้หมด)
-  unit: string; // หน่วยนับ (เช่น ชิ้น, ตลับ, ตัว, ม้วน)
+  minRequired: number; // จำนวนขั้นต่ำที่ต้องการ (Min - จุดสั่งซื้อ)
+  maxStock?: number; // จำนวนสูงสุดที่ควรเก็บ (Max - สำหรับคำนวณยอดสั่งซื้อและคุม Overstock)
+  unit: string; // หน่วยนับ (เช่น ชิ้น, ตลับ, ตัว, ม้วน, EA, PC)
   location: string; // สถานที่จัดเก็บ/ตำแหน่งชั้นวาง (เช่น ตู้ A ชั้น 2)
-  pricePerUnit: number; // ราคารวมต่อหน่วย (เช่น 450)
+  pricePerUnit: number; // ราคาต่อหน่วย (บาท)
+  supplier?: string; // ซัพพลายเออร์หลัก
+  leadTimeDays?: number; // ระยะเวลารอของ (วัน)
   lastRestockedDate?: string; // วันที่อัปเดตสต็อกล่าสุด (YYYY-MM-DD)
+  lastReceiveDate?: string; // วันที่รับเข้าล่าสุด (YYYY-MM-DD)
+  lastIssueDate?: string; // วันที่จ่ายออกล่าสุด (YYYY-MM-DD)
+  lastPRNo?: string; // เลข PR ล่าสุด
+  lastPONo?: string; // เลข PO ล่าสุด
   specifications?: string; // ข้อมูลทางเทคนิค/รายละเอียดเพิ่มเติม
   workRequestNo?: string; // เลขที่แจ้งซ่อมที่ผูกกับอะไหล่นี้
   lastWorkRequestNo?: string; // เลขที่แจ้งซ่อมที่เบิกใช้ล่าสุด
+}
+
+export type StockTransactionType = 'IN' | 'OUT' | 'ADJUST';
+
+export interface StockTransaction {
+  id: string;
+  partId: string;
+  partName: string;
+  type: StockTransactionType;
+  date: string; // วันที่รับเข้า / จ่ายออกจริง (YYYY-MM-DD)
+  quantity: number; // จำนวนที่เปลี่ยนแปลง (บวกเสมอสำหรับ IN/OUT, บวกหรือลบได้สำหรับ ADJUST)
+  balanceBefore: number;
+  balanceAfter: number;
+  unit: string;
+  unitPrice: number;
+  totalValue: number;
+  prNo?: string;
+  poNo?: string;
+  requisitionDate?: string;
+  supplier?: string;
+  machineName?: string;
+  workRequestNo?: string;
+  operatorName?: string;
+  note?: string;
+  createdAt: string;
 }
 
 export type CD5Category = 

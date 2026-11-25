@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { 
   Machine, PMPlan, PMScheduleItem, OperationScheduleItem, 
   RepairLog, ImprovementProject, SystemSettings, ScheduleItem, SetupLog, Employee,
-  TechnicianLeave, SparePart, CD5Project, UserAccount, UserRole,
+  TechnicianLeave, SparePart, StockTransaction, CD5Project, UserAccount, UserRole,
   WorkRequest, EngineeringResponse, WorkRequestStatus,
   WorkOrder, KaizenNavigationFilter, WorkOrderFailureCode, UsedPartItem,
   detectStoppageType
@@ -75,6 +75,8 @@ export interface AppContextType {
   setSettings: React.Dispatch<React.SetStateAction<SystemSettings>>;
   spareParts: SparePart[];
   setSpareParts: React.Dispatch<React.SetStateAction<SparePart[]>>;
+  stockTransactions: StockTransaction[];
+  setStockTransactions: React.Dispatch<React.SetStateAction<StockTransaction[]>>;
   cd5Projects: CD5Project[];
   setCd5Projects: React.Dispatch<React.SetStateAction<CD5Project[]>>;
   users: UserAccount[];
@@ -193,6 +195,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [setupLogs, setSetupLogs] = useState<SetupLog[]>([]);
   const [leaves, setLeaves] = useState<TechnicianLeave[]>([]);
   const [spareParts, setSpareParts] = useState<SparePart[]>([]);
+  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([]);
   const [cd5Projects, setCd5Projects] = useState<CD5Project[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [workRequests, setWorkRequests] = useState<WorkRequest[]>([]);
@@ -587,6 +590,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setImprovements(cloudData.improvements || PRELOADED_IMPROVEMENTS);
             setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
             setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
+            setStockTransactions(cloudData.stockTransactions || []);
             setLeaves(cloudData.leaves || []);
             setCd5Projects(cloudData.cd5Projects && cloudData.cd5Projects.length > 0 ? cloudData.cd5Projects : PRELOADED_CD5_PROJECTS);
             setWorkRequests(sanitizeWorkRequests(cloudData.workRequests && cloudData.workRequests.length > 0 ? cloudData.workRequests : PRELOADED_WORK_REQUESTS));
@@ -648,6 +652,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const imps = serverData.improvements || PRELOADED_IMPROVEMENTS;
             const setups = serverData.setupLogs || PRELOADED_SETUPS;
             const parts = serverData.spareParts || PRELOADED_SPARE_PARTS;
+            const stockTxs = serverData.stockTransactions || [];
             const lvs = serverData.leaves || [];
             const cd5 = serverData.cd5Projects || PRELOADED_CD5_PROJECTS;
             const reqs = sanitizeWorkRequests(serverData.workRequests || PRELOADED_WORK_REQUESTS);
@@ -667,6 +672,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setImprovements(imps);
             setSetupLogs(setups);
             setSpareParts(parts);
+            setStockTransactions(stockTxs);
             setLeaves(lvs);
             setCd5Projects(cd5);
             setWorkRequests(reqs);
@@ -694,6 +700,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               improvements: imps,
               setupLogs: setups,
               spareParts: parts,
+              stockTransactions: stockTxs,
               leaves: lvs,
               cd5Projects: cd5,
               workRequests: reqs,
@@ -722,6 +729,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const storedSettings = localStorage.getItem('maint_settings');
           const storedEmployees = localStorage.getItem('maint_employees');
           const storedSpareParts = localStorage.getItem('maint_spare_parts');
+          const storedStockTransactions = localStorage.getItem('maint_stock_transactions');
           const storedLeaves = localStorage.getItem('maint_leaves');
           const storedCd5 = localStorage.getItem('maint_cd5_projects');
           const storedWorkRequests = localStorage.getItem('maint_work_requests');
@@ -746,6 +754,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const imps = storedImprovements ? JSON.parse(storedImprovements) : PRELOADED_IMPROVEMENTS;
           const setups = storedSetups ? JSON.parse(storedSetups) : PRELOADED_SETUPS;
           const parts = storedSpareParts ? JSON.parse(storedSpareParts) : PRELOADED_SPARE_PARTS;
+          const stockTxs: StockTransaction[] = storedStockTransactions ? JSON.parse(storedStockTransactions) : [];
           const cd5 = storedCd5 ? JSON.parse(storedCd5) : PRELOADED_CD5_PROJECTS;
           const reqs = storedWorkRequests ? JSON.parse(storedWorkRequests) : PRELOADED_WORK_REQUESTS;
           const wos = storedWorkOrders ? JSON.parse(storedWorkOrders) : PRELOADED_WORK_ORDERS;
@@ -768,6 +777,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setImprovements(imps);
           setSetupLogs(setups);
           setSpareParts(parts);
+          setStockTransactions(stockTxs);
           setLeaves(lvs);
           setCd5Projects(cd5);
           setWorkRequests(reqs);
@@ -792,6 +802,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             improvements: imps,
             setupLogs: setups,
             spareParts: parts,
+            stockTransactions: stockTxs,
             leaves: lvs,
             cd5Projects: cd5,
             workRequests: reqs,
@@ -862,6 +873,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('maint_setup_logs', JSON.stringify(setupLogs));
       localStorage.setItem('maint_leaves', JSON.stringify(leaves));
       localStorage.setItem('maint_spare_parts', JSON.stringify(spareParts));
+      localStorage.setItem('maint_stock_transactions', JSON.stringify(stockTransactions));
       localStorage.setItem('maint_cd5_projects', JSON.stringify(cd5Projects));
       localStorage.setItem('maint_work_requests', JSON.stringify(workRequests));
       localStorage.setItem('maint_work_orders', JSON.stringify(workOrders));
@@ -883,6 +895,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setupLogs,
       leaves,
       spareParts,
+      stockTransactions,
       cd5Projects,
       workRequests,
       workOrders,
@@ -965,7 +978,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timerId);
   }, [
     machines, technicians, employees, pmPlans, schedules,
-    repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, levelingFootItems, knowledgeItems, settings, users, isLoaded
+    repairs, improvements, setupLogs, leaves, spareParts, stockTransactions, cd5Projects, workRequests, workOrders, levelingFootItems, knowledgeItems, settings, users, isLoaded
   ]);
 
   // Real-time listener for multi-user collaboration via Cloud Firestore
@@ -994,6 +1007,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setImprovements(cloudData.improvements || PRELOADED_IMPROVEMENTS);
           setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
           setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
+          if (cloudData.stockTransactions) {
+            setStockTransactions(cloudData.stockTransactions);
+          }
           setLeaves(cloudData.leaves || []);
           if (cloudData.cd5Projects && cloudData.cd5Projects.length > 0) {
             setCd5Projects(cloudData.cd5Projects);
@@ -1053,6 +1069,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setImprovements(cloudData.improvements || PRELOADED_IMPROVEMENTS);
         setSetupLogs(cloudData.setupLogs || PRELOADED_SETUPS);
         setSpareParts(cloudData.spareParts || PRELOADED_SPARE_PARTS);
+        if (cloudData.stockTransactions) {
+          setStockTransactions(cloudData.stockTransactions);
+        }
         setLeaves(cloudData.leaves || []);
         setCd5Projects(cloudData.cd5Projects || PRELOADED_CD5_PROJECTS);
         if (cloudData.workRequests && cloudData.workRequests.length > 0) {
@@ -1077,7 +1096,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         const payload = {
           machines, technicians, employees, pmPlans, schedules,
-          repairs, improvements, setupLogs, leaves, spareParts, cd5Projects, workRequests, workOrders, levelingFootItems, knowledgeItems, settings, users
+          repairs, improvements, setupLogs, leaves, spareParts, stockTransactions, cd5Projects, workRequests, workOrders, levelingFootItems, knowledgeItems, settings, users
         };
         await saveDatabaseToFirebase(payload);
         lastSavedJsonRef.current = serializeDbState(payload);
@@ -1965,6 +1984,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('maint_leveling_foot_items', JSON.stringify(PRELOADED_LEVELING_FOOT_ITEMS));
     setSpareParts(PRELOADED_SPARE_PARTS);
     localStorage.setItem('maint_spare_parts', JSON.stringify(PRELOADED_SPARE_PARTS));
+    setStockTransactions([]);
+    localStorage.setItem('maint_stock_transactions', JSON.stringify([]));
     localStorage.setItem('maint_cd5_projects', JSON.stringify(PRELOADED_CD5_PROJECTS));
     localStorage.removeItem('maint_settings');
   };
@@ -1981,6 +2002,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setupLogs,
       leaves,
       spareParts,
+      stockTransactions,
       cd5Projects,
       workRequests,
       workOrders,
@@ -2004,6 +2026,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (dataObj.setupLogs) setSetupLogs(dataObj.setupLogs);
       if (dataObj.leaves) setLeaves(dataObj.leaves);
       if (dataObj.spareParts) setSpareParts(dataObj.spareParts);
+      if (dataObj.stockTransactions && Array.isArray(dataObj.stockTransactions)) setStockTransactions(dataObj.stockTransactions);
       if (dataObj.cd5Projects) setCd5Projects(dataObj.cd5Projects);
       if (dataObj.workRequests && Array.isArray(dataObj.workRequests)) setWorkRequests(sanitizeWorkRequests(dataObj.workRequests));
       if (dataObj.workOrders && Array.isArray(dataObj.workOrders)) setWorkOrders(dataObj.workOrders);
@@ -2036,6 +2059,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       leaves, setLeaves,
       settings, setSettings,
       spareParts, setSpareParts,
+      stockTransactions, setStockTransactions,
       cd5Projects, setCd5Projects,
       users, setUsers,
       workRequests, setWorkRequests,

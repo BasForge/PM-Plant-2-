@@ -22,6 +22,7 @@ import {
   ImprovementProject,
   SetupLog,
   SparePart,
+  StockTransaction,
   TechnicianLeave,
   CD5Project,
   SystemSettings,
@@ -45,6 +46,7 @@ export interface AppDatabaseState {
   setupLogs: SetupLog[];
   leaves: TechnicianLeave[];
   spareParts: SparePart[];
+  stockTransactions?: StockTransaction[];
   cd5Projects: CD5Project[];
   workRequests?: WorkRequest[];
   workOrders?: WorkOrder[];
@@ -278,7 +280,8 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         workRequestsSnap,
         workOrdersSnap,
         repairsCatalogSnap,
-        levelingFootSnap
+        levelingFootSnap,
+        stockTxSnap
       ] = await Promise.all([
         getDoc(doc(firestore, 'catalog', 'technicians')),
         getDoc(doc(firestore, 'catalog', 'employees')),
@@ -294,7 +297,8 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         getDoc(doc(firestore, 'catalog', 'workRequests')),
         getDoc(doc(firestore, 'catalog', 'workOrders')),
         getDoc(doc(firestore, 'catalog', 'repairs')),
-        getDoc(doc(firestore, 'catalog', 'levelingFootItems'))
+        getDoc(doc(firestore, 'catalog', 'levelingFootItems')),
+        getDoc(doc(firestore, 'catalog', 'stockTransactions'))
       ]);
 
       let repairs: RepairLog[] = await loadCatalogList<RepairLog>(repairsCatalogSnap, 'repairs');
@@ -321,6 +325,7 @@ export async function loadDatabaseFromFirebase(): Promise<AppDatabaseState | nul
         setupLogs: await loadCatalogList<SetupLog>(setSnap, 'setupLogs'),
         leaves: await loadCatalogList<TechnicianLeave>(leaveSnap, 'leaves'),
         spareParts: await loadCatalogList<SparePart>(partsSnap, 'spareParts'),
+        stockTransactions: stockTxSnap.exists() ? await loadCatalogList<StockTransaction>(stockTxSnap, 'stockTransactions') : [],
         cd5Projects: await loadCatalogList<CD5Project>(cd5Snap, 'cd5Projects'),
         users: await loadCatalogList<UserAccount>(usersSnap, 'users'),
         workRequests: await loadCatalogList<WorkRequest>(workRequestsSnap, 'workRequests'),
@@ -418,6 +423,7 @@ export async function saveDatabaseToFirebase(data: AppDatabaseState): Promise<vo
       setupLogs: { list: cleanData.setupLogs || [] },
       leaves: { list: cleanData.leaves || [] },
       spareParts: { list: cleanData.spareParts || [] },
+      stockTransactions: { list: cleanData.stockTransactions || [] },
       cd5Projects: { list: cleanData.cd5Projects || [] },
       users: { list: cleanData.users || [] },
       workRequests: { list: cleanData.workRequests || [] },

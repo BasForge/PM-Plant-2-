@@ -1,2193 +1,2346 @@
-import React, { useState, useEffect } from 'react';
-import { useApp } from '../context/AppContext';
-import { SparePart } from '../types';
-import { 
-  Package, Search, AlertTriangle, Plus, Edit2, Trash2, 
-  RefreshCw, CheckCircle, Settings, HelpCircle, ArrowUpDown, Filter, 
-  MapPin, Tag, CircleDollarSign, Compass, Info, FileText, ChevronRight,
-  FileSpreadsheet, Download, Upload, AlertCircle, RefreshCw as LoopIcon,
-  Copy
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  Cell
+} from 'recharts';
+import {
+  Package,
+  Search,
+  Plus,
+  Edit3,
+  Trash2,
+  Download,
+  FileSpreadsheet,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Sliders,
+  History,
+  AlertTriangle,
+  CheckCircle2,
+  X,
+  Filter,
+  ShoppingCart,
+  TrendingUp,
+  BarChart3,
+  Calendar,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
+import { useApp } from '../context/AppContext';
+import { SparePart, StockTransaction, StockTransactionType } from '../types';
+import {
+  formatThaiShortDate,
+  getEffectiveMaxStock,
+  getStockLevelStatus,
+  getSuggestedOrderQty,
+  getTodayIso,
+  SPARE_PART_CATEGORIES,
+  StockLevelStatus
+} from '../utils/inventoryUtils';
+import { InventoryExcelImporter } from './inventory/InventoryExcelImporter';
+
+type ActiveInventoryTab = 'stock' | 'history' | 'import';
+type StockFilterStatus = 'ALL' | StockLevelStatus;
+
+interface PartFormState {
+  id: string;
+  name: string;
+  category: string;
+  machineText: string;
+  quantity: number;
+  minRequired: number;
+  maxStock: number;
+  unit: string;
+  location: string;
+  pricePerUnit: number;
+  supplier: string;
+  leadTimeDays: number;
+  specifications: string;
+}
+
+interface MovementFormState {
+  type: StockTransactionType;
+  partId: string;
+  date: string;
+  quantity: number;
+  targetBalance: number;
+  unitPrice: number;
+  prNo: string;
+  poNo: string;
+  requisitionDate: string;
+  supplier: string;
+  machineName: string;
+  workRequestNo: string;
+  operatorName: string;
+  note: string;
+}
 
 export const InventoryPage: React.FC = () => {
-  const { spareParts, setSpareParts, machines, workRequests } = useApp();
+  const {
+    spareParts,
+    setSpareParts,
+    stockTransactions,
+    setStockTransactions,
+    machines,
+    technicians,
+    workRequests,
+    currentUser,
+    canEdit,
+    canDelete
+  } = useApp();
 
-  // Selection state for spare parts (bulk operations)
+  // Primary navigation tabs
+  const [activeTab, setActiveTab] = useState<ActiveInventoryTab>('stock');
+  const [showCharts, setShowCharts] = useState<boolean>(true);
+
+  // Toast feedback
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToast({ type, text });
+    window.setTimeout(() => {
+      setToast((prev) => (prev?.text === text ? null : prev));
+    }, 3800);
+  };
+
+  // Tab 1: Master Stock filters
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<StockFilterStatus>('ALL');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [supplierFilter, setSupplierFilter] = useState<string>('ALL');
+  const [machineFilter, setMachineFilter] = useState<string>('ALL');
+  const [sortBy, setSortBy] = useState<'id' | 'name' | 'quantity' | 'value' | 'status'>('status');
   const [selectedPartIds, setSelectedPartIds] = useState<string[]>([]);
 
-  // Beautiful Custom Non-Blocking Alert/Confirm State Dialog
-  const [customDialog, setCustomDialog] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    type: 'success' | 'warning' | 'danger' | 'info';
-    showCancel: boolean;
-    onConfirm?: () => void;
-    onCancel?: () => void;
-  }>({
-    isOpen: false,
-    title: '',
-    message: '',
-    type: 'info',
-    showCancel: false
-  });
+  // Tab 2: Stock Card History filters
+  const [txTypeFilter, setTxTypeFilter] = useState<'ALL' | StockTransactionType>('ALL');
+  const [txPartFilter, setTxPartFilter] = useState<string>('ALL');
+  const [txDateFrom, setTxDateFrom] = useState<string>('');
+  const [txDateTo, setTxDateTo] = useState<string>('');
+  const [txSearch, setTxSearch] = useState<string>('');
 
-  const showCustomAlert = (title: string, message: string, type: 'success' | 'warning' | 'danger' | 'info' = 'info') => {
-    setCustomDialog({
-      isOpen: true,
-      title,
-      message,
-      type,
-      showCancel: false
-    });
-  };
+  // Modals
+  const [editingPart, setEditingPart] = useState<SparePart | null>(null);
+  const [partForm, setPartForm] = useState<PartFormState | null>(null);
+  const [movementForm, setMovementForm] = useState<MovementFormState | null>(null);
+  const [deletePartTarget, setDeletePartTarget] = useState<SparePart | null>(null);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
+  const [deleteTxTarget, setDeleteTxTarget] = useState<StockTransaction | null>(null);
 
-  const showCustomConfirm = (title: string, message: string, onConfirm: () => void, type: 'success' | 'warning' | 'danger' | 'info' = 'danger') => {
-    setCustomDialog({
-      isOpen: true,
-      title,
-      message,
-      type,
-      showCancel: true,
-      onConfirm: () => {
-        onConfirm();
-        setCustomDialog(prev => ({ ...prev, isOpen: false }));
-      },
-      onCancel: () => {
-        setCustomDialog(prev => ({ ...prev, isOpen: false }));
+  // Dynamic filter dropdown options
+  const filterOptions = useMemo(() => {
+    const cats = Array.from(new Set([...SPARE_PART_CATEGORIES, ...spareParts.map((p) => p.category).filter(Boolean)]));
+    const suppliers = Array.from(new Set(spareParts.map((p) => p.supplier || '').filter(Boolean))).sort();
+    const machineNames = Array.from(
+      new Set(spareParts.flatMap((p) => p.machineIds || []).filter(Boolean))
+    ).sort();
+    return { cats, suppliers, machineNames };
+  }, [spareParts]);
+
+  // Core KPI Summary
+  const kpis = useMemo(() => {
+    let totalPieces = 0;
+    let totalValue = 0;
+    let outCount = 0;
+    let lowCount = 0;
+    let okCount = 0;
+    let overCount = 0;
+    let totalReorderBudget = 0;
+    let totalReorderPieces = 0;
+
+    spareParts.forEach((p) => {
+      const qty = Number(p.quantity) || 0;
+      const price = Number(p.pricePerUnit) || 0;
+      totalPieces += qty;
+      totalValue += qty * price;
+      const st = getStockLevelStatus(p);
+      if (st === 'OUT') outCount += 1;
+      else if (st === 'LOW') lowCount += 1;
+      else if (st === 'OVER') overCount += 1;
+      else okCount += 1;
+
+      const orderQty = getSuggestedOrderQty(p);
+      if (orderQty > 0) {
+        totalReorderPieces += orderQty;
+        totalReorderBudget += orderQty * price;
       }
     });
-  };
 
-  // Search & Filters State
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('ALL');
-  const [selectedMachine, setSelectedMachine] = useState('ALL');
-  const [filterLowStock, setFilterLowStock] = useState(false);
-  const [sortBy, setSortBy] = useState<'id' | 'name' | 'quantity' | 'pricePerUnit' | 'workRequestNo'>('id');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [copiedTicket, setCopiedTicket] = useState<string | null>(null);
-
-  // Modal State
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showStockModal, setShowStockModal] = useState(false);
-  const [selectedPart, setSelectedPart] = useState<SparePart | null>(null);
-
-  // Form Fields State
-  const [formId, setFormId] = useState('');
-  const [formName, setFormName] = useState('');
-  const [formCategory, setFormCategory] = useState('ระบบเครื่องกล');
-  const [formMachineIds, setFormMachineIds] = useState<string[]>([]);
-  const [formQuantity, setFormQuantity] = useState(0);
-  const [formMinRequired, setFormMinRequired] = useState(2);
-  const [formUnit, setFormUnit] = useState('ชิ้น');
-  const [formLocation, setFormLocation] = useState('');
-  const [formPrice, setFormPrice] = useState(0);
-  const [formSpecs, setFormSpecs] = useState('');
-  const [formWorkRequestNo, setFormWorkRequestNo] = useState('');
-
-  // Excel Import States
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [excelData, setExcelData] = useState<any[]>([]); // holds parsed raw rows
-  const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
-  const [columnMap, setColumnMap] = useState<Record<string, string>>({
-    id: '',
-    name: '',
-    category: '',
-    quantity: '',
-    minRequired: '',
-    unit: '',
-    location: '',
-    pricePerUnit: '',
-    specifications: '',
-    machineIds: ''
-  });
-  const [importMode, setImportMode] = useState<'MERGE' | 'OVERWRITE'>('MERGE');
-  const [fileName, setFileName] = useState('');
-  const [importPreview, setImportPreview] = useState<SparePart[]>([]);
-
-  // Auto-mapping effect
-  useEffect(() => {
-    if (excelData.length === 0) {
-      setImportPreview([]);
-      return;
-    }
-
-    const previewItems: SparePart[] = excelData.map((row, index) => {
-      const getVal = (field: string) => {
-        const mappedCol = columnMap[field];
-        return mappedCol ? row[mappedCol] : undefined;
-      };
-
-      // Handle ID extraction
-      let idStr = String(getVal('id') || '').trim();
-      if (!idStr) {
-        idStr = `SP-IMP-${index + 1}`;
-      }
-
-      const nameStr = String(getVal('name') || '').trim() || `อะไหล่นำเข้าแถวที่ ${index + 2}`;
-      const catStr = String(getVal('category') || 'ระบบเครื่องกล').trim();
-      const qtyNum = parseInt(getVal('quantity')) || 0;
-      const minNum = parseInt(getVal('minRequired')) || 1;
-      const uStr = String(getVal('unit') || 'ชิ้น').trim();
-      const locStr = String(getVal('location') || 'ตู้คลังสำรอง').trim();
-      const prcNum = parseFloat(getVal('pricePerUnit')) || 0;
-      const specsStr = String(getVal('specifications') || '').trim();
-      
-      const mFieldVal = getVal('machineIds');
-      let mIdsArray: string[] = [];
-      if (mFieldVal) {
-        mIdsArray = String(mFieldVal)
-          .split(/[,;\s\n]+/)
-          .map(s => s.trim())
-          .filter(s => s.length > 0);
-      }
-
-      return {
-        id: idStr.toUpperCase(),
-        name: nameStr,
-        category: catStr,
-        machineIds: mIdsArray,
-        quantity: qtyNum,
-        minRequired: minNum,
-        unit: uStr,
-        location: locStr,
-        pricePerUnit: prcNum,
-        lastRestockedDate: new Date().toISOString().slice(0, 10),
-        specifications: specsStr
-      };
-    });
-
-    setImportPreview(previewItems);
-  }, [excelData, columnMap]);
-
-  // Excel Handler
-  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    setFileName(file.name);
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
-        
-        if (data.length === 0) {
-          showCustomAlert('ไม่พบข้อมูล', 'ไม่พบข้อมูลแถวใดๆ ในไฟล์ Excel ที่คุณเลือกอัปโหลด', 'warning');
-          return;
-        }
-
-        const headers = (data[0] as any[]).map(h => String(h || '').trim());
-        setExcelHeaders(headers);
-
-        // Smart guess mapping with priority-based checks
-        const map: Record<string, string> = {
-          id: '',
-          name: '',
-          category: '',
-          quantity: '',
-          minRequired: '',
-          unit: '',
-          location: '',
-          pricePerUnit: '',
-          specifications: '',
-          machineIds: ''
-        };
-
-        headers.forEach((h: string) => {
-          const hLower = h.toLowerCase().trim();
-          
-          if (hLower.includes('price') || hLower.includes('ราคา') || hLower.includes('ต้นทุน') || hLower.includes('บาท') || hLower.includes('฿')) {
-            map.pricePerUnit = h;
-          }
-          else if (hLower.includes('sku') || hLower.includes('code') || hLower.includes('รหัส') || hLower.includes('idอะไหล่')) {
-            map.id = h;
-          }
-          else if ((hLower.includes('qty') || hLower.includes('quantity') || hLower.includes('จำนวน') || hLower.includes('คงเหลือ') || hLower.includes('สต็อก') || hLower.includes('สตอก')) && !hLower.includes('ราคา') && !hLower.includes('บาท') && !hLower.includes('ต้นทุน')) {
-            map.quantity = h;
-          }
-          else if (hLower.includes('min') || hLower.includes('ขั้นต่ำ') || hLower.includes('แจ้งเตือน') || hLower.includes('เตือน')) {
-            map.minRequired = h;
-          }
-          else if (hLower.includes('unit') || hLower.includes('หน่วย')) {
-            map.unit = h;
-          }
-          else if (hLower.includes('category') || hLower.includes('หมวด')) {
-            map.category = h;
-          }
-          else if (hLower.includes('location') || hLower.includes('ตำแหน่ง') || hLower.includes('ตู้') || hLower.includes('ชั้น') || hLower.includes('เก็บ')) {
-            map.location = h;
-          }
-          else if (hLower.includes('spec') || hLower.includes('สเปค') || hLower.includes('รายละเอียด') || hLower.includes('เทคนิค') || hLower.includes('หมายเหตุ')) {
-            map.specifications = h;
-          }
-          else if (hLower.includes('machine') || hLower.includes('เครื่อง') || hLower.includes('จักร')) {
-            map.machineIds = h;
-          }
-          else if (hLower.includes('name') || hLower.includes('ชื่อ') || hLower.includes('รายการ') || hLower.includes('อะไหล่')) {
-            if (!map.name) map.name = h;
-          }
-        });
-
-        // Set state
-        setColumnMap(map);
-
-        // Convert key-value maps
-        const rows = data.slice(1) as any[][];
-        const parsedRows = rows.map(r => {
-          const obj: any = {};
-          headers.forEach((h, idx) => {
-            obj[h] = r[idx];
-          });
-          return obj;
-        }).filter(itemObj => {
-          return Object.values(itemObj).some(val => val !== undefined && val !== null && val !== '');
-        });
-
-        setExcelData(parsedRows);
-      } catch (err) {
-        console.error(err);
-        showCustomAlert('ข้อผิดพลาดการโหลดไฟล์', 'เกิดข้อผิดพลาดในการโหลดไฟล์ กรุณาตรวจสอบให้แน่ใจว่าเป็นไฟล์นามสกุล XLS, XLSX หรือ CSV แล้วลองอัปโหลดอีกครั้ง', 'danger');
-      }
+    return {
+      totalSkus: spareParts.length,
+      totalPieces,
+      totalValue,
+      outCount,
+      lowCount,
+      needOrderCount: outCount + lowCount,
+      okCount,
+      overCount,
+      totalReorderPieces,
+      totalReorderBudget
     };
-    reader.readAsBinaryString(file);
-  };
+  }, [spareParts]);
 
-  const downloadTemplate = () => {
-    const templateData = [
-      {
-        "รหัสอะไหล่ (SKU)": "SP-09",
-        "ชื่ออะไหล่": "เทอร์โมคัปเปิลชนิด K (Thermocouple Type K 1m)",
-        "หมวดหมู่": "อุปกรณ์ไฟฟ้าและทำความร้อน",
-        "จำนวนคงเหลือ": 8,
-        "จุดต่ำสุดที่ต้องแจ้งเตือน": 4,
-        "หน่วยนับ": "ชิ้น",
-        "ตำแหน่งจัดเก็บ": "ตู้ A ชั้น 3",
-        "ราคาต่อหน่วย": 420,
-        "ข้อมูลทางเทคนิค": "ทนทาน อุณหภูมิสูงสุด 350C สายไฟถักโลหะ",
-        "เครื่องจักรที่ใช้ (คั่นด้วยจุลภาค)": "VAC01, FFS01"
-      },
-      {
-        "รหัสอะไหล่ (SKU)": "SP-10",
-        "ชื่ออะไหล่": "โซ่ขับเฟืองเบอร์ 40 (Roller Chain #40)",
-        "หมวดหมู่": "ระบบส่งกำลัง",
-        "จำนวนคงเหลือ": 2,
-        "จุดต่ำสุดที่ต้องแจ้งเตือน": 2,
-        "หน่วยนับ": "ม้วน",
-        "ตำแหน่งจัดเก็บ": "ตู้ D ชั้น 3",
-        "ราคาต่อหน่วย": 950,
-        "ข้อมูลทางเทคนิค": "ความยาว 10 ฟุต บรรจุกล่องสแตนเลสกันสนิม",
-        "เครื่องจักรที่ใช้ (คั่นด้วยจุลภาค)": "RIM01, BAN01"
+  // Chart 1: Stock Health Distribution
+  const healthChartData = useMemo(
+    () => [
+      { label: 'ปกติ (ในเกณฑ์)', count: kpis.okCount, color: '#10b981' },
+      { label: 'ต่ำกว่า Min', count: kpis.lowCount, color: '#f59e0b' },
+      { label: 'หมดสต๊อก (0)', count: kpis.outCount, color: '#f43f5e' },
+      { label: 'เกิน Max', count: kpis.overCount, color: '#38bdf8' }
+    ],
+    [kpis]
+  );
+
+  // Chart 2: Monthly Stock IN vs OUT movement
+  const monthlyMovementChartData = useMemo(() => {
+    const map = new Map<string, { ym: string; inQty: number; outQty: number; outValue: number }>();
+    stockTransactions.forEach((tx) => {
+      const ym = tx.date ? tx.date.slice(0, 7) : '';
+      if (!ym) return;
+      const existing = map.get(ym) || { ym, inQty: 0, outQty: 0, outValue: 0 };
+      if (tx.type === 'IN') {
+        existing.inQty += Math.abs(Number(tx.quantity) || 0);
+      } else if (tx.type === 'OUT') {
+        existing.outQty += Math.abs(Number(tx.quantity) || 0);
+        existing.outValue += Number(tx.totalValue) || 0;
       }
-    ];
-    const ws = XLSX.utils.json_to_sheet(templateData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "spare_parts");
-    XLSX.writeFile(wb, "maint_spare_parts_template.xlsx");
+      map.set(ym, existing);
+    });
+    return Array.from(map.values())
+      .sort((a, b) => a.ym.localeCompare(b.ym))
+      .slice(-12);
+  }, [stockTransactions]);
+
+  // Filtered & Sorted Master Parts
+  const filteredParts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const statusPriority: Record<StockLevelStatus, number> = { OUT: 0, LOW: 1, OVER: 2, OK: 3 };
+
+    return spareParts
+      .filter((p) => {
+        const st = getStockLevelStatus(p);
+        if (statusFilter !== 'ALL' && st !== statusFilter) return false;
+        if (categoryFilter !== 'ALL' && p.category !== categoryFilter) return false;
+        if (supplierFilter !== 'ALL' && (p.supplier || '') !== supplierFilter) return false;
+        if (machineFilter !== 'ALL' && !(p.machineIds || []).includes(machineFilter)) return false;
+
+        if (q) {
+          const hay = [
+            p.id,
+            p.name,
+            p.category,
+            p.supplier || '',
+            p.location || '',
+            p.specifications || '',
+            p.lastPRNo || '',
+            p.lastPONo || '',
+            p.lastWorkRequestNo || '',
+            p.workRequestNo || '',
+            ...(p.machineIds || [])
+          ]
+            .join(' ')
+            .toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'status') {
+          const diff = statusPriority[getStockLevelStatus(a)] - statusPriority[getStockLevelStatus(b)];
+          if (diff !== 0) return diff;
+          return a.id.localeCompare(b.id);
+        }
+        if (sortBy === 'quantity') return a.quantity - b.quantity;
+        if (sortBy === 'value') return b.quantity * b.pricePerUnit - a.quantity * a.pricePerUnit;
+        if (sortBy === 'name') return a.name.localeCompare(b.name, 'th');
+        return a.id.localeCompare(b.id);
+      });
+  }, [spareParts, searchQuery, statusFilter, categoryFilter, supplierFilter, machineFilter, sortBy]);
+
+  // Filtered Stock Card Transactions (newest date first)
+  const filteredTransactions = useMemo(() => {
+    const q = txSearch.trim().toLowerCase();
+    return stockTransactions
+      .filter((tx) => {
+        if (txTypeFilter !== 'ALL' && tx.type !== txTypeFilter) return false;
+        if (txPartFilter !== 'ALL' && tx.partId !== txPartFilter) return false;
+        if (txDateFrom && tx.date < txDateFrom) return false;
+        if (txDateTo && tx.date > txDateTo) return false;
+        if (q) {
+          const hay = [
+            tx.partId,
+            tx.partName,
+            tx.prNo || '',
+            tx.poNo || '',
+            tx.supplier || '',
+            tx.machineName || '',
+            tx.workRequestNo || '',
+            tx.operatorName || '',
+            tx.note || ''
+          ]
+            .join(' ')
+            .toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const dateCmp = (b.date || '').localeCompare(a.date || '');
+        if (dateCmp !== 0) return dateCmp;
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      });
+  }, [stockTransactions, txTypeFilter, txPartFilter, txDateFrom, txDateTo, txSearch]);
+
+  const txSummary = useMemo(() => {
+    let inCount = 0;
+    let inQty = 0;
+    let inValue = 0;
+    let outCount = 0;
+    let outQty = 0;
+    let outValue = 0;
+    let adjCount = 0;
+
+    filteredTransactions.forEach((tx) => {
+      if (tx.type === 'IN') {
+        inCount += 1;
+        inQty += Math.abs(tx.quantity);
+        inValue += tx.totalValue || 0;
+      } else if (tx.type === 'OUT') {
+        outCount += 1;
+        outQty += Math.abs(tx.quantity);
+        outValue += tx.totalValue || 0;
+      } else {
+        adjCount += 1;
+      }
+    });
+
+    return { inCount, inQty, inValue, outCount, outQty, outValue, adjCount };
+  }, [filteredTransactions]);
+
+  // Generate next SKU ID
+  const generateNextSku = (): string => {
+    const maxNum = spareParts.reduce((max, p) => {
+      const m = /^SP-(\d+)$/i.exec(p.id.trim());
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0);
+    return `SP-${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  const confirmImport = () => {
-    if (importPreview.length === 0) {
-      showCustomAlert('ไม่มีข้อมูลนำเข้า', 'ไม่มีข้อมูลอะไหล่ที่พร้อมนำเข้า โปรดตรวจสอบการแมปคอลัมน์', 'warning');
+  // Open Add / Edit Part Modal
+  const openAddPartModal = () => {
+    setEditingPart(null);
+    setPartForm({
+      id: generateNextSku(),
+      name: '',
+      category: SPARE_PART_CATEGORIES[0],
+      machineText: '',
+      quantity: 0,
+      minRequired: 2,
+      maxStock: 5,
+      unit: 'EA',
+      location: 'คลังอะไหล่กลาง',
+      pricePerUnit: 0,
+      supplier: '',
+      leadTimeDays: 7,
+      specifications: ''
+    });
+  };
+
+  const openEditPartModal = (part: SparePart) => {
+    setEditingPart(part);
+    setPartForm({
+      id: part.id,
+      name: part.name,
+      category: part.category || SPARE_PART_CATEGORIES[0],
+      machineText: (part.machineIds || []).join(', '),
+      quantity: part.quantity,
+      minRequired: part.minRequired,
+      maxStock: getEffectiveMaxStock(part),
+      unit: part.unit || 'EA',
+      location: part.location || '',
+      pricePerUnit: part.pricePerUnit,
+      supplier: part.supplier || '',
+      leadTimeDays: part.leadTimeDays ?? 7,
+      specifications: part.specifications || ''
+    });
+  };
+
+  const handleSavePartForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!partForm) return;
+
+    const cleanId = partForm.id.trim().toUpperCase();
+    const cleanName = partForm.name.trim();
+    if (!cleanId || !cleanName) {
+      showToast('กรุณาระบุรหัสอะไหล่และชื่ออะไหล่', 'error');
       return;
     }
 
-    const executeImport = () => {
-      if (importMode === 'OVERWRITE') {
-        setSpareParts(importPreview);
-      } else {
-        // Merge mode
-        const mergedList = [...spareParts];
-        importPreview.forEach(newItem => {
-          const existingIdx = mergedList.findIndex(existing => existing.id === newItem.id);
-          if (existingIdx >= 0) {
-            mergedList[existingIdx] = {
-              ...mergedList[existingIdx],
-              name: newItem.name || mergedList[existingIdx].name,
-              category: newItem.category || mergedList[existingIdx].category,
-              quantity: newItem.quantity,
-              minRequired: newItem.minRequired ?? mergedList[existingIdx].minRequired,
-              unit: newItem.unit || mergedList[existingIdx].unit,
-              location: newItem.location || mergedList[existingIdx].location,
-              pricePerUnit: newItem.pricePerUnit || mergedList[existingIdx].pricePerUnit,
-              specifications: newItem.specifications 
-                ? `${mergedList[existingIdx].specifications || ''}\n[อัปเดตจากไฟล์ Excel: ${newItem.specifications}]`.trim()
-                : mergedList[existingIdx].specifications,
-              machineIds: newItem.machineIds.length > 0 ? newItem.machineIds : mergedList[existingIdx].machineIds
+    if (!editingPart && spareParts.some((p) => p.id.toUpperCase() === cleanId)) {
+      showToast(`รหัสอะไหล่ ${cleanId} มีอยู่ในคลังแล้ว`, 'error');
+      return;
+    }
+
+    const machineIds = partForm.machineText
+      .split(/[,;/\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const minVal = Math.max(0, Number(partForm.minRequired) || 0);
+    const maxVal = Math.max(minVal, Number(partForm.maxStock) || 0);
+    const qtyVal = Math.max(0, Number(partForm.quantity) || 0);
+    const priceVal = Math.max(0, Number(partForm.pricePerUnit) || 0);
+    const today = getTodayIso();
+
+    if (editingPart) {
+      setSpareParts((prev) =>
+        prev.map((p) =>
+          p.id === editingPart.id
+            ? {
+                ...p,
+                name: cleanName,
+                category: partForm.category,
+                machineIds,
+                minRequired: minVal,
+                maxStock: maxVal,
+                unit: partForm.unit.trim() || 'EA',
+                location: partForm.location.trim() || 'คลังอะไหล่กลาง',
+                pricePerUnit: priceVal,
+                supplier: partForm.supplier.trim() || undefined,
+                leadTimeDays: Number(partForm.leadTimeDays) || undefined,
+                specifications: partForm.specifications.trim() || undefined
+              }
+            : p
+        )
+      );
+      showToast(`อัปเดตข้อมูลอะไหล่ ${cleanId} เรียบร้อยแล้ว`);
+    } else {
+      const newPart: SparePart = {
+        id: cleanId,
+        name: cleanName,
+        category: partForm.category,
+        machineIds,
+        quantity: qtyVal,
+        minRequired: minVal,
+        maxStock: maxVal,
+        unit: partForm.unit.trim() || 'EA',
+        location: partForm.location.trim() || 'คลังอะไหล่กลาง',
+        pricePerUnit: priceVal,
+        supplier: partForm.supplier.trim() || undefined,
+        leadTimeDays: Number(partForm.leadTimeDays) || undefined,
+        lastRestockedDate: today,
+        lastReceiveDate: qtyVal > 0 ? today : undefined,
+        specifications: partForm.specifications.trim() || undefined
+      };
+      setSpareParts((prev) => [newPart, ...prev]);
+
+      // If initial stock > 0, record opening balance in Stock Card
+      if (qtyVal > 0) {
+        const openingTx: StockTransaction = {
+          id: `TX-OPEN-${Date.now()}`,
+          partId: cleanId,
+          partName: cleanName,
+          type: 'IN',
+          date: today,
+          quantity: qtyVal,
+          balanceBefore: 0,
+          balanceAfter: qtyVal,
+          unit: newPart.unit,
+          unitPrice: priceVal,
+          totalValue: qtyVal * priceVal,
+          supplier: newPart.supplier,
+          machineName: machineIds.join(', ') || undefined,
+          operatorName: currentUser?.name || 'ผู้ใช้งาน',
+          note: 'ยอดยกมา / เพิ่มรายการอะไหล่ใหม่',
+          createdAt: new Date().toISOString()
+        };
+        setStockTransactions((prev) => [openingTx, ...prev]);
+      }
+      showToast(`เพิ่มอะไหล่ใหม่ ${cleanId} เข้าคลังเรียบร้อยแล้ว`);
+    }
+
+    setPartForm(null);
+    setEditingPart(null);
+  };
+
+  // Open Receive / Issue / Adjust Modal
+  const openMovementModal = (type: StockTransactionType, part?: SparePart) => {
+    const target = part || spareParts[0];
+    if (!target) {
+      showToast('ยังไม่มีรายการอะไหล่ในคลัง กรุณาเพิ่มอะไหล่หรือนำเข้า Excel ก่อน', 'error');
+      return;
+    }
+    setMovementForm({
+      type,
+      partId: target.id,
+      date: getTodayIso(),
+      quantity: 1,
+      targetBalance: target.quantity,
+      unitPrice: target.pricePerUnit || 0,
+      prNo: '',
+      poNo: '',
+      requisitionDate: '',
+      supplier: target.supplier || '',
+      machineName: (target.machineIds && target.machineIds[0]) || '',
+      workRequestNo: '',
+      operatorName: currentUser?.name || '',
+      note: ''
+    });
+  };
+
+  const selectedMovementPart = useMemo(() => {
+    if (!movementForm) return null;
+    return spareParts.find((p) => p.id === movementForm.partId) || null;
+  }, [movementForm, spareParts]);
+
+  const handleSaveMovement = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!movementForm || !selectedMovementPart) return;
+
+    const before = Number(selectedMovementPart.quantity) || 0;
+    let deltaQty = Math.abs(Number(movementForm.quantity) || 0);
+    let after = before;
+
+    if (movementForm.type === 'IN') {
+      if (deltaQty <= 0) {
+        showToast('กรุณาระบุจำนวนรับเข้ามากกว่า 0', 'error');
+        return;
+      }
+      after = before + deltaQty;
+    } else if (movementForm.type === 'OUT') {
+      if (deltaQty <= 0) {
+        showToast('กรุณาระบุจำนวนจ่ายออกมากกว่า 0', 'error');
+        return;
+      }
+      if (deltaQty > before) {
+        showToast(`จำนวนจ่ายออก (${deltaQty}) มากกว่าคงเหลือในคลัง (${before})`, 'error');
+        return;
+      }
+      after = before - deltaQty;
+    } else {
+      after = Math.max(0, Number(movementForm.targetBalance) || 0);
+      deltaQty = after - before;
+    }
+
+    const txPrice = Math.max(0, Number(movementForm.unitPrice) || selectedMovementPart.pricePerUnit || 0);
+    const txDate = movementForm.date || getTodayIso();
+
+    const newTx: StockTransaction = {
+      id: `TX-${movementForm.type}-${Date.now()}`,
+      partId: selectedMovementPart.id,
+      partName: selectedMovementPart.name,
+      type: movementForm.type,
+      date: txDate,
+      quantity: movementForm.type === 'ADJUST' ? deltaQty : Math.abs(deltaQty),
+      balanceBefore: before,
+      balanceAfter: after,
+      unit: selectedMovementPart.unit || 'EA',
+      unitPrice: txPrice,
+      totalValue: Math.abs(deltaQty) * txPrice,
+      prNo: movementForm.type === 'IN' ? movementForm.prNo.trim() || undefined : undefined,
+      poNo: movementForm.type === 'IN' ? movementForm.poNo.trim() || undefined : undefined,
+      requisitionDate: movementForm.type === 'IN' ? movementForm.requisitionDate || undefined : undefined,
+      supplier: movementForm.type === 'IN' ? movementForm.supplier.trim() || undefined : undefined,
+      machineName: movementForm.machineName.trim() || undefined,
+      workRequestNo: movementForm.type === 'OUT' ? movementForm.workRequestNo.trim() || undefined : undefined,
+      operatorName: movementForm.operatorName.trim() || currentUser?.name || undefined,
+      note: movementForm.note.trim() || undefined,
+      createdAt: new Date().toISOString()
+    };
+
+    setSpareParts((prev) =>
+      prev.map((p) => {
+        if (p.id !== selectedMovementPart.id) return p;
+        const updatedMachines =
+          movementForm.machineName.trim() && !p.machineIds.includes(movementForm.machineName.trim())
+            ? [...p.machineIds, movementForm.machineName.trim()]
+            : p.machineIds;
+        return {
+          ...p,
+          quantity: after,
+          pricePerUnit: movementForm.type === 'IN' && txPrice > 0 ? txPrice : p.pricePerUnit,
+          supplier: movementForm.type === 'IN' && movementForm.supplier.trim() ? movementForm.supplier.trim() : p.supplier,
+          machineIds: updatedMachines,
+          lastRestockedDate: txDate,
+          lastReceiveDate: movementForm.type === 'IN' ? txDate : p.lastReceiveDate,
+          lastIssueDate: movementForm.type === 'OUT' ? txDate : p.lastIssueDate,
+          lastPRNo: movementForm.type === 'IN' && movementForm.prNo.trim() ? movementForm.prNo.trim() : p.lastPRNo,
+          lastPONo: movementForm.type === 'IN' && movementForm.poNo.trim() ? movementForm.poNo.trim() : p.lastPONo,
+          lastWorkRequestNo:
+            movementForm.type === 'OUT' && movementForm.workRequestNo.trim()
+              ? movementForm.workRequestNo.trim()
+              : p.lastWorkRequestNo
+        };
+      })
+    );
+
+    setStockTransactions((prev) => [newTx, ...prev]);
+
+    const actionText =
+      movementForm.type === 'IN'
+        ? `รับเข้า +${deltaQty} ${selectedMovementPart.unit}`
+        : movementForm.type === 'OUT'
+        ? `จ่ายออก -${deltaQty} ${selectedMovementPart.unit}`
+        : `ปรับยอดเป็น ${after} ${selectedMovementPart.unit}`;
+    showToast(`${selectedMovementPart.name}: ${actionText} (คงเหลือ ${after})`);
+    setMovementForm(null);
+  };
+
+  // Apply Excel Import
+  const handleApplyExcelImport = ({
+    mode,
+    parts,
+    transactions,
+    clearOldTransactions
+  }: {
+    mode: 'MERGE' | 'OVERWRITE';
+    parts: SparePart[];
+    transactions: StockTransaction[];
+    clearOldTransactions?: boolean;
+  }) => {
+    if (mode === 'OVERWRITE') {
+      setSpareParts(parts);
+      setStockTransactions((prev) => (clearOldTransactions ? transactions : [...transactions, ...prev]));
+      setSelectedPartIds([]);
+      showToast(`นำเข้าและแทนที่คลังด้วย ${parts.length} รายการ (สร้างประวัติ ${transactions.length} รายการ)`);
+    } else {
+      setSpareParts((prev) => {
+        const merged = [...prev];
+        parts.forEach((incoming) => {
+          const idxById = merged.findIndex((p) => p.id.toUpperCase() === incoming.id.toUpperCase());
+          const idxByName =
+            idxById === -1
+              ? merged.findIndex((p) => p.name.trim().toLowerCase() === incoming.name.trim().toLowerCase())
+              : idxById;
+
+          if (idxByName >= 0) {
+            const existing = merged[idxByName];
+            const combinedMachines = Array.from(new Set([...(existing.machineIds || []), ...(incoming.machineIds || [])]));
+            merged[idxByName] = {
+              ...existing,
+              quantity: (existing.quantity || 0) + (incoming.quantity || 0),
+              minRequired: incoming.minRequired || existing.minRequired,
+              maxStock: Math.max(incoming.maxStock || 0, existing.maxStock || 0) || undefined,
+              pricePerUnit: incoming.pricePerUnit > 0 ? incoming.pricePerUnit : existing.pricePerUnit,
+              supplier: incoming.supplier || existing.supplier,
+              machineIds: combinedMachines,
+              lastReceiveDate: incoming.lastReceiveDate || existing.lastReceiveDate,
+              lastIssueDate: incoming.lastIssueDate || existing.lastIssueDate,
+              lastRestockedDate: incoming.lastRestockedDate || existing.lastRestockedDate,
+              lastPRNo: incoming.lastPRNo || existing.lastPRNo,
+              lastPONo: incoming.lastPONo || existing.lastPONo,
+              lastWorkRequestNo: incoming.lastWorkRequestNo || existing.lastWorkRequestNo
             };
           } else {
-            mergedList.push(newItem);
+            merged.push(incoming);
           }
         });
-        setSpareParts(mergedList);
+        return merged;
+      });
+
+      if (transactions.length > 0) {
+        setStockTransactions((prev) => [...transactions, ...prev]);
       }
-
-      showCustomAlert(
-        'นำเข้าข้อมูลสำเร็จ',
-        `ดำเนินการนำเข้าข้อมูลเสร็จสิ้นแล้ว! อัปโหลดข้อมูลอะไหล่ใหม่ ${importPreview.length} รายการสำเร็จ`,
-        'success'
-      );
-      setShowImportModal(false);
-      setExcelData([]);
-      setExcelHeaders([]);
-      setFileName('');
-    };
-
-    if (importMode === 'OVERWRITE') {
-      showCustomConfirm(
-        'ยืนยันเขียนทับทั้งหมด (Overwrite)',
-        `คุณตกลงที่จะใช้โหมด "เขียนทับทั้งหมด" หรือไม่? การทำเช่นนี้จะลบรายการอะไหล่เดิม ${spareParts.length} รายการออกทั้งหมด และแทนที่ด้วยข้อมูลจาก Excel ใหม่ ${importPreview.length} รายการโดยถาวร!`,
-        executeImport,
-        'danger'
-      );
-    } else {
-      executeImport();
+      showToast(`นำเข้าและผสานข้อมูล ${parts.length} รายการ พร้อมประวัติ ${transactions.length} รายการเรียบร้อย`);
     }
+    setActiveTab('stock');
   };
 
-  // Quick Adjustment State
-  const [adjustmentQty, setAdjustmentQty] = useState(1);
-  const [adjustmentType, setAdjustmentType] = useState<'IN' | 'OUT'>('IN');
-  const [adjustmentNote, setAdjustmentNote] = useState('');
-  const [adjustmentWorkRequestNo, setAdjustmentWorkRequestNo] = useState('');
-
-  // Dropdown Categories
-  const categories = [
-    'อุปกรณ์ไฟฟ้าและทำความร้อน',
-    'วัสดุสิ้นเปลือง',
-    'ระบบส่งกำลัง',
-    'นิวเมติกส์',
-    'ระบบเครื่องกล',
-    'เซนเซอร์/เซฟตี้'
-  ];
-
-  // Handle Sort Change
-  const triggerSort = (field: 'id' | 'name' | 'quantity' | 'pricePerUnit' | 'workRequestNo') => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('asc');
-    }
+  // Delete handlers
+  const handleConfirmDeletePart = () => {
+    if (!deletePartTarget) return;
+    setSpareParts((prev) => prev.filter((p) => p.id !== deletePartTarget.id));
+    setSelectedPartIds((prev) => prev.filter((id) => id !== deletePartTarget.id));
+    showToast(`ลบอะไหล่ ${deletePartTarget.id} ออกจากคลังแล้ว`);
+    setDeletePartTarget(null);
   };
 
-  // KPI Calculations
-  const totalSKUs = spareParts.length;
-  const lowStockParts = spareParts.filter(p => p.quantity <= p.minRequired);
-  const outOfStockParts = spareParts.filter(p => p.quantity === 0);
-  const totalInventoryValue = spareParts.reduce((sum, p) => sum + (p.quantity * p.pricePerUnit), 0);
-
-  // Filter & Sort Spare Parts list
-  const filteredParts = spareParts.filter(part => {
-    const matchesSearch = part.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          part.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (part.specifications && part.specifications.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                          (part.workRequestNo && part.workRequestNo.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                          (part.lastWorkRequestNo && part.lastWorkRequestNo.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesCategory = selectedCategory === 'ALL' || part.category === selectedCategory;
-    
-    const matchesMachine = selectedMachine === 'ALL' || part.machineIds.includes(selectedMachine);
-    
-    const matchesLowStock = !filterLowStock || part.quantity <= part.minRequired;
-
-    return matchesSearch && matchesCategory && matchesMachine && matchesLowStock;
-  }).sort((a, b) => {
-    let checkA: any = a[sortBy];
-    let checkB: any = b[sortBy];
-
-    if (typeof checkA === 'string') {
-      checkA = checkA.toLowerCase();
-      checkB = checkB.toLowerCase();
-    }
-
-    if (checkA < checkB) return sortOrder === 'asc' ? -1 : 1;
-    if (checkA > checkB) return sortOrder === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  // Reset Add Form
-  const openNewPartModal = () => {
-    // Auto-generate ID index
-    const nextNum = spareParts.length > 0 
-      ? Math.max(...spareParts.map(p => {
-          const num = parseInt(p.id.replace('SP-', ''));
-          return isNaN(num) ? 0 : num;
-        })) + 1 
-      : 1;
-    
-    setFormId(`SP-${String(nextNum).padStart(2, '0')}`);
-    setFormName('');
-    setFormCategory('ระบบเครื่องกล');
-    setFormMachineIds([]);
-    setFormQuantity(5);
-    setFormMinRequired(2);
-    setFormUnit('ชิ้น');
-    setFormLocation('ตู้ A ชั้น 1');
-    setFormPrice(250);
-    setFormSpecs('');
-    setFormWorkRequestNo('');
-    setShowAddModal(true);
+  const handleConfirmBulkDelete = () => {
+    const idSet = new Set(selectedPartIds);
+    setSpareParts((prev) => prev.filter((p) => !idSet.has(p.id)));
+    showToast(`ลบรายการที่เลือก ${selectedPartIds.length} รายการเรียบร้อยแล้ว`);
+    setSelectedPartIds([]);
+    setShowBulkDeleteModal(false);
   };
 
-  // Handle Add Part submit
-  const handleAddPart = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formId.trim() || !formName.trim()) return;
-
-    if (spareParts.some(p => p.id === formId)) {
-      showCustomAlert('รหัสซ้ำ', 'มีรหัสอะไหล่นี้อยู่ในระบบคลังแล้ว กรุณาตรวจสอบรหัส SKU ใหม่', 'warning');
-      return;
-    }
-
-    const newPart: SparePart = {
-      id: formId.trim().toUpperCase(),
-      name: formName.trim(),
-      category: formCategory,
-      machineIds: formMachineIds,
-      quantity: formQuantity,
-      minRequired: formMinRequired,
-      unit: formUnit,
-      location: formLocation.trim() || 'ตู้แยกด่วน',
-      pricePerUnit: formPrice,
-      lastRestockedDate: new Date().toISOString().slice(0, 10),
-      specifications: formSpecs.trim(),
-      workRequestNo: formWorkRequestNo.trim() || undefined
-    };
-
-    setSpareParts([newPart, ...spareParts]);
-    setShowAddModal(false);
+  const handleConfirmDeleteTx = () => {
+    if (!deleteTxTarget) return;
+    setStockTransactions((prev) => prev.filter((t) => t.id !== deleteTxTarget.id));
+    showToast('ลบประวัติรายการเคลื่อนไหวเรียบร้อยแล้ว (ยอดคงเหลือปัจจุบันไม่เปลี่ยนแปลง)');
+    setDeleteTxTarget(null);
   };
 
-  // Open Edit Modal
-  const openEditPartModal = (part: SparePart) => {
-    setSelectedPart(part);
-    setFormId(part.id);
-    setFormName(part.name);
-    setFormCategory(part.category);
-    setFormMachineIds(part.machineIds);
-    setFormQuantity(part.quantity);
-    setFormMinRequired(part.minRequired);
-    setFormUnit(part.unit);
-    setFormLocation(part.location);
-    setFormPrice(part.pricePerUnit);
-    setFormSpecs(part.specifications || '');
-    setFormWorkRequestNo(part.workRequestNo || '');
-    setShowEditModal(true);
-  };
+  // Export Multi-sheet Excel
+  const handleExportFullExcel = () => {
+    const wb = XLSX.utils.book_new();
 
-  // Handle Edit Part submit
-  const handleEditPart = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedPart) return;
-
-    const updatedParts = spareParts.map(p => {
-      if (p.id === selectedPart.id) {
-        return {
-          ...p,
-          name: formName.trim(),
-          category: formCategory,
-          machineIds: formMachineIds,
-          quantity: formQuantity,
-          minRequired: formMinRequired,
-          unit: formUnit,
-          location: formLocation.trim(),
-          pricePerUnit: formPrice,
-          specifications: formSpecs.trim(),
-          workRequestNo: formWorkRequestNo.trim() || undefined
-        };
-      }
-      return p;
+    const masterRows = filteredParts.map((p) => {
+      const st = getStockLevelStatus(p);
+      const maxVal = getEffectiveMaxStock(p);
+      const orderQty = getSuggestedOrderQty(p);
+      return {
+        'รหัสอะไหล่ (SKU)': p.id,
+        'ชื่ออะไหล่': p.name,
+        'หมวดหมู่': p.category,
+        'ซัพพลายเออร์': p.supplier || '-',
+        'เครื่องจักร': (p.machineIds || []).join(', ') || '-',
+        'ตำแหน่งเก็บ': p.location || '-',
+        'คงเหลือ': p.quantity,
+        'หน่วย': p.unit,
+        'Min': p.minRequired,
+        'Max': maxVal,
+        'สถานะสต๊อก': st === 'OUT' ? 'หมดสต๊อก' : st === 'LOW' ? 'ต่ำกว่า Min' : st === 'OVER' ? 'เกิน Max' : 'ปกติ',
+        'แนะนำสั่งซื้อ': orderQty,
+        'ราคา/หน่วย (บาท)': p.pricePerUnit,
+        'มูลค่าคงเหลือ (บาท)': p.quantity * p.pricePerUnit,
+        'รับเข้าล่าสุด': p.lastReceiveDate || '-',
+        'จ่ายออกล่าสุด': p.lastIssueDate || '-',
+        'PO ล่าสุด': p.lastPONo || '-',
+        'ใบเบิก/แจ้งซ่อมล่าสุด': p.lastWorkRequestNo || '-'
+      };
     });
 
-    setSpareParts(updatedParts);
-    setShowEditModal(false);
-    setSelectedPart(null);
-  };
-
-  // Open Stock Quick Adjustment Modal
-  const openStockModal = (part: SparePart) => {
-    setSelectedPart(part);
-    setAdjustmentQty(1);
-    setAdjustmentType('IN');
-    setAdjustmentNote('');
-    setAdjustmentWorkRequestNo(part.lastWorkRequestNo || part.workRequestNo || '');
-    setShowStockModal(true);
-  };
-
-  // Handle Stock Quick Adjustment submit
-  const handleStockAdjustment = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedPart) return;
-
-    const factor = adjustmentType === 'IN' ? 1 : -1;
-    const change = adjustmentQty * factor;
-    const nextQty = Math.max(0, selectedPart.quantity + change);
-
-    const updatedParts = spareParts.map(p => {
-      if (p.id === selectedPart.id) {
-        const wrNote = adjustmentWorkRequestNo.trim() ? ` [ใบแจ้งซ่อม #${adjustmentWorkRequestNo.trim()}]` : '';
+    const reorderRows = spareParts
+      .filter((p) => {
+        const st = getStockLevelStatus(p);
+        return st === 'OUT' || st === 'LOW';
+      })
+      .map((p) => {
+        const orderQty = getSuggestedOrderQty(p);
         return {
-          ...p,
-          quantity: nextQty,
-          lastRestockedDate: adjustmentType === 'IN' ? new Date().toISOString().slice(0, 10) : p.lastRestockedDate,
-          lastWorkRequestNo: adjustmentType === 'OUT' && adjustmentWorkRequestNo.trim() ? adjustmentWorkRequestNo.trim() : p.lastWorkRequestNo,
-          specifications: (adjustmentNote.trim() || wrNote)
-            ? `${p.specifications || ''}\n[ปรับสต็อก ${adjustmentType} ${adjustmentQty} ${p.unit} - ${new Date().toISOString().slice(0, 10)}${wrNote}${adjustmentNote.trim() ? `: ${adjustmentNote.trim()}` : ''}]`.trim()
-            : p.specifications
+          'รหัสอะไหล่ (SKU)': p.id,
+          'ชื่ออะไหล่': p.name,
+          'ซัพพลายเออร์': p.supplier || '-',
+          'เครื่องจักร': (p.machineIds || []).join(', ') || '-',
+          'คงเหลือปัจจุบัน': p.quantity,
+          'Min': p.minRequired,
+          'Max': getEffectiveMaxStock(p),
+          'จำนวนแนะนำสั่งซื้อ': orderQty,
+          'หน่วย': p.unit,
+          'ราคา/หน่วย (บาท)': p.pricePerUnit,
+          'งบประมาณสั่งซื้อ (บาท)': orderQty * p.pricePerUnit
         };
-      }
-      return p;
-    });
+      });
 
-    setSpareParts(updatedParts);
-    setShowStockModal(false);
-    setSelectedPart(null);
-  };
+    const txRows = filteredTransactions.map((tx) => ({
+      'วันที่': tx.date,
+      'ประเภท': tx.type === 'IN' ? 'รับเข้า (IN)' : tx.type === 'OUT' ? 'จ่ายออก (OUT)' : 'ปรับยอด (ADJUST)',
+      'SKU': tx.partId,
+      'ชื่ออะไหล่': tx.partName,
+      'จำนวน': tx.type === 'OUT' ? -Math.abs(tx.quantity) : tx.quantity,
+      'หน่วย': tx.unit,
+      'คงเหลือก่อน': tx.balanceBefore,
+      'คงเหลือหลัง': tx.balanceAfter,
+      'ราคา/หน่วย': tx.unitPrice,
+      'มูลค่ารวม (บาท)': tx.totalValue,
+      'เลข PR': tx.prNo || '',
+      'เลข PO': tx.poNo || '',
+      'ซัพพลายเออร์': tx.supplier || '',
+      'เครื่องจักร': tx.machineName || '',
+      'ใบเบิก / เลขที่แจ้งซ่อม': tx.workRequestNo || '',
+      'ผู้ดำเนินการ': tx.operatorName || '',
+      'หมายเหตุ': tx.note || ''
+    }));
 
-  // Handle Delete Part
-  const handleDeletePart = (id: string, name: string) => {
-    showCustomConfirm(
-      'ยืนยันลบอะไหล่',
-      `คุณพิมพ์ต้องการที่จะลบอะไหล่ "${id}: ${name}" ออกจากระบบคลังอย่างถาวรใช่หรือไม่?\nการกระทำนี้จะลบรายการแบบถาวรและไม่สามารถกู้คืนได้`,
-      () => {
-        setSpareParts(prev => prev.filter(p => p.id !== id));
-        setSelectedPartIds(prev => prev.filter(pId => pId !== id));
-        showCustomAlert('ลบเครื่องมือสำเร็จ', `ดำเนินการลบชิ้นชิ้นส่วนอะไหล่รหัส ${id} ออกจากระบบคลังสำเร็จ`, 'success');
-      },
-      'danger'
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(masterRows), 'สต๊อกคงเหลือ_MinMax');
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(reorderRows.length > 0 ? reorderRows : [{ ข้อความ: 'ไม่มีรายการต่ำกว่า Min ในขณะนี้' }]),
+      'รายการต้องสั่งซื้อ'
     );
-  };
-
-  // Handle Bulk Delete Spare Parts
-  const handleBulkDelete = () => {
-    if (selectedPartIds.length === 0) return;
-    showCustomConfirm(
-      '⚠️ ยืนยันลบอะไหล่แบบกลุ่ม',
-      `คำเตือนระบบคลัง: คุณยินยอมที่จะดำเนินการลบอะไหล่ที่เลือกสะสมทั้งหมดจำนวน ${selectedPartIds.length} รายการออกอย่างถาวรใช่ไหม?\nการกระทำนี้จะทำให้ข้อมูลหายไปและไม่สามารถกู้คืนได้!`,
-      () => {
-        setSpareParts(prev => prev.filter(p => !selectedPartIds.includes(p.id)));
-        setSelectedPartIds([]);
-        showCustomAlert('ลบแบบกลุ่มสำเร็จ', `♻️ ดำเนินการลบรายการอะไหล่ที่เลือกสะสมเสร็จสมบูรณ์เรียบร้อย!`, 'success');
-      },
-      'danger'
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(txRows.length > 0 ? txRows : [{ ข้อความ: 'ยังไม่มีประวัติรับเข้า-จ่ายออก' }]),
+      'ประวัติรับเข้า_จ่ายออก'
     );
+
+    XLSX.writeFile(wb, `SpareParts_MinMax_StockCard_${getTodayIso()}.xlsx`);
+    showToast('ส่งออกไฟล์ Excel สต๊อก + ใบสั่งซื้อ + Stock Card เรียบร้อยแล้ว');
   };
 
-  // Helper toggle for machine check list in forms
-  const toggleFormMachine = (machineId: string) => {
-    if (formMachineIds.includes(machineId)) {
-      setFormMachineIds(formMachineIds.filter(id => id !== machineId));
+  const toggleSelectAllVisible = () => {
+    if (selectedPartIds.length === filteredParts.length && filteredParts.length > 0) {
+      setSelectedPartIds([]);
     } else {
-      setFormMachineIds([...formMachineIds, machineId]);
+      setSelectedPartIds(filteredParts.map((p) => p.id));
     }
+  };
+
+  const toggleSelectPart = (id: string) => {
+    setSelectedPartIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const openHistoryForPart = (partId: string) => {
+    setTxPartFilter(partId);
+    setTxTypeFilter('ALL');
+    setActiveTab('history');
   };
 
   return (
-    <div className="space-y-6" id="inventory-page-root">
-      
-      {/* HEADER SECTION */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
-        <div>
-          <span className="px-2.5 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 rounded-md font-bold text-[10px] uppercase tracking-widest block w-fit">
-            Inventory & Spare Parts
-          </span>
-          <h2 className="text-xl font-black text-white mt-1.5 flex items-center gap-2">
-            ⚙️ ระบบบริหารคลังอะไหล่สำรอง (Inventory Manager)
-          </h2>
-          <p className="text-xs text-slate-400 mt-1 font-sans">
-            ควบคุมจำนวนอะไหล่หลักขั้นต่ำ ติดตามพิกัดติดตั้ง การเบิกจ่ายจ่ายซ่อม และระบบตรวจเตือนเมื่อชิ้นส่วนสำคัญใกล้หมดคลัง
-          </p>
-        </div>
-
-        {/* Action Button cluster */}
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Excel Import button trigger */}
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 hover:border-slate-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md select-none cursor-pointer transition active:scale-95"
-          >
-            <FileSpreadsheet size={15} className="text-emerald-400" />
-            <span>📥 นำเข้าจากไฟล์ Excel / CSV</span>
-          </button>
-
-          {/* Trigger insert Modal Button */}
-          <button
-            onClick={openNewPartModal}
-            className="px-4.5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-lg select-none cursor-pointer transition-all hover:scale-[1.02] active:scale-95"
-          >
-            <Plus size={16} strokeWidth={2.5} />
-            <span>ลงทะเบียนอะไหล่เข้าระบบ</span>
-          </button>
-        </div>
-      </div>
-
-      {/* INVENTORY STATS BENTO TILES */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="inventory-stats-row">
-        
-        {/* KPI Tile 1: Total SKUs */}
-        <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl relative overflow-hidden group hover:border-slate-705 transition">
-          <div className="flex justify-between items-start">
-            <div>
-              <span className="text-[10px] text-slate-450 block font-bold uppercase tracking-wider">จำนวนรายการอะไหล่คลัง</span>
-              <span className="text-3xl font-mono font-black text-cyan-400 mt-1 block">{totalSKUs} <b className="text-sm font-normal text-slate-400">รายการ</b></span>
-            </div>
-            <div className="p-2 bg-cyan-500/10 text-cyan-400 rounded-lg">
-              <Package size={18} />
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-500 mt-3 font-sans">
-            ครอบคลุมอะไหล่เครื่องกล ไฟฟ้า สายพาน ลวดซีล และนิวเมติกส์
-          </p>
-        </div>
-
-        {/* KPI Tile 2: Out of Stock Warnings */}
-        <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl relative overflow-hidden group hover:border-slate-705 transition">
-          <div className="flex justify-between items-start">
-            <div>
-              <span className="text-[10px] text-slate-450 block font-bold uppercase tracking-wider">อะไหล่หมดคลัง (Out of Stock)</span>
-              <span className={`text-3xl font-mono font-black mt-1 block ${outOfStockParts.length > 0 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
-                {outOfStockParts.length} <b className="text-sm font-normal text-slate-400">รายการ</b>
-              </span>
-            </div>
-            <div className={`p-2 rounded-lg ${outOfStockParts.length > 0 ? 'bg-red-500/10 text-red-400' : 'bg-slate-800 text-slate-500'}`}>
-              <AlertTriangle size={18} />
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-500 mt-3 font-sans">
-            {outOfStockParts.length > 0 
-              ? `วิกฤต! อะไหล่ขาดเป็นศูนย์ มีผลกระทบร้ายแรงหากเครื่องเสียหาย` 
-              : `คลังทำงานได้ปกติ ไม่มีรายการสินค้าหมดสะสม`}
-          </p>
-        </div>
-
-        {/* KPI Tile 3: Low Stock Warnings */}
-        <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl relative overflow-hidden group hover:border-slate-705 transition">
-          <div className="flex justify-between items-start">
-            <div>
-              <span className="text-[10px] text-slate-450 block font-bold uppercase tracking-wider">ใกล้หมดคลัง (Low Stock Alert)</span>
-              <span className={`text-3xl font-mono font-black mt-1 block ${lowStockParts.length > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
-                {lowStockParts.length} <b className="text-sm font-normal text-slate-400">รายการ</b>
-              </span>
-            </div>
-            <div className={`p-2 rounded-lg ${lowStockParts.length > 0 ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-800 text-slate-500'}`}>
-              <AlertTriangle size={18} />
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-500 mt-3 font-sans">
-            {lowStockParts.length > 0
-              ? `ระดับสต็อกต่ำกว่าค่าต่ำสุดควรเร่งสั่งซื้อเพื่อความราบรื่น`
-              : `ระดับชิ้นส่วนอะไหล่อยู่ในเกณฑ์ปลอดภัยในสัปดาห์นี้`}
-          </p>
-        </div>
-
-        {/* KPI Tile 4: Inventory Total Value */}
-        <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl relative overflow-hidden group hover:border-slate-705 transition">
-          <div className="flex justify-between items-start">
-            <div>
-              <span className="text-[10px] text-slate-450 block font-bold uppercase tracking-wider">มูลค่าคงเหลือคลังโดยประมาณ</span>
-              <span className="text-3xl font-mono font-black text-emerald-400 mt-1 block">
-                {totalInventoryValue.toLocaleString()} <b className="text-sm font-normal text-slate-400">บาท</b>
-              </span>
-            </div>
-            <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
-              <CircleDollarSign size={18} />
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-500 mt-3 font-sans">
-            ประเมินมูลค่าต้นทุนอะไหล่หมุนเวียนคงคลัง ณ เวลาปัจจุบัน
-          </p>
-        </div>
-
-      </div>
-
-      {/* ADVANCED FILTER BAR */}
-      <div className="bg-slate-900/40 border border-slate-800 p-4 rounded-xl space-y-4" id="inventory-filter-bar">
-        
-        <div className="flex flex-col md:flex-row gap-3">
-          {/* Text Search Box */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-2.5 text-slate-500" size={17} />
-            <input
-              type="text"
-              placeholder="ค้นหาตามรหัส SKU, ชื่ออะไหล่, สเปค หรือฟิล์ม..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 text-slate-100 placeholder:text-slate-500 pl-10 pr-4 py-2 rounded-lg text-xs focus:outline-none focus:border-cyan-500 transition font-sans"
-            />
-          </div>
-
-          {/* Filter Option by Category */}
-          <div className="relative shrink-0 md:w-56">
-            <Filter className="absolute left-3 top-2.5 text-slate-500" size={15} />
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 text-xs text-slate-300 pl-9 pr-4 py-2 rounded-lg focus:outline-none hover:border-slate-700 transition cursor-pointer appearance-none font-sans"
-            >
-              <option value="ALL">📦 ทุกหมวดหมู่ (All Categories)</option>
-              {categories.map((c, i) => (
-                <option key={i} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Filter Option by Machine Dependency */}
-          <div className="relative shrink-0 md:w-56">
-            <Compass className="absolute left-3 top-2.5 text-slate-500" size={15} />
-            <select
-              value={selectedMachine}
-              onChange={(e) => setSelectedMachine(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 text-xs text-slate-300 pl-9 pr-4 py-2 rounded-lg focus:outline-none hover:border-slate-700 transition cursor-pointer appearance-none font-sans"
-            >
-              <option value="ALL">🏭 ทุกเครื่องจักร (All Machines)</option>
-              {machines.map((m) => (
-                <option key={m.id} value={m.id}>{m.id} - {m.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Low Stock Filter Switch and Clear Status Actions */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-slate-800/60 pt-3 gap-3.5">
-          <div className="flex items-center gap-6">
-            {/* Low-Stock Toggle Checkbox */}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={filterLowStock}
-                onChange={(e) => setFilterLowStock(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-850 text-cyan-500 focus:ring-cyan-500/20 bg-slate-950"
-              />
-              <span className="text-xs text-slate-350 font-sans flex items-center gap-1.5 font-bold">
-                <AlertTriangle size={14} className="text-amber-500 animate-pulse" />
-                กรองเฉพาะอะไหล่ที่สต็อกวิกฤต/ใกล้หมด ({lowStockParts.length})
-              </span>
-            </label>
-          </div>
-
-          {/* Quick Clear Button */}
-          {(searchQuery || selectedCategory !== 'ALL' || selectedMachine !== 'ALL' || filterLowStock) && (
-            <button
-              onClick={() => {
-                setSearchQuery('');
-                setSelectedCategory('ALL');
-                setSelectedMachine('ALL');
-                setFilterLowStock(false);
-              }}
-              className="px-3 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded text-[10px] uppercase font-bold transition font-mono self-start sm:self-center"
-            >
-              🧹 ล้างการค้นหาทั้งหมด (Clear Filters)
-            </button>
+    <div id="inventory-page-root" className="space-y-4 pb-10">
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-2xl text-xs font-bold animate-in fade-in slide-in-from-bottom-3 duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-950/95 border-emerald-500/60 text-emerald-200'
+              : 'bg-rose-950/95 border-rose-500/60 text-rose-200'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+          ) : (
+            <AlertTriangle size={16} className="text-rose-400 shrink-0" />
           )}
+          <span>{toast.text}</span>
+          <button type="button" onClick={() => setToast(null)} className="ml-2 text-slate-400 hover:text-white">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Header & Navigation Tabs */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 shrink-0">
+              <Package size={20} />
+            </div>
+            <div>
+              <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">
+                คลังอะไหล่สำรอง (Min–Max &amp; ระบบรับเข้า–จ่ายออก)
+              </h1>
+              <p className="text-xs text-slate-400 mt-0.5">
+                ควบคุมสต๊อกด้วยเกณฑ์ Min–Max · บันทึกวันที่รับเข้า (PR/PO) และจ่ายออก (ใบเบิก/แจ้งซ่อม) · นำเข้า Excel อัตโนมัติ
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {canEdit && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => openMovementModal('IN')}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 font-bold text-xs transition cursor-pointer"
+                >
+                  <ArrowDownCircle size={15} />
+                  <span>รับเข้า (IN)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openMovementModal('OUT')}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-bold text-xs transition cursor-pointer"
+                >
+                  <ArrowUpCircle size={15} />
+                  <span>จ่ายออก (OUT)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openAddPartModal}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold text-xs shadow-lg transition cursor-pointer"
+                >
+                  <Plus size={15} />
+                  <span>เพิ่มอะไหล่ใหม่</span>
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={handleExportFullExcel}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs transition cursor-pointer"
+            >
+              <Download size={14} className="text-cyan-400" />
+              <span>Export Excel</span>
+            </button>
+          </div>
         </div>
 
+        {/* 3 Segmented Functional Tabs */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800/80">
+          <button
+            type="button"
+            onClick={() => setActiveTab('stock')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeTab === 'stock'
+                ? 'bg-cyan-500 text-slate-950 shadow-md'
+                : 'bg-slate-950/60 text-slate-300 hover:bg-slate-800 border border-slate-800'
+            }`}
+          >
+            <Package size={14} />
+            <span>1. สต๊อกคงเหลือ &amp; Min–Max ({kpis.totalSkus})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('history')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeTab === 'history'
+                ? 'bg-cyan-500 text-slate-950 shadow-md'
+                : 'bg-slate-950/60 text-slate-300 hover:bg-slate-800 border border-slate-800'
+            }`}
+          >
+            <History size={14} />
+            <span>2. ประวัติรับเข้า–จ่ายออก ({stockTransactions.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('import')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeTab === 'import'
+                ? 'bg-emerald-500 text-slate-950 shadow-md'
+                : 'bg-slate-950/60 text-emerald-300 hover:bg-slate-800 border border-emerald-500/30'
+            }`}
+          >
+            <FileSpreadsheet size={14} />
+            <span>3. นำเข้าจากไฟล์ Excel</span>
+          </button>
+        </div>
       </div>
 
-      {/* CORE SPARE PARTS INVENTORY TABLE */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl" id="inventory-table-container">
-        
-        {/* Table Top Counter */}
-        <div className="p-4 border-b border-slate-800/80 bg-slate-950/30 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-slate-400 font-sans">
-              แสดงอะไหล่ <b className="text-cyan-400 font-mono">{filteredParts.length}</b> จากทั้งหมด <b className="text-slate-200 font-mono">{spareParts.length}</b> รายการ
-            </span>
+      {/* =========================================================
+          TAB 1: MASTER STOCK & MIN-MAX
+         ========================================================= */}
+      {activeTab === 'stock' && (
+        <div className="space-y-4">
+          {/* 5 KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('ALL')}
+              className={`text-left bg-slate-900/90 border rounded-2xl p-4 transition cursor-pointer ${
+                statusFilter === 'ALL' ? 'border-cyan-500/60' : 'border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400">
+                <span>รายการอะไหล่ทั้งหมด</span>
+                <Package size={15} className="text-cyan-400" />
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-white font-mono">{kpis.totalSkus}</span>
+                <span className="text-xs text-slate-400">SKU</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                รวมคงเหลือ {kpis.totalPieces.toLocaleString()} ชิ้นในคลัง
+              </p>
+            </button>
 
-            {selectedPartIds.length > 0 && (
-              <div className="flex items-center gap-2 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-850">
-                <span className="text-[10.5px] text-amber-400 font-sans font-bold">
-                  เลือกไว้ <b className="font-mono text-white text-xs">{selectedPartIds.length}</b> รายการ
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+              <div className="flex items-center justify-between text-[11px] font-bold text-cyan-400">
+                <span>มูลค่าสต๊อกคงเหลือรวม</span>
+                <TrendingUp size={15} className="text-cyan-400" />
+              </div>
+              <div className="mt-2 flex items-baseline gap-1.5">
+                <span className="text-2xl font-black text-cyan-400 font-mono">
+                  {Math.round(kpis.totalValue).toLocaleString()}
                 </span>
-                <span className="text-slate-600">|</span>
-                <button
-                  onClick={() => setSelectedPartIds([])}
-                  className="text-slate-400 hover:text-white text-[10px] uppercase font-bold cursor-pointer transition select-none"
-                >
-                  ล้างที่เลือก (Deselect)
-                </button>
-                <button
-                  onClick={handleBulkDelete}
-                  className="ml-1 px-2.5 py-1 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/20 rounded-md font-bold text-[10px] flex items-center gap-1 transition cursor-pointer select-none"
-                  title="ลบอะไหล่ทั้งหมดที่เลือกชั่วคราว"
-                >
-                  <Trash2 size={11} />
-                  <span>ลบแบบกลุ่ม ({selectedPartIds.length})</span>
-                </button>
+                <span className="text-xs text-slate-400">บาท</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">คำนวณจาก คงเหลือ × ราคา/หน่วย</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter(statusFilter === 'OUT' ? 'ALL' : 'OUT')}
+              className={`text-left bg-slate-900/90 border rounded-2xl p-4 transition cursor-pointer ${
+                statusFilter === 'OUT' ? 'border-rose-500' : 'border-rose-500/30 hover:border-rose-500/60'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-bold text-rose-400">
+                <span>หมดสต๊อก (0 ชิ้น)</span>
+                <AlertTriangle size={15} className="text-rose-400" />
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-rose-400 font-mono">{kpis.outCount}</span>
+                <span className="text-xs text-slate-400">รายการ</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">คลิกเพื่อกรองรายการที่หมดทันที</p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter(statusFilter === 'LOW' ? 'ALL' : 'LOW')}
+              className={`text-left bg-slate-900/90 border rounded-2xl p-4 transition cursor-pointer ${
+                statusFilter === 'LOW' ? 'border-amber-500' : 'border-amber-500/30 hover:border-amber-500/60'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-bold text-amber-400">
+                <span>ต่ำกว่าจุดสั่งซื้อ (≤ Min)</span>
+                <ShoppingCart size={15} className="text-amber-400" />
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-amber-400 font-mono">{kpis.lowCount}</span>
+                <span className="text-xs text-slate-400">รายการ</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                งบเติมถึง Max ~ <span className="text-amber-300 font-mono font-bold">{Math.round(kpis.totalReorderBudget).toLocaleString()}</span> บ.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter(statusFilter === 'OVER' ? 'ALL' : 'OVER')}
+              className={`text-left bg-slate-900/90 border rounded-2xl p-4 transition cursor-pointer ${
+                statusFilter === 'OVER' ? 'border-sky-500' : 'border-slate-800 hover:border-sky-500/50'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-bold text-sky-400">
+                <span>สต๊อกเกิน Max (Overstock)</span>
+                <BarChart3 size={15} className="text-sky-400" />
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-sky-400 font-mono">{kpis.overCount}</span>
+                <span className="text-xs text-slate-400">รายการ</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                อยู่ในเกณฑ์ปกติ <span className="text-emerald-400 font-bold">{kpis.okCount}</span> รายการ
+              </p>
+            </button>
+          </div>
+
+          {/* Collapsible Auto-Updating Charts */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowCharts((v) => !v)}
+              className="w-full px-5 py-3 flex items-center justify-between text-xs font-bold text-slate-300 hover:bg-slate-800/40 transition cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <BarChart3 size={15} className="text-cyan-400" />
+                กราฟวิเคราะห์สถานะ Min–Max และยอดรับเข้า–จ่ายออกรายเดือน (อัปเดตอัตโนมัติ)
+              </span>
+              {showCharts ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </button>
+
+            {showCharts && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 p-4 pt-1 border-t border-slate-800/80">
+                <div className="lg:col-span-5">
+                  <p className="text-xs font-bold text-slate-300 mb-2">สรุปสถานะสต๊อกตามเกณฑ์ Min–Max (จำนวน SKU)</p>
+                  <div className="h-48 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={healthChartData} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                        <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} allowDecimals={false} />
+                        <RechartsTooltip
+                          contentStyle={{
+                            backgroundColor: '#0f172a',
+                            borderColor: '#334155',
+                            borderRadius: '10px',
+                            fontSize: '12px',
+                            color: '#f8fafc'
+                          }}
+                          formatter={(val: number) => [`${val} รายการ`, 'จำนวน']}
+                        />
+                        <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={44}>
+                          {healthChartData.map((entry, idx) => (
+                            <Cell key={`hcell-${idx}`} fill={entry.color} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-7">
+                  <p className="text-xs font-bold text-slate-300 mb-2">ปริมาณการรับเข้า (IN) เทียบกับจ่ายออก (OUT) รายเดือน</p>
+                  {monthlyMovementChartData.length === 0 ? (
+                    <div className="h-48 rounded-xl border border-dashed border-slate-800 flex flex-col items-center justify-center text-xs text-slate-500">
+                      <Calendar size={20} className="mb-1.5 text-slate-600" />
+                      <span>ยังไม่มีประวัติรับเข้า–จ่ายออก กราฟจะแสดงอัตโนมัติเมื่อบันทึกรับ/จ่าย หรือนำเข้า Excel</span>
+                    </div>
+                  ) : (
+                    <div className="h-48 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={monthlyMovementChartData} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis dataKey="ym" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                          <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} allowDecimals={false} />
+                          <RechartsTooltip
+                            contentStyle={{
+                              backgroundColor: '#0f172a',
+                              borderColor: '#334155',
+                              borderRadius: '10px',
+                              fontSize: '12px',
+                              color: '#f8fafc'
+                            }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: '11px' }} />
+                          <Bar dataKey="inQty" name="รับเข้า (ชิ้น)" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                          <Bar dataKey="outQty" name="จ่ายออก (ชิ้น)" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-2 text-[10px] text-slate-400 self-end sm:self-auto">
-            <span>จัดเรียงตาม:</span>
-            <span className="bg-slate-800 px-2.5 py-1 rounded border border-slate-700 text-cyan-400 uppercase font-mono font-bold font-sans">
-              {sortBy === 'id' ? 'SKU' : sortBy === 'name' ? 'ชื่ออะไหล่' : sortBy === 'quantity' ? 'จำนวนคงคลัง' : sortBy === 'workRequestNo' ? 'เลขที่แจ้งซ่อม' : 'ราคา'} ({sortOrder})
-            </span>
-          </div>
-        </div>
-
-        {/* View Layout Grid/Table */}
-        <div className="overflow-x-auto">
-          {filteredParts.length === 0 ? (
-            <div className="p-16 text-center space-y-3">
-              <div className="w-16 h-16 rounded-full bg-slate-950/60 border border-slate-850 flex items-center justify-center mx-auto text-slate-600">
-                <Package size={28} />
+          {/* Filters & Bulk Actions Bar */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(
+                  [
+                    { id: 'ALL', label: `ทั้งหมด (${kpis.totalSkus})` },
+                    { id: 'OUT', label: `หมด (${kpis.outCount})` },
+                    { id: 'LOW', label: `ต่ำกว่า Min (${kpis.lowCount})` },
+                    { id: 'OK', label: `ปกติ (${kpis.okCount})` },
+                    { id: 'OVER', label: `เกิน Max (${kpis.overCount})` }
+                  ] as { id: StockFilterStatus; label: string }[]
+                ).map((st) => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setStatusFilter(st.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      statusFilter === st.id
+                        ? 'bg-cyan-500 text-slate-950'
+                        : 'bg-slate-950/60 text-slate-300 border border-slate-800 hover:border-slate-600'
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                ))}
               </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-300">ไม่พบข้อมูลชิ้นส่วนตรงตามตัวกรอง</p>
-                <p className="text-xs text-slate-500 mt-1">ลองเปลี่ยนคำค้นหาหรือตัวกรองหมวดหมู่ของคุณใน แถบตัวกรอง ดำเนินการใหม่อีกครั้ง</p>
+
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span>แสดง {filteredParts.length} รายการ</span>
+                {canDelete && selectedPartIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkDeleteModal(true)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 font-bold cursor-pointer"
+                  >
+                    <Trash2 size={13} />
+                    <span>ลบที่เลือก ({selectedPartIds.length})</span>
+                  </button>
+                )}
               </div>
             </div>
-          ) : (
-            <table className="w-full text-left text-xs min-w-[950px]" id="inventory-data-table">
-              <thead>
-                <tr className="border-b border-slate-800 bg-[#0e1726]">
-                  {/* Bulk Select Checkbox Head */}
-                  <th className="p-3.5 text-center w-12 select-none">
-                    <input 
-                      type="checkbox"
-                      checked={filteredParts.length > 0 && filteredParts.every(p => selectedPartIds.includes(p.id))}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          const newSelected = [...selectedPartIds];
-                          filteredParts.forEach(p => {
-                            if (!newSelected.includes(p.id)) {
-                              newSelected.push(p.id);
-                            }
-                          });
-                          setSelectedPartIds(newSelected);
-                        } else {
-                          const filteredIds = filteredParts.map(p => p.id);
-                          setSelectedPartIds(selectedPartIds.filter(id => !filteredIds.includes(id)));
-                        }
-                      }}
-                      className="w-4 h-4 rounded border-slate-800 text-cyan-500 bg-slate-950 focus:ring-0 cursor-pointer"
-                      title="เลือกทั้งหมดหน้านี้"
-                    />
-                  </th>
-                  <th className="p-3.5 text-center text-slate-400 font-bold uppercase tracking-wider font-mono text-[10px] w-14 select-none">
-                    ลำดับ
-                  </th>
-                  <th 
-                    onClick={() => triggerSort('workRequestNo')}
-                    className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-mono text-[10px] cursor-pointer hover:text-white hover:bg-slate-800 select-none w-36"
-                  >
-                    เลขที่แจ้งซ่อม <ArrowUpDown size={11} className="inline ml-1" />
-                  </th>
-                  <th 
-                    onClick={() => triggerSort('id')}
-                    className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-mono text-[10px] cursor-pointer hover:text-white hover:bg-slate-800 select-none w-28"
-                  >
-                    SKU Code <ArrowUpDown size={11} className="inline ml-1" />
-                  </th>
-                  <th 
-                    onClick={() => triggerSort('name')}
-                    className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-sans text-[10px] cursor-pointer hover:text-white hover:bg-slate-800 select-none"
-                  >
-                    ชื่ออะไหล่ / สเปค <ArrowUpDown size={11} className="inline ml-1" />
-                  </th>
-                  <th className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-sans text-[10px] w-48">
-                    หมวดหมู่ (Category)
-                  </th>
-                  <th className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-sans text-[10px] w-48">
-                    เครื่องที่ใช้ (Machines Dependency)
-                  </th>
-                  <th 
-                    onClick={() => triggerSort('quantity')}
-                    className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-sans text-[10px] cursor-pointer hover:text-white hover:bg-slate-800 select-none text-center w-36"
-                  >
-                    จำนวนคงเหลือ <ArrowUpDown size={11} className="inline-block ml-1" />
-                  </th>
-                  <th className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-sans text-[10px] w-32">
-                    พิกัดจัดเก็บ
-                  </th>
-                  <th 
-                    onClick={() => triggerSort('pricePerUnit')}
-                    className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-sans text-[10px] cursor-pointer hover:text-white hover:bg-slate-800 select-none text-right w-32"
-                  >
-                    ราคาต่อหน่วย <ArrowUpDown size={11} className="inline-block ml-1" />
-                  </th>
-                  <th className="p-3.5 text-slate-400 font-bold uppercase tracking-wider font-sans text-[10px] text-center w-36">
-                    การจัดการงานคลัง
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/80">
-                {filteredParts.map((item, index) => {
-                  const isLow = item.quantity <= item.minRequired;
-                  const isZero = item.quantity === 0;
 
-                  return (
-                    <tr 
-                      key={item.id} 
-                      className={`hover:bg-slate-800/40 transition duration-150 ${isZero ? 'bg-red-950/5' : isLow ? 'bg-amber-950/3' : ''} ${selectedPartIds.includes(item.id) ? 'bg-cyan-950/20' : ''}`}
-                    >
-                      {/* Row Checkbox select */}
-                      <td className="p-3.5 text-center select-none">
-                        <input 
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+              <div className="relative lg:col-span-2">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="ค้นหา SKU, ชื่ออะไหล่, ซัพพลายเออร์, เครื่องจักร, เลข PO, ใบแจ้งซ่อม..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200"
+              >
+                <option value="ALL">หมวดหมู่: ทั้งหมด</option>
+                {filterOptions.cats.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={supplierFilter}
+                onChange={(e) => setSupplierFilter(e.target.value)}
+                className="px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200"
+              >
+                <option value="ALL">ซัพพลายเออร์: ทั้งหมด</option>
+                {filterOptions.suppliers.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={machineFilter}
+                  onChange={(e) => setMachineFilter(e.target.value)}
+                  className="px-2 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200"
+                >
+                  <option value="ALL">เครื่อง: ทั้งหมด</option>
+                  {filterOptions.machineNames.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                  className="px-2 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200"
+                >
+                  <option value="status">เรียง: เร่งด่วนก่อน</option>
+                  <option value="id">เรียง: SKU</option>
+                  <option value="name">เรียง: ชื่อ ก-ฮ</option>
+                  <option value="quantity">เรียง: คงเหลือน้อยสุด</option>
+                  <option value="value">เรียง: มูลค่าสูงสุด</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Master Stock Table */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-800/90 text-slate-300 font-bold border-b border-slate-700">
+                  <tr>
+                    {canDelete && (
+                      <th className="py-3 px-3 w-9 text-center">
+                        <input
                           type="checkbox"
-                          checked={selectedPartIds.includes(item.id)}
-                          onChange={() => {
-                            if (selectedPartIds.includes(item.id)) {
-                              setSelectedPartIds(selectedPartIds.filter(id => id !== item.id));
-                            } else {
-                              setSelectedPartIds([...selectedPartIds, item.id]);
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-slate-800 text-cyan-500 bg-slate-950 focus:ring-0 cursor-pointer"
+                          checked={filteredParts.length > 0 && selectedPartIds.length === filteredParts.length}
+                          onChange={toggleSelectAllVisible}
                         />
+                      </th>
+                    )}
+                    <th className="py-3 px-2.5 whitespace-nowrap">SKU / ตำแหน่ง</th>
+                    <th className="py-3 px-3 min-w-[230px]">รายการอะไหล่ / ซัพพลายเออร์ / เครื่องจักร</th>
+                    <th className="py-3 px-3 text-center whitespace-nowrap">คงเหลือ &amp; ระดับ Min–Max</th>
+                    <th className="py-3 px-2.5 text-center whitespace-nowrap">สถานะ &amp; แนะนำสั่งซื้อ</th>
+                    <th className="py-3 px-2.5 text-right whitespace-nowrap">ราคา / มูลค่าคงเหลือ</th>
+                    <th className="py-3 px-2.5 whitespace-nowrap">รับเข้า / จ่ายออกล่าสุด</th>
+                    <th className="py-3 px-3 text-center whitespace-nowrap">จัดการสต๊อก</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/80">
+                  {filteredParts.length === 0 ? (
+                    <tr>
+                      <td colSpan={canDelete ? 8 : 7} className="py-12 text-center text-slate-400">
+                        ไม่พบรายการอะไหล่ตามเงื่อนไขที่เลือก
                       </td>
+                    </tr>
+                  ) : (
+                    filteredParts.map((part) => {
+                      const status = getStockLevelStatus(part);
+                      const maxVal = getEffectiveMaxStock(part);
+                      const orderQty = getSuggestedOrderQty(part);
+                      const stockValue = (part.quantity || 0) * (part.pricePerUnit || 0);
+                      const barDenom = Math.max(maxVal, part.quantity, part.minRequired, 1);
+                      const fillPct = Math.min(100, Math.round((part.quantity / barDenom) * 100));
 
-                      {/* ลำดับ (Row Sequence Number) */}
-                      <td className="p-3.5 text-center font-mono text-slate-400 font-bold text-xs select-none">
-                        <span className="w-6 h-6 rounded-md bg-slate-800/80 border border-slate-700/60 inline-flex items-center justify-center text-[11px] text-slate-300">
-                          {index + 1}
-                        </span>
-                      </td>
-
-                      {/* เลขที่แจ้งซ่อม (Work Request No.) */}
-                      <td className="p-3.5 font-mono">
-                        {item.workRequestNo ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40 text-xs font-bold font-mono" title={`ผูกกับใบแจ้งซ่อม #${item.workRequestNo}`}>
-                              <FileText size={11} className="text-blue-400" />
-                              #{item.workRequestNo}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigator.clipboard?.writeText(item.workRequestNo || '');
-                                setCopiedTicket(item.workRequestNo || '');
-                                setTimeout(() => setCopiedTicket(null), 2500);
-                              }}
-                              className="text-slate-500 hover:text-blue-400 p-1 transition rounded hover:bg-slate-800"
-                              title="คัดลอกเลขที่แจ้งซ่อม"
-                            >
-                              <Copy size={12} />
-                            </button>
-                            {copiedTicket === item.workRequestNo && (
-                              <span className="text-[10px] text-emerald-400 font-sans">คัดลอกแล้ว</span>
-                            )}
-                          </div>
-                        ) : item.lastWorkRequestNo ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-mono" title="เบิกล่าสุดตามใบงาน">
-                              <FileText size={10} className="text-purple-400" />
-                              #{item.lastWorkRequestNo}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-600 font-mono text-xs">-</span>
-                        )}
-                      </td>
-
-                      {/* SKU */}
-                      <td className="p-3.5 font-mono text-cyan-400 font-bold">
-                        {item.id}
-                      </td>
-
-                      {/* Name / Spec */}
-                      <td className="p-3.5">
-                        <div className="space-y-1">
-                          <p className="font-semibold text-white leading-normal">{item.name}</p>
-                          {item.specifications && (
-                            <p className="text-[10px] text-slate-400 italic max-w-sm cut-text leading-relaxed font-sans" title={item.specifications}>
-                              ⚙️ Spec: {item.specifications}
-                            </p>
+                      return (
+                        <tr
+                          key={part.id}
+                          className={`transition ${
+                            status === 'OUT'
+                              ? 'bg-rose-950/15 hover:bg-rose-950/25'
+                              : status === 'LOW'
+                              ? 'bg-amber-950/10 hover:bg-amber-950/20'
+                              : 'hover:bg-slate-800/40'
+                          }`}
+                        >
+                          {canDelete && (
+                            <td className="py-3 px-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedPartIds.includes(part.id)}
+                                onChange={() => toggleSelectPart(part.id)}
+                              />
+                            </td>
                           )}
-                          {(item.workRequestNo || item.lastWorkRequestNo) && (
-                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                              {item.workRequestNo && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[9.5px] font-mono font-bold" title="เลขที่ใบแจ้งซ่อมที่ระบุผูกกับอะไหล่นี้">
-                                  <FileText size={10} className="text-blue-400" />
-                                  ใบแจ้งซ่อม: #{item.workRequestNo}
-                                </span>
+
+                          <td className="py-3 px-2.5 whitespace-nowrap align-top">
+                            <div className="font-mono font-extrabold text-cyan-400">{part.id}</div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">{part.location || '-'}</div>
+                          </td>
+
+                          <td className="py-3 px-3 align-top">
+                            <div className="font-bold text-white leading-snug">{part.name}</div>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-400 mt-1">
+                              <span>{part.category}</span>
+                              {part.supplier && (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="text-slate-300">{part.supplier}</span>
+                                </>
                               )}
-                              {item.lastWorkRequestNo && item.lastWorkRequestNo !== item.workRequestNo && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[9.5px] font-mono font-bold" title="เลขที่ใบแจ้งซ่อมที่เบิกใช้ล่าสุด">
-                                  <FileText size={10} className="text-purple-400" />
-                                  เบิกล่าสุดตามใบงาน: #{item.lastWorkRequestNo}
-                                </span>
+                              {part.machineIds && part.machineIds.length > 0 && (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="text-cyan-300 font-medium">
+                                    เครื่อง: {part.machineIds.join(', ')}
+                                  </span>
+                                </>
                               )}
                             </div>
-                          )}
-                          {item.lastRestockedDate && (
-                            <p className="text-[8.5px] text-slate-500">
-                              เติมเข้าคลังล่าสุด: {item.lastRestockedDate}
-                            </p>
-                          )}
-                        </div>
-                      </td>
+                          </td>
 
-                      {/* Category */}
-                      <td className="p-3.5 text-slate-300 font-sans">
-                        <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700/60 text-[9.5px] text-slate-300">
-                          {item.category}
-                        </span>
-                      </td>
-
-                      {/* Machines Dependents */}
-                      <td className="p-3.5">
-                        <div className="flex flex-wrap gap-1">
-                          {item.machineIds.length === 0 ? (
-                            <span className="text-[9.5px] text-slate-500 italic">ทุกเครื่องใช้ได้/อเนกประสงค์</span>
-                          ) : (
-                            item.machineIds.map((mId) => (
-                              <span 
-                                key={mId} 
-                                className="px-1.5 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/15 rounded text-[8.5px] font-mono leading-none"
+                          <td className="py-3 px-3 align-top min-w-[140px]">
+                            <div className="flex items-baseline justify-center gap-1 font-mono">
+                              <span
+                                className={`text-base font-black ${
+                                  status === 'OUT'
+                                    ? 'text-rose-400'
+                                    : status === 'LOW'
+                                    ? 'text-amber-400'
+                                    : status === 'OVER'
+                                    ? 'text-sky-400'
+                                    : 'text-emerald-400'
+                                }`}
                               >
-                                {mId}
+                                {part.quantity}
                               </span>
-                            ))
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Quantity Stock Count */}
-                      <td className="p-3.5">
-                        <div className="flex flex-col items-center justify-center space-y-1.5 text-center">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`text-sm font-mono font-black ${
-                              isZero ? 'text-red-500' : isLow ? 'text-amber-400' : 'text-emerald-400'
-                            }`}>
-                              {item.quantity}
-                            </span>
-                            <span className="text-[10px] text-slate-400">{item.unit}</span>
-                          </div>
-
-                          {/* Low alerts indicator badge */}
-                          {isZero ? (
-                            <span className="px-1.5 py-0.5 bg-red-500/15 text-red-500 border border-red-500/20 text-[8.5px] font-black uppercase rounded leading-none font-sans animate-pulse">
-                              🛑 สต็อกหมด
-                            </span>
-                          ) : isLow ? (
-                            <span className="px-1.5 py-0.5 bg-amber-500/15 text-amber-500 border border-amber-500/20 text-[8.5px] font-black uppercase rounded leading-none font-sans">
-                              ⚠️ ต่ำกว่าเกณฑ์ ({item.minRequired})
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 text-[8px] font-bold uppercase rounded leading-none font-sans">
-                              ปกติ
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Location shelf */}
-                      <td className="p-3.5 text-slate-300 font-sans font-medium">
-                        <span className="inline-flex items-center gap-1 text-[11px] font-mono">
-                          <MapPin size={11} className="text-slate-500 shrink-0" />
-                          {item.location}
-                        </span>
-                      </td>
-
-                      {/* Price Per Unit */}
-                      <td className="p-3.5 text-right font-mono text-slate-200">
-                        {item.pricePerUnit > 0 ? (
-                          <>
-                            <span className="font-bold">{item.pricePerUnit.toLocaleString()}</span>
-                            <span className="text-[9px] text-slate-500 ml-1">฿</span>
-                          </>
-                        ) : (
-                          <span className="text-slate-500 font-sans italic">ไม่มีราคา</span>
-                        )}
-                      </td>
-
-                      {/* Trigger operations */}
-                      <td className="p-3.5 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          
-                          {/* Stock Quick Adjustment */}
-                          <button
-                            onClick={() => openStockModal(item)}
-                            className="bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-350 hover:text-white px-2 py-1 rounded transition text-[10px] flex items-center gap-1 font-sans cursor-pointer select-none"
-                            title="ปรับยอดเบิกจ่าย หรือ ตรวจนับสต็อกล่าสุ"
-                          >
-                            <RefreshCw size={11} />
-                            <span>เบิก/รับ</span>
-                          </button>
-
-                          {/* Edit info Form */}
-                          <button
-                            onClick={() => openEditPartModal(item)}
-                            className="p-1.5 bg-slate-950 border border-slate-800 hover:border-slate-700 hover:text-cyan-400 rounded text-slate-400 transition cursor-pointer select-none"
-                            title="แก้ไขข้อมูลอะไหล่"
-                          >
-                            <Edit2 size={11} />
-                          </button>
-
-                          {/* Delete Item */}
-                          <button
-                            onClick={() => handleDeletePart(item.id, item.name)}
-                            className="p-1.5 bg-slate-950 border border-slate-850 hover:border-red-950 hover:text-red-500 rounded text-slate-500 transition cursor-pointer select-none"
-                            title="ลบข้อมูลชิ้นส่วนนี้"
-                          >
-                            <Trash2 size={11} />
-                          </button>
-                        </div>
-                      </td>
-
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-      </div>
-
-      {/* QUICK INVENTORY USAGE ADVICE GUIDE */}
-      <div className="bg-slate-950/40 rounded-xl p-4.5 border border-slate-800 flex flex-col md:flex-row items-start md:items-center gap-4 text-xs">
-        <Info size={18} className="text-cyan-400 shrink-0 mt-0.5 md:mt-0" />
-        <p className="text-slate-450 leading-relaxed font-sans">
-          💡 <b>คำแนะนำปฏิบัติการณ์:</b> เมื่อช่างทำการเบิกใช้ชิ้นส่วนอะไหล่ไปปฏิบัติงาน เช่น ซ่อมหยุดด่วน (Wrench) หรือ ซ่อมเชิงป้องกัน (PM) หรือ Kaizen พนักงานช่างควรทำมาอัปเดตยอดคงเหลือในหน้านี้ทันทีโดยกดปุ่ม <b>"เบิก/รับ"</b> เพื่อรักษาวินัยคลังและไม่ให้เครื่องจักรต้องรออะไหล่สะดุดสายพานผลิตในอนาคต
-        </p>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* ========================== MODAL: REGISTER NEW SPARE PART ========================== */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in" id="inventory-add-modal-overlay">
-          <div className="bg-slate-900 border border-slate-750 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden" id="inventory-add-modal">
-            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-                <Package size={16} className="text-cyan-400" />
-                ลงทะเบียนอุปกรณ์อะไหล่ใหม่เข้าระบบคลัง
-              </h3>
-              <button 
-                onClick={() => setShowAddModal(false)}
-                className="text-slate-500 hover:text-slate-200 text-xs font-bold"
-              >
-                ✕ Close
-              </button>
-            </div>
-
-            <form onSubmit={handleAddPart} className="p-5 space-y-4 text-xs">
-              
-              <div className="grid grid-cols-2 gap-4">
-                {/* ID/SKU */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">รหัสอะไหล่ (SKU Code) *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formId}
-                    onChange={(e) => setFormId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none"
-                    placeholder="เช่น SP-09"
-                  />
-                </div>
-
-                {/* Category */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">หมวดหมู่อะไหล่</label>
-                  <select
-                    value={formCategory}
-                    onChange={(e) => setFormCategory(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded focus:border-cyan-500 focus:outline-none cursor-pointer"
-                  >
-                    {categories.map((c, i) => (
-                      <option key={i} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Part Name */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">ชื่อชิ้นส่วนอะไหล่สำรอง (Spare Part Name) *</label>
-                <input
-                  type="text"
-                  required
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 p-2 text-white rounded focus:border-cyan-500 focus:outline-none"
-                  placeholder="เช่น มอเตอร์ไฟฟ้าดีซี 24V หรือ เทอร์โมคัปเปิลชนิด K"
-                />
-              </div>
-
-              {/* Dynamic machine checkboxes dependency */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1.5 uppercase text-[10px]">เครื่องจักรที่เกี่ยวข้องใช้งานร่วมกัน (Machines)</label>
-                <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-3 border border-slate-800 max-h-[105px] overflow-y-auto rounded scrollbar-thin">
-                  {machines.map((m) => {
-                    const isChecked = formMachineIds.includes(m.id);
-                    return (
-                      <label key={m.id} className="flex items-center gap-1.5 cursor-pointer text-slate-350 select-none">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleFormMachine(m.id)}
-                          className="w-3.5 h-3.5 rounded border-slate-800 text-cyan-500 bg-slate-950"
-                        />
-                        <span className="font-mono text-[10.5px] truncate">{m.id}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                <p className="text-[9.5px] text-slate-500 mt-1">
-                  * หากเว้นว่างไว้ทั้งหมด หมายถึง อะไหล่ใช้ร่วมกันอเนกประสงค์ (General Facility Parts)
-                </p>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                {/* Quantity */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">จำนวนสต็อกแรกเข้า</label>
-                  <input
-                    type="number"
-                    min="0"
-                    required
-                    value={formQuantity}
-                    onChange={(e) => setFormQuantity(parseInt(e.target.value) || 0)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-
-                {/* Min Stock Required Warnings */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">จุดต่ำแจ้งเตือน (Min Alert)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={formMinRequired}
-                    onChange={(e) => setFormMinRequired(parseInt(e.target.value) || 1)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none font-sans"
-                  />
-                </div>
-
-                {/* Unit */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">หน่วยนับ</label>
-                  <input
-                    type="text"
-                    required
-                    value={formUnit}
-                    onChange={(e) => setFormUnit(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white rounded focus:border-cyan-500 focus:outline-none"
-                    placeholder="เช่น ชิ้น, ตัว, ม้วน"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                {/* Location Shelf */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">ตู้เก็บ/ตำแหน่งจัดเก็บ</label>
-                  <input
-                    type="text"
-                    value={formLocation}
-                    onChange={(e) => setFormLocation(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white rounded focus:border-cyan-500 focus:outline-none"
-                    placeholder="เช่น ตู้ A ชั้น 3, บอร์ดเครื่องพ่น"
-                  />
-                </div>
-
-                {/* Price */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">ราคาต่อหน่วย (บาท)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formPrice}
-                    onChange={(e) => setFormPrice(parseInt(e.target.value) || 0)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Work Request No. (เลขที่ใบแจ้งซ่อม) */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">
-                  เลขที่ใบแจ้งซ่อมที่เกี่ยวข้อง (Work Request / Ticket No.)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={formWorkRequestNo}
-                    onChange={(e) => setFormWorkRequestNo(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none placeholder:font-sans"
-                    placeholder="เช่น 167311, 167446 หรือ REQ-..."
-                  />
-                  {workRequests && workRequests.length > 0 && (
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) setFormWorkRequestNo(e.target.value);
-                      }}
-                      className="bg-slate-900 border border-slate-800 text-slate-300 text-xs px-2.5 py-1.5 rounded hover:border-slate-700 cursor-pointer max-w-[200px]"
-                    >
-                      <option value="">เลือกจากใบแจ้งซ่อม...</option>
-                      {workRequests.slice(0, 15).map(wr => (
-                        <option key={wr.id} value={wr.ticketNo || wr.id}>
-                          {wr.ticketNo ? `#${wr.ticketNo}` : wr.id} : {wr.machineId}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-
-              {/* Specifications / Notes */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">รายละเอียดทางเทคนิค / สเปคสกัด</label>
-                <textarea
-                  value={formSpecs}
-                  onChange={(e) => setFormSpecs(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 p-2 text-white rounded focus:border-cyan-500 focus:outline-none font-sans h-16 resize-none"
-                  placeholder="เช่น มอเตอร์ยี่ห้อ Omron ใช้งาน 1/2HP หรือ ลวดซีลแว็กซ์ชนิดร่องแบน ทนแรงดึง..."
-                />
-              </div>
-
-              {/* Actions Footer */}
-              <div className="pt-3 border-t border-slate-800 flex justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold rounded-lg cursor-pointer select-none transition"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  type="submit"
-                  className="px-4.5 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-lg cursor-pointer select-none transition flex items-center gap-1.5"
-                >
-                  <CheckCircle size={14} strokeWidth={2.5} />
-                  <span>ยืนยันบันทึกเข้าระบบ</span>
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* ========================== MODAL: EDIT SPARE PART ========================== */}
-      {showEditModal && selectedPart && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in" id="inventory-edit-modal-overlay">
-          <div className="bg-slate-900 border border-slate-750 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden" id="inventory-edit-modal">
-            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-1.5 animate-pulse">
-                <Edit2 size={15} className="text-cyan-400" />
-                แก้ไขข้อมูลอะไหล่ระบบ SKU: {selectedPart.id}
-              </h3>
-              <button 
-                onClick={() => setShowEditModal(false)}
-                className="text-slate-500 hover:text-slate-200 text-xs font-bold"
-              >
-                ✕ Close
-              </button>
-            </div>
-
-            <form onSubmit={handleEditPart} className="p-5 space-y-4 text-xs">
-              
-              <div className="grid grid-cols-2 gap-4">
-                {/* SKU (Disabled read only in Edit) */}
-                <div>
-                  <label className="block text-slate-450 mb-1 uppercase text-[9.5px]">รหัสอะไหล่ (SKU Code)</label>
-                  <input
-                    type="text"
-                    disabled
-                    value={formId}
-                    className="w-full bg-slate-950/60 border border-slate-850 p-2 text-slate-400 font-mono rounded cursor-not-allowed"
-                  />
-                </div>
-
-                {/* Category */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">หมวดหมู่อะไหล่</label>
-                  <select
-                    value={formCategory}
-                    onChange={(e) => setFormCategory(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded focus:border-cyan-500 focus:outline-none cursor-pointer"
-                  >
-                    {categories.map((c, i) => (
-                      <option key={i} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Part Name */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">ชื่อชิ้นส่วนอะไหล่ *</label>
-                <input
-                  type="text"
-                  required
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 p-2 text-white rounded focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
-
-              {/* Dynamic machine checkboxes dependency */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1.5 uppercase text-[10px]">เครื่องจักรที่เกี่ยวข้องใช้งานร่วมกัน (Machines)</label>
-                <div className="grid grid-cols-3 gap-2 bg-slate-950/60 p-3 border border-slate-800 max-h-[105px] overflow-y-auto rounded scrollbar-thin">
-                  {machines.map((m) => {
-                    const isChecked = formMachineIds.includes(m.id);
-                    return (
-                      <label key={m.id} className="flex items-center gap-1.5 cursor-pointer text-slate-350 select-none">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleFormMachine(m.id)}
-                          className="w-3.5 h-3.5 rounded border-slate-800 text-cyan-500 bg-slate-950"
-                        />
-                        <span className="font-mono text-[10.5px] truncate">{m.id}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                {/* Quantity */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">จำนวนสต็อกคงเหลือ</label>
-                  <input
-                    type="number"
-                    min="0"
-                    required
-                    value={formQuantity}
-                    onChange={(e) => setFormQuantity(parseInt(e.target.value) || 0)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-
-                {/* Min Stock Required Warnings */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">จุดต่ำแจ้งเตือน (Min Required)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={formMinRequired}
-                    onChange={(e) => setFormMinRequired(parseInt(e.target.value) || 1)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-
-                {/* Unit */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">หน่วยนับ</label>
-                  <input
-                    type="text"
-                    required
-                    value={formUnit}
-                    onChange={(e) => setFormUnit(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white rounded focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                {/* Location Shelf */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">ตู้วาง/ตำแหน่งจัดเก็บ</label>
-                  <input
-                    type="text"
-                    value={formLocation}
-                    onChange={(e) => setFormLocation(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white rounded focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-
-                {/* Price */}
-                <div>
-                  <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">ราคาต่อหน่วย (บาท)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formPrice}
-                    onChange={(e) => setFormPrice(parseInt(e.target.value) || 0)}
-                    className="w-full bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Work Request No. (เลขที่ใบแจ้งซ่อม) */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">
-                  เลขที่ใบแจ้งซ่อมที่เกี่ยวข้อง (Work Request / Ticket No.)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={formWorkRequestNo}
-                    onChange={(e) => setFormWorkRequestNo(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none placeholder:font-sans"
-                    placeholder="เช่น 167311, 167446 หรือ REQ-..."
-                  />
-                  {workRequests && workRequests.length > 0 && (
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) setFormWorkRequestNo(e.target.value);
-                      }}
-                      className="bg-slate-900 border border-slate-800 text-slate-300 text-xs px-2.5 py-1.5 rounded hover:border-slate-700 cursor-pointer max-w-[200px]"
-                    >
-                      <option value="">เลือกจากใบแจ้งซ่อม...</option>
-                      {workRequests.slice(0, 15).map(wr => (
-                        <option key={wr.id} value={wr.ticketNo || wr.id}>
-                          {wr.ticketNo ? `#${wr.ticketNo}` : wr.id} : {wr.machineId}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-
-              {/* Specifications / Notes */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">รายละเอียดทางเทคนิค / สเปค/ ประวัติอัปเดต</label>
-                <textarea
-                  value={formSpecs}
-                  onChange={(e) => setFormSpecs(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 p-2 text-white rounded focus:border-cyan-500 focus:outline-none font-sans h-20"
-                  placeholder="สเปค อะไหล่ หรือ บันทึก ประวัติคลัง..."
-                />
-              </div>
-
-              {/* Actions Footer */}
-              <div className="pt-3 border-t border-slate-800 flex justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setShowEditModal(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold rounded-lg cursor-pointer select-none transition"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  type="submit"
-                  className="px-4.5 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-lg cursor-pointer select-none transition flex items-center gap-1.5"
-                >
-                  <CheckCircle size={14} strokeWidth={2.5} />
-                  <span>บันทึกการเปลี่ยนแปลง</span>
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* ======================= MODAL: QUICK STOCK ADJ (IN / OUT) ======================= */}
-      {showStockModal && selectedPart && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in" id="inventory-stock-modal-overlay">
-          <div className="bg-slate-900 border border-slate-750 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" id="inventory-stock-modal">
-            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-                <RefreshCw size={14} className="text-cyan-400 rotate-180" />
-                เบิกหรือรับชิ้นส่วนอะไหล่ (Quick Stock Adjust)
-              </h3>
-              <button 
-                onClick={() => setShowStockModal(false)}
-                className="text-slate-500 hover:text-slate-200 text-xs font-bold"
-              >
-                ✕ Close
-              </button>
-            </div>
-
-            <form onSubmit={handleStockAdjustment} className="p-5 space-y-4 text-xs">
-              
-              <div className="bg-slate-950/60 border border-slate-850 p-3 rounded-lg text-xs">
-                <p className="text-slate-500 font-mono font-bold text-[9px]">ชิ้นส่วนเป้าหมาย</p>
-                <p className="text-cyan-400 font-mono font-black text-[12px] mt-0.5">{selectedPart.id}</p>
-                <p className="text-slate-100 font-bold font-sans mt-1 leading-normal">{selectedPart.name}</p>
-                <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/80 text-[10px]">
-                  <span className="text-slate-400">สต็อกคงเหลือปัจจุบัน:</span>
-                  <span className="font-mono font-bold text-white text-xs">{selectedPart.quantity} {selectedPart.unit}</span>
-                </div>
-              </div>
-
-              {/* Adjustment Mode selector */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1.5 uppercase text-[10px]">ปฏิบัติการคลัง</label>
-                <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setAdjustmentType('IN')}
-                    className={`py-2 border rounded-lg font-black tracking-wider transition ${
-                      adjustmentType === 'IN' 
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
-                        : 'bg-slate-950 text-slate-450 border-slate-800 hover:text-slate-300'
-                    }`}
-                  >
-                    📥 รับเข้าคลัง (Restock In)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAdjustmentType('OUT')}
-                    className={`py-2 border rounded-lg font-black tracking-wider transition ${
-                      adjustmentType === 'OUT' 
-                        ? 'bg-red-500/10 text-red-400 border-red-500/30' 
-                        : 'bg-slate-950 text-slate-450 border-slate-800 hover:text-slate-300'
-                    }`}
-                  >
-                    📤 จ่ายเบิกซ่อม (Use Out)
-                  </button>
-                </div>
-              </div>
-
-              {/* Adjust Quantity spinner */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">จำนวนชิ้นส่วน (Adjustment Qty)</label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAdjustmentQty(Math.max(1, adjustmentQty - 1))}
-                    className="w-10 h-10 bg-slate-950 hover:bg-slate-850 text-white font-black rounded-lg border border-slate-800 text-lg transition select-none cursor-pointer"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={adjustmentQty}
-                    onChange={(e) => setAdjustmentQty(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="flex-1 bg-slate-950 border border-slate-800 p-2.5 text-center text-white font-mono font-black rounded-lg focus:border-cyan-500 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setAdjustmentQty(adjustmentQty + 1)}
-                    className="w-10 h-10 bg-slate-950 hover:bg-slate-850 text-white font-black rounded-lg border border-slate-800 text-lg transition select-none cursor-pointer"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {/* Work Request No for Quick Adjust */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">
-                  เลขที่ใบแจ้งซ่อม (Work Request No. / Ticket No.)
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={adjustmentWorkRequestNo}
-                    onChange={(e) => setAdjustmentWorkRequestNo(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 p-2 text-white font-mono rounded focus:border-cyan-500 focus:outline-none placeholder:font-sans text-xs"
-                    placeholder="เช่น 167311, 167446 (ถ้ามี)"
-                  />
-                  {workRequests && workRequests.length > 0 && (
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) setAdjustmentWorkRequestNo(e.target.value);
-                      }}
-                      className="bg-slate-900 border border-slate-800 text-slate-300 text-xs px-2 py-1.5 rounded hover:border-slate-700 cursor-pointer max-w-[160px]"
-                    >
-                      <option value="">เลือกใบแจ้งซ่อม...</option>
-                      {workRequests.slice(0, 15).map(wr => (
-                        <option key={wr.id} value={wr.ticketNo || wr.id}>
-                          {wr.ticketNo ? `#${wr.ticketNo}` : wr.id}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-
-              {/* Adjustment Notes */}
-              <div>
-                <label className="block text-slate-420 font-bold mb-1 uppercase text-[10px]">บันทึกช่วยจำ (เช่น เบิกหน้าเครื่องไหน / รหัสผู้เบิก)</label>
-                <input
-                  type="text"
-                  required
-                  value={adjustmentNote}
-                  onChange={(e) => setAdjustmentNote(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 p-2 text-white rounded focus:border-cyan-500 focus:outline-none font-sans"
-                  placeholder="เช่น ซ่อม VAC01 กะบ่าย, รับสต็อกเติมของใหม่"
-                />
-              </div>
-
-              {/* Actions Footer */}
-              <div className="pt-3 border-t border-slate-805 flex justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setShowStockModal(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold rounded-lg cursor-pointer select-none transition"
-                >
-                  ย้อนกลับ
-                </button>
-                <button
-                  type="submit"
-                  className={`px-4.5 py-2 font-black rounded-lg cursor-pointer select-none transition flex items-center gap-1.5 ${
-                    adjustmentType === 'IN' 
-                      ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950' 
-                      : 'bg-red-500 hover:bg-red-400 text-white'
-                  }`}
-                >
-                  <CheckCircle size={14} strokeWidth={2.5} />
-                  <span>บันทึกสต็อก {adjustmentType === 'IN' ? 'รับเข้า' : 'เบิกออก'}</span>
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* ========================== MODAL: EXCEL IMPORT MANAGER ========================== */}
-      {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in overflow-y-auto" id="inventory-import-modal-overlay">
-          <div className="bg-slate-900 border border-slate-750 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden my-8" id="inventory-import-modal">
-            
-            {/* Header */}
-            <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet size={18} className="text-emerald-400 animate-pulse" />
-                <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                  Excel / CSV Spare parts Importer (นำเข้ารายชื่อคลังอะไหล่)
-                </h3>
-              </div>
-              <button 
-                onClick={() => {
-                  setShowImportModal(false);
-                  setExcelData([]);
-                  setExcelHeaders([]);
-                  setFileName('');
-                }}
-                className="text-slate-500 hover:text-slate-200 text-xs font-bold"
-              >
-                ✕ Close
-              </button>
-            </div>
-
-            <div className="p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto scrollbar-thin">
-              
-              {/* Alert & Guidance */}
-              <div className="bg-emerald-950/10 border border-emerald-500/20 p-4 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-start gap-2.5">
-                  <Info size={18} className="text-emerald-400 shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="font-bold text-white text-xs mb-0.5">ต้องการนำเข้าอะไหล่จำนวนมากอย่างรวดเร็ว?</h4>
-                    <p className="text-slate-400 text-[11px] leading-relaxed">
-                      คุณสามารถอัปโหลดไฟล์ Excel (.xlsx, .xls) หรือ CSV เดิมของคุณได้ทันที ระบบจะสแกนคอลัมน์โดยอัตโนมัติ และคุณยังเลือกแมปจับคู่ชื่อคอลัมน์ของไฟล์คุณกับคอลัมน์ของคลังอะไหล่ได้โดยอิสระ
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={downloadTemplate}
-                  className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/25 rounded-lg text-[10.5px] font-bold flex items-center gap-1 cursor-pointer select-none shrink-0"
-                >
-                  <Download size={13} />
-                  <span>ดาวน์โหลดไฟล์ตัวอย่าง (.xlsx)</span>
-                </button>
-              </div>
-
-              {/* Step 1: File selector */}
-              <div className="bg-slate-950/40 border border-slate-800 p-5 rounded-xl text-center space-y-3.5">
-                <div className="space-y-1">
-                  <span className="text-slate-300 font-bold block text-xs">ขั้นตอนที่ 1: เลือกไฟล์จากคอมพิวเตอร์ของคุณ</span>
-                  <span className="text-slate-550 text-[10.5px] block">รองรับนามสกุลไฟล์ Excel (xlsx, xls) หรือ ข้อมูลคั่นด้วยจุลภาค (csv)</span>
-                </div>
-
-                <div className="flex flex-col items-center justify-center">
-                  <label className="px-5 py-3.5 bg-slate-950 border border-dashed border-slate-800 hover:border-cyan-500/50 rounded-xl cursor-pointer text-slate-400 hover:text-white transition group flex flex-col items-center gap-2 max-w-sm w-full">
-                    <Upload size={24} className="text-slate-500 group-hover:text-cyan-400 transition" />
-                    <span className="text-xs font-semibold">
-                      {fileName ? `📂 ${fileName}` : 'คลิกเพื่อเลือกไฟล์ Excel ของคุณ'}
-                    </span>
-                    <input
-                      type="file"
-                      accept=".xlsx, .xls, .csv"
-                      onChange={handleExcelUpload}
-                      className="hidden"
-                    />
-                  </label>
-                  {fileName && (
-                    <span className="text-[10px] text-emerald-400 bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10 mt-2 font-mono">
-                      โหลดสำเร็จ ค้นพบทั้งหมด {excelData.length} แถวข้อมูล
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Step 2: Columns Mapping (Visible only after load) */}
-              {excelData.length > 0 && (
-                <div className="bg-slate-950/20 border border-slate-800/80 rounded-xl p-5 space-y-4">
-                  <div className="border-b border-slate-800 pb-2">
-                    <span className="text-slate-200 font-bold text-xs uppercase flex items-center gap-1.5">
-                      <Settings size={14} className="text-cyan-400" />
-                      ขั้นตอนที่ 2: แมปจับคู่คอลัมน์ (Column Matching)
-                    </span>
-                    <p className="text-slate-400 text-[10.5px] mt-0.5">
-                      เลือกจับคู่ชื่อคอลัมน์จากไฟล์ Excel ของคุณ (ซ้าย) เข้ากับโครงสร้างของใบข้อมูลอะไหล่ (ขวา) ระบบทำการเดาสุ่มให้เบื้องต้น
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                    
-                    {/* SKU matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">รหัสอะไหล่ / SKU Code *</label>
-                      <select
-                        value={columnMap.id}
-                        onChange={(e) => setColumnMap({...columnMap, id: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs focus:border-cyan-500 focus:outline-none"
-                      >
-                        <option value="">-- ไม่ระบุ (รันอันดับอัตโนมัติ) --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Name matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">ชื่ออะไหล่ / Spare Name *</label>
-                      <select
-                        value={columnMap.name}
-                        onChange={(e) => setColumnMap({...columnMap, name: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs focus:border-cyan-500 focus:outline-none"
-                      >
-                        <option value="">-- ต้องเลือกระบุ --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Category matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">หมวดหมู่</label>
-                      <select
-                        value={columnMap.category}
-                        onChange={(e) => setColumnMap({...columnMap, category: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs"
-                      >
-                        <option value="">-- ตั้งเริ่มต้น (ระบบเครื่องกล) --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Qty matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">จำนวนคงในสต็อก</label>
-                      <select
-                        value={columnMap.quantity}
-                        onChange={(e) => setColumnMap({...columnMap, quantity: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs"
-                      >
-                        <option value="">-- ตั้งเริ่มต้น (0) --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Min Alert matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">จำนวนขั้นต่ำแจ้งเตือน</label>
-                      <select
-                        value={columnMap.minRequired}
-                        onChange={(e) => setColumnMap({...columnMap, minRequired: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs"
-                      >
-                        <option value="">-- ตั้งเริ่มต้น (1) --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Unit matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">หน่วยนับ (ชิ้น/ม้วน/ตัว)</label>
-                      <select
-                        value={columnMap.unit}
-                        onChange={(e) => setColumnMap({...columnMap, unit: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs"
-                      >
-                        <option value="">-- ตั้งเริ่มต้น (ชิ้น) --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Location matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">ตำแหน่งเก็บ (เช่น ตู้ D)</label>
-                      <select
-                        value={columnMap.location}
-                        onChange={(e) => setColumnMap({...columnMap, location: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs"
-                      >
-                        <option value="">-- ตั้งเริ่มต้น (ตู้คลังสำรอง) --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Price matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">ราคาต่อหน่วย (บาท)</label>
-                      <select
-                        value={columnMap.pricePerUnit}
-                        onChange={(e) => setColumnMap({...columnMap, pricePerUnit: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs"
-                      >
-                        <option value="">-- ตั้งเริ่มต้น (0) --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Spec matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">ข้อมูลเชิงเทคนิค / หมายเหตุ</label>
-                      <select
-                        value={columnMap.specifications}
-                        onChange={(e) => setColumnMap({...columnMap, specifications: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs"
-                      >
-                        <option value="">-- เว้นว่างไว้ --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Machines matching */}
-                    <div>
-                      <label className="block text-slate-400 text-[10px] uppercase font-bold mb-1">เครื่องจักรที่ใช้คั่นจุลภาค (เชน VAC01, RIM01)</label>
-                      <select
-                        value={columnMap.machineIds}
-                        onChange={(e) => setColumnMap({...columnMap, machineIds: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 p-2 text-slate-300 rounded text-xs"
-                      >
-                        <option value="">-- อะไหล่ใช้ทั่วไป --</option>
-                        {excelHeaders.map((h, i) => (
-                          <option key={i} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                  </div>
-                </div>
-              )}
-
-              {/* Step 3: Preview list & selection config */}
-              {excelData.length > 0 && importPreview.length > 0 && (
-                <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-800 pb-2 gap-3">
-                    <div>
-                      <span className="text-slate-200 font-bold text-xs uppercase flex items-center gap-1.5">
-                        <FileText size={14} className="text-amber-500" />
-                        ขั้นตอนที่ 3: ตรวจดูตัวอย่างคลังที่จะนำเข้า (Preview - 5 รายการแรก)
-                      </span>
-                      <p className="text-slate-400 text-[10.5px] mt-0.5">
-                        นี่คือโครงสร้างอะไหล่จริงหลังจากแปลงตาม Column Matching ยอดคงคลังรวมมูลค่า <b className="text-emerald-400 font-mono">{(importPreview.reduce((s, p) => s + (p.quantity * p.pricePerUnit), 0)).toLocaleString()} บาท</b>
-                      </p>
-                    </div>
-
-                    {/* Choice of integration type */}
-                    <div className="flex items-center gap-4 bg-slate-950 p-2.5 rounded-xl border border-slate-800 shrink-0 select-none">
-                      <span className="text-slate-400 font-bold text-[10px] uppercase">โหมดรวมข้อมูล:</span>
-                      
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="importMode"
-                          checked={importMode === 'MERGE'}
-                          onChange={() => setImportMode('MERGE')}
-                          className="text-cyan-500 focus:ring-0 bg-slate-950"
-                        />
-                        <span className="text-slate-200 text-[10.5px] font-sans">รวมและอัปเดต (Merge)</span>
-                      </label>
-
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="importMode"
-                          checked={importMode === 'OVERWRITE'}
-                          onChange={() => setImportMode('OVERWRITE')}
-                          className="text-red-500 focus:ring-0 bg-slate-950"
-                        />
-                        <span className="text-red-400 text-[10.5px] font-sans font-bold">เขียนทับทั้งหมด (Overwrite)</span>
-                      </label>
-                    </div>
-
-                  </div>
-
-                  {/* Tiny Table Preview */}
-                  <div className="bg-slate-950/60 rounded-xl overflow-hidden border border-slate-850">
-                    <table className="w-full text-left text-[11px] font-sans">
-                      <thead>
-                        <tr className="bg-[#0e1726] border-b border-slate-800 text-slate-400 text-[9.5px]">
-                          <th className="p-2 text-cyan-400 font-mono w-24">SKU / Code</th>
-                          <th className="p-2 w-56">ชื่ออะไหล่ที่จะแสดง</th>
-                          <th className="p-2 w-40">หมวดหมู่</th>
-                          <th className="p-2 text-center w-28">สต็อกคงคลัง</th>
-                          <th className="p-2 w-32">จัดเก็บ</th>
-                          <th className="p-2 text-right">ราคาต่อหน่วย</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/50">
-                        {importPreview.slice(0, 5).map((p, idx) => (
-                          <tr key={idx} className="hover:bg-slate-900/40 text-slate-300">
-                            <td className="p-2 text-cyan-400 font-mono font-bold">{p.id}</td>
-                            <td className="p-2">
-                              <div>
-                                <p className="font-semibold text-white truncate max-w-xs">{p.name}</p>
-                                {p.specifications && <p className="text-[10px] text-slate-500 truncate max-w-xs">{p.specifications}</p>}
+                              <span className="text-[11px] text-slate-400">{part.unit}</span>
+                            </div>
+                            <div className="mt-1 h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all ${
+                                  status === 'OUT'
+                                    ? 'bg-rose-500'
+                                    : status === 'LOW'
+                                    ? 'bg-amber-400'
+                                    : status === 'OVER'
+                                    ? 'bg-sky-400'
+                                    : 'bg-emerald-500'
+                                }`}
+                                style={{ width: `${fillPct}%` }}
+                              />
+                            </div>
+                            <div className="mt-1 text-[10px] font-mono text-slate-400 text-center">
+                              Min {part.minRequired} / Max {part.maxStock ?? maxVal}
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-2.5 text-center align-top whitespace-nowrap">
+                            <div
+                              className={`font-extrabold text-xs ${
+                                status === 'OUT'
+                                  ? 'text-rose-400'
+                                  : status === 'LOW'
+                                  ? 'text-amber-400'
+                                  : status === 'OVER'
+                                  ? 'text-sky-400'
+                                  : 'text-emerald-400'
+                              }`}
+                            >
+                              {status === 'OUT'
+                                ? 'หมดสต๊อก'
+                                : status === 'LOW'
+                                ? 'ต่ำกว่า Min'
+                                : status === 'OVER'
+                                ? 'เกิน Max'
+                                : 'ปกติ'}
+                            </div>
+                            {orderQty > 0 ? (
+                              <div className="text-[11px] font-mono text-amber-300 mt-0.5">
+                                แนะนำสั่ง +{orderQty} {part.unit}
                               </div>
-                            </td>
-                            <td className="p-2 text-slate-400 text-[10px]">{p.category}</td>
-                            <td className="p-2 text-center font-mono">
-                              <span className="text-slate-200 font-bold">{p.quantity}</span> {p.unit}
-                              <span className="text-[9.5px] text-slate-500 block">แจ้งเตือน &lt;= {p.minRequired}</span>
-                            </td>
-                            <td className="p-2 text-slate-400 font-mono text-[10px]">{p.location}</td>
-                            <td className="p-2 text-right font-mono text-emerald-400">{p.pricePerUnit.toLocaleString()} ฿</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {importPreview.length > 5 && (
-                    <p className="text-[10px] text-slate-500 italic text-right font-sans">
-                      ...และมีอีก {importPreview.length - 5} รายการด้านล่างที่ระบบพร้อมจะดำเนินการประมวลผล
-                    </p>
-                  )}
-                </div>
-              )}
+                            ) : (
+                              <div className="text-[11px] text-slate-500 mt-0.5">พร้อมใช้งาน</div>
+                            )}
+                          </td>
 
+                          <td className="py-3 px-2.5 text-right align-top font-mono whitespace-nowrap">
+                            <div className="text-slate-200 font-semibold">
+                              {part.pricePerUnit.toLocaleString(undefined, { maximumFractionDigits: 2 })} บ.
+                            </div>
+                            <div className="text-[11px] text-cyan-400 mt-0.5">
+                              รวม {Math.round(stockValue).toLocaleString()} บ.
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-2.5 align-top whitespace-nowrap text-[11px]">
+                            <div className="text-emerald-300 font-mono">
+                              รับ: {formatThaiShortDate(part.lastReceiveDate || part.lastRestockedDate)}
+                            </div>
+                            <div className="text-amber-300 font-mono mt-0.5">
+                              จ่าย: {formatThaiShortDate(part.lastIssueDate)}
+                            </div>
+                            {(part.lastPONo || part.lastWorkRequestNo) && (
+                              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                {[part.lastPONo ? `PO:${part.lastPONo}` : '', part.lastWorkRequestNo ? `WR:${part.lastWorkRequestNo}` : '']
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-3 align-top whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              {canEdit && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => openMovementModal('IN', part)}
+                                    className="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500 hover:text-slate-950 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] transition cursor-pointer"
+                                    title="บันทึกรับเข้าสต๊อก"
+                                  >
+                                    + รับ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openMovementModal('OUT', part)}
+                                    className="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/40 text-amber-300 font-bold text-[11px] transition cursor-pointer"
+                                    title="บันทึกจ่ายออก / เบิกใช้"
+                                  >
+                                    - จ่าย
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => openHistoryForPart(part.id)}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-cyan-500/20 border border-slate-700 text-slate-300 hover:text-cyan-300 transition cursor-pointer"
+                                title="ดูประวัติรับเข้า-จ่ายออกของอะไหล่นี้"
+                              >
+                                <History size={13} />
+                              </button>
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditPartModal(part)}
+                                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-cyan-500/20 border border-slate-700 text-slate-300 hover:text-cyan-300 transition cursor-pointer"
+                                  title="แก้ไขข้อมูลและค่า Min–Max"
+                                >
+                                  <Edit3 size={13} />
+                                </button>
+                              )}
+                              {canDelete && (
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletePartTarget(part)}
+                                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 border border-slate-700 text-slate-400 hover:text-rose-300 transition cursor-pointer"
+                                  title="ลบรายการอะไหล่"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================
+          TAB 2: STOCK CARD (RECEIVE / ISSUE HISTORY WITH DATES)
+         ========================================================= */}
+      {activeTab === 'history' && (
+        <div className="space-y-4">
+          {/* Summary Strip */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-4">
+              <div className="text-[11px] font-bold text-emerald-400">ยอดรับเข้า (Stock IN)</div>
+              <div className="mt-1.5 flex items-baseline gap-2 font-mono">
+                <span className="text-2xl font-black text-emerald-400">+{txSummary.inQty.toLocaleString()}</span>
+                <span className="text-xs text-slate-400">ชิ้น ({txSummary.inCount} ครั้ง)</span>
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1 font-mono">
+                มูลค่ารับเข้า {Math.round(txSummary.inValue).toLocaleString()} บาท
+              </div>
             </div>
 
-            {/* Footer Buttons */}
-            <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-between items-center text-xs">
-              <span className="text-slate-400 font-sans">
-                {importPreview.length > 0 ? (
-                  <>พร้อมนำเข้าแถวข้อมูลคลังทั้งสิ้น <b className="text-[#38bdf8] font-mono">{importPreview.length}</b> แถว</>
-                ) : (
-                  <>โปรดเลือกเลือกอัปโหลดไฟล์ Excel ก่อนดำเนินขั้นตอนถัดไป</>
-                )}
-              </span>
+            <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-4">
+              <div className="text-[11px] font-bold text-amber-400">ยอดจ่ายออก / เบิกใช้ (Stock OUT)</div>
+              <div className="mt-1.5 flex items-baseline gap-2 font-mono">
+                <span className="text-2xl font-black text-amber-400">-{txSummary.outQty.toLocaleString()}</span>
+                <span className="text-xs text-slate-400">ชิ้น ({txSummary.outCount} ครั้ง)</span>
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1 font-mono">
+                มูลค่าเบิกใช้ {Math.round(txSummary.outValue).toLocaleString()} บาท
+              </div>
+            </div>
 
-              <div className="flex gap-2">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+              <div className="text-[11px] font-bold text-cyan-400">บันทึกรายการเคลื่อนไหวทันที</div>
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                {canEdit && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openMovementModal('IN', spareParts.find((p) => p.id === txPartFilter))}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer"
+                    >
+                      + รับเข้า
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openMovementModal('OUT', spareParts.find((p) => p.id === txPartFilter))}
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer"
+                    >
+                      - จ่ายออก
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openMovementModal('ADJUST', spareParts.find((p) => p.id === txPartFilter))}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+                    >
+                      ปรับยอด ({txSummary.adjCount})
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(
+                  [
+                    { id: 'ALL', label: 'ทั้งหมด' },
+                    { id: 'IN', label: 'รับเข้า (IN)' },
+                    { id: 'OUT', label: 'จ่ายออก (OUT)' },
+                    { id: 'ADJUST', label: 'ปรับยอด (ADJUST)' }
+                  ] as { id: 'ALL' | StockTransactionType; label: string }[]
+                ).map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTxTypeFilter(t.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      txTypeFilter === t.id
+                        ? 'bg-cyan-500 text-slate-950'
+                        : 'bg-slate-950/60 text-slate-300 border border-slate-800 hover:border-slate-600'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {(txPartFilter !== 'ALL' || txDateFrom || txDateTo || txSearch) && (
                 <button
                   type="button"
                   onClick={() => {
-                    setShowImportModal(false);
-                    setExcelData([]);
-                    setExcelHeaders([]);
-                    setFileName('');
+                    setTxPartFilter('ALL');
+                    setTxDateFrom('');
+                    setTxDateTo('');
+                    setTxSearch('');
                   }}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold rounded-lg cursor-pointer transition select-none"
+                  className="text-xs text-rose-300 hover:text-rose-200 font-semibold cursor-pointer"
                 >
-                  ยกเลิก
+                  ล้างตัวกรองประวัติ
                 </button>
-                <button
-                  type="button"
-                  disabled={importPreview.length === 0}
-                  onClick={confirmImport}
-                  className={`px-4.5 py-2 font-black rounded-lg transition flex items-center gap-1.5 select-none ${
-                    importPreview.length > 0 
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 cursor-pointer shadow-lg'
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-850'
-                  }`}
-                >
-                  <CheckCircle size={14} strokeWidth={2.5} />
-                  <span>ยืนยันบันทึกนำเข้าระบบ ({importPreview.length} รายการ)</span>
-                </button>
-              </div>
+              )}
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+              <div className="relative lg:col-span-2">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={txSearch}
+                  onChange={(e) => setTxSearch(e.target.value)}
+                  placeholder="ค้นหาชื่ออะไหล่, เลข PR/PO, ใบเบิก/แจ้งซ่อม, เครื่องจักร, ผู้เบิก..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <Filter size={14} className="text-slate-400 shrink-0" />
+                <select
+                  value={txPartFilter}
+                  onChange={(e) => setTxPartFilter(e.target.value)}
+                  className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200"
+                >
+                  <option value="ALL">อะไหล่: ทุกรายการ</option>
+                  {spareParts.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.id} - {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <input
+                type="date"
+                value={txDateFrom}
+                onChange={(e) => setTxDateFrom(e.target.value)}
+                title="ตั้งแต่วันที่"
+                className="px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 font-mono"
+              />
+              <input
+                type="date"
+                value={txDateTo}
+                onChange={(e) => setTxDateTo(e.target.value)}
+                title="ถึงวันที่"
+                className="px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 font-mono"
+              />
+            </div>
+          </div>
+
+          {/* Transaction Table */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-800/90 text-slate-300 font-bold border-b border-slate-700">
+                  <tr>
+                    <th className="py-3 px-3 whitespace-nowrap">วันที่ทำรายการ</th>
+                    <th className="py-3 px-2.5 text-center whitespace-nowrap">ประเภท</th>
+                    <th className="py-3 px-3 min-w-[200px]">อะไหล่ (SKU)</th>
+                    <th className="py-3 px-2.5 text-center whitespace-nowrap">จำนวน</th>
+                    <th className="py-3 px-2.5 text-center whitespace-nowrap">คงเหลือ (ก่อน → หลัง)</th>
+                    <th className="py-3 px-2.5 text-right whitespace-nowrap">มูลค่า (บาท)</th>
+                    <th className="py-3 px-3 whitespace-nowrap">เอกสารอ้างอิง (PR/PO / ใบแจ้งซ่อม)</th>
+                    <th className="py-3 px-3">เครื่องจักร / ซัพพลายเออร์ / ผู้ทำรายการ</th>
+                    {canDelete && <th className="py-3 px-2.5 text-center">ลบ</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/80">
+                  {filteredTransactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={canDelete ? 9 : 8} className="py-12 text-center text-slate-400">
+                        ยังไม่มีประวัติรับเข้า–จ่ายออก (กดปุ่ม "รับเข้า" / "จ่ายออก" หรือนำเข้าจากไฟล์ Excel)
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTransactions.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-800/40">
+                        <td className="py-2.5 px-3 font-mono text-slate-200 whitespace-nowrap">
+                          {formatThaiShortDate(tx.date)}
+                        </td>
+                        <td className="py-2.5 px-2.5 text-center whitespace-nowrap font-bold">
+                          {tx.type === 'IN' ? (
+                            <span className="text-emerald-400">รับเข้า (IN)</span>
+                          ) : tx.type === 'OUT' ? (
+                            <span className="text-amber-400">จ่ายออก (OUT)</span>
+                          ) : (
+                            <span className="text-sky-400">ปรับยอด</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-semibold text-white">{tx.partName}</div>
+                          <div className="text-[11px] font-mono text-cyan-400">{tx.partId}</div>
+                        </td>
+                        <td className="py-2.5 px-2.5 text-center font-mono font-extrabold whitespace-nowrap">
+                          <span
+                            className={
+                              tx.type === 'IN'
+                                ? 'text-emerald-400'
+                                : tx.type === 'OUT'
+                                ? 'text-amber-400'
+                                : 'text-sky-400'
+                            }
+                          >
+                            {tx.type === 'IN'
+                              ? `+${Math.abs(tx.quantity)}`
+                              : tx.type === 'OUT'
+                              ? `-${Math.abs(tx.quantity)}`
+                              : tx.quantity >= 0
+                              ? `+${tx.quantity}`
+                              : tx.quantity}{' '}
+                            {tx.unit}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2.5 text-center font-mono text-slate-300 whitespace-nowrap">
+                          {tx.balanceBefore} → <strong className="text-white">{tx.balanceAfter}</strong>
+                        </td>
+                        <td className="py-2.5 px-2.5 text-right font-mono text-slate-200 whitespace-nowrap">
+                          {Math.round(tx.totalValue || 0).toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-[11px] text-slate-300 whitespace-nowrap">
+                          {tx.type === 'IN' ? (
+                            <div>
+                              {tx.prNo && <div>PR: {tx.prNo}</div>}
+                              {tx.poNo && <div className="text-cyan-300">PO: {tx.poNo}</div>}
+                              {!tx.prNo && !tx.poNo && <span className="text-slate-500">-</span>}
+                            </div>
+                          ) : tx.type === 'OUT' ? (
+                            tx.workRequestNo ? (
+                              <span className="text-amber-300 font-bold">ใบเบิก/แจ้งซ่อม: {tx.workRequestNo}</span>
+                            ) : (
+                              <span className="text-slate-500">-</span>
+                            )
+                          ) : (
+                            <span className="text-slate-400">ตรวจนับสต๊อก</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-[11px] text-slate-300">
+                          <div>
+                            {[
+                              tx.machineName ? `เครื่อง: ${tx.machineName}` : '',
+                              tx.supplier ? `ผู้ขาย: ${tx.supplier}` : '',
+                              tx.operatorName ? `โดย: ${tx.operatorName}` : ''
+                            ]
+                              .filter(Boolean)
+                              .join(' · ') || '-'}
+                          </div>
+                          {tx.note && <div className="text-slate-400 mt-0.5">{tx.note}</div>}
+                        </td>
+                        {canDelete && (
+                          <td className="py-2.5 px-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTxTarget(tx)}
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 cursor-pointer"
+                              title="ลบประวัติรายการนี้"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* ==================== CUSTOM MODAL: ALERT & CONFIRMATON ==================== */}
-      {customDialog.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in" id="custom-alert-confirm-overlay">
-          <div className="bg-slate-900 border border-slate-750 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden scale-95 md:scale-100 transition-all">
-            {/* Header depending on type */}
-            <div className={`p-4 border-b border-slate-800/80 flex items-center gap-2.5 ${
-              customDialog.type === 'danger' ? 'bg-red-500/10 text-red-400 border-b border-red-500/20' :
-              customDialog.type === 'warning' ? 'bg-amber-500/10 text-amber-400 border-b border-amber-500/20' :
-              customDialog.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-b border-emerald-500/20' :
-              'bg-blue-500/10 text-blue-400 border-b border-blue-500/20'
-            }`}>
-              {customDialog.type === 'danger' && <AlertCircle size={18} className="shrink-0" />}
-              {customDialog.type === 'warning' && <AlertTriangle size={17} className="shrink-0" />}
-              {customDialog.type === 'success' && <CheckCircle size={18} className="shrink-0" />}
-              {customDialog.type === 'info' && <Info size={18} className="shrink-0" />}
-              
-              <h3 className="text-xs font-black uppercase tracking-wider text-white">
-                {customDialog.title}
-              </h3>
-            </div>
+      {/* =========================================================
+          TAB 3: SMART EXCEL IMPORTER
+         ========================================================= */}
+      {activeTab === 'import' && (
+        <InventoryExcelImporter
+          existingParts={spareParts}
+          operatorName={currentUser?.name || 'ผู้ใช้งาน'}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          onApplyImport={handleApplyExcelImport}
+        />
+      )}
 
-            {/* Message Body */}
-            <div className="p-5">
-              <p className="text-slate-300 text-xs font-sans leading-relaxed whitespace-pre-wrap">
-                {customDialog.message}
-              </p>
-            </div>
-
-            {/* Actions button footer */}
-            <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex justify-end items-center gap-2 text-xs">
-              {customDialog.showCancel && (
-                <button
-                  type="button"
-                  onClick={customDialog.onCancel}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold rounded-lg cursor-pointer transition select-none"
-                >
-                  ยกเลิก
-                </button>
-              )}
-              
+      {/* =========================================================
+          MODAL 1: ADD / EDIT SPARE PART (WITH MIN-MAX & SUPPLIER)
+         ========================================================= */}
+      {partForm && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-[#0b1222] border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl">
+            <div className="sticky top-0 z-10 bg-[#0b1222] border-b border-slate-800 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-extrabold text-white">
+                  {editingPart ? `แก้ไขข้อมูลอะไหล่ (${editingPart.id})` : 'เพิ่มรายการอะไหล่ใหม่เข้าคลัง'}
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  กำหนดค่า Min–Max, ซัพพลายเออร์, ตำแหน่งเก็บ และเครื่องจักรที่ใช้งาน
+                </p>
+              </div>
               <button
                 type="button"
-                id="custom-confirm-accept-btn"
                 onClick={() => {
-                  if (customDialog.onConfirm) {
-                    customDialog.onConfirm();
-                  } else {
-                    setCustomDialog(prev => ({ ...prev, isOpen: false }));
-                  }
+                  setPartForm(null);
+                  setEditingPart(null);
                 }}
-                className={`px-5 py-2 font-black rounded-lg transition text-slate-950 cursor-pointer shadow-lg select-none ${
-                  customDialog.type === 'danger' ? 'bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-400 hover:to-rose-500' :
-                  customDialog.type === 'warning' ? 'bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500' :
-                  customDialog.type === 'success' ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500' :
-                  'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500'
-                }`}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
               >
-                {customDialog.showCancel ? 'ยืนยันดำเนินการ' : 'ตกลง'}
+                <X size={18} />
               </button>
             </div>
 
+            <form onSubmit={handleSavePartForm} className="p-5 space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">รหัสอะไหล่ (SKU) *</label>
+                  <input
+                    type="text"
+                    required
+                    disabled={Boolean(editingPart)}
+                    value={partForm.id}
+                    onChange={(e) => setPartForm({ ...partForm, id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-cyan-300 font-mono font-bold disabled:opacity-60"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-400 font-semibold mb-1">ชื่ออะไหล่ / สเปก (Short Text) *</label>
+                  <input
+                    type="text"
+                    required
+                    value={partForm.name}
+                    onChange={(e) => setPartForm({ ...partForm, name: e.target.value })}
+                    placeholder="เช่น Sensor Omron E3Z-R81 หรือ สายพาน PU 480x2220"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">หมวดหมู่</label>
+                  <select
+                    value={partForm.category}
+                    onChange={(e) => setPartForm({ ...partForm, category: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                  >
+                    {filterOptions.cats.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">ซัพพลายเออร์หลัก (Supplier)</label>
+                  <input
+                    type="text"
+                    list="inventory-supplier-datalist"
+                    value={partForm.supplier}
+                    onChange={(e) => setPartForm({ ...partForm, supplier: e.target.value })}
+                    placeholder="เช่น เยนเนอรัล ซัพพลาย แอนด์ เซอร์วิส"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                  />
+                  <datalist id="inventory-supplier-datalist">
+                    {filterOptions.suppliers.map((s) => (
+                      <option key={s} value={s} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">เครื่องจักรที่ใช้ (คั่นด้วยจุลภาค)</label>
+                  <input
+                    type="text"
+                    list="inventory-machine-datalist"
+                    value={partForm.machineText}
+                    onChange={(e) => setPartForm({ ...partForm, machineText: e.target.value })}
+                    placeholder="เช่น Ulma, Banding, FFS, เครื่องหั่นหมูแดง"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                  />
+                  <datalist id="inventory-machine-datalist">
+                    {machines.map((m) => (
+                      <option key={m.id} value={`${m.id} (${m.name})`} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">ตำแหน่งจัดเก็บ (Location / ชั้นวาง)</label>
+                  <input
+                    type="text"
+                    value={partForm.location}
+                    onChange={(e) => setPartForm({ ...partForm, location: e.target.value })}
+                    placeholder="เช่น ตู้ A ชั้น 2"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                  />
+                </div>
+              </div>
+
+              {/* Min-Max & Pricing */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-950/60 border border-slate-800 rounded-xl p-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">
+                    {editingPart ? 'คงเหลือ (ปรับผ่านรับ/จ่าย)' : 'ยอดยกมาเริ่มต้น'}
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    disabled={Boolean(editingPart)}
+                    value={partForm.quantity}
+                    onChange={(e) => setPartForm({ ...partForm, quantity: Number(e.target.value) })}
+                    className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono disabled:opacity-50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-amber-400 font-bold mb-1">ค่า Min (จุดสั่งซื้อ) *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    required
+                    value={partForm.minRequired}
+                    onChange={(e) => setPartForm({ ...partForm, minRequired: Number(e.target.value) })}
+                    className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-amber-500/40 text-amber-300 font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sky-400 font-bold mb-1">ค่า Max (สูงสุด) *</label>
+                  <input
+                    type="number"
+                    min={0}
+                    required
+                    value={partForm.maxStock}
+                    onChange={(e) => setPartForm({ ...partForm, maxStock: Number(e.target.value) })}
+                    className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-sky-500/40 text-sky-300 font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">หน่วยนับ</label>
+                  <input
+                    type="text"
+                    value={partForm.unit}
+                    onChange={(e) => setPartForm({ ...partForm, unit: e.target.value })}
+                    placeholder="EA / PC / ชิ้น"
+                    className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">ราคา/หน่วย (บาท)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={partForm.pricePerUnit}
+                    onChange={(e) => setPartForm({ ...partForm, pricePerUnit: Number(e.target.value) })}
+                    className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Lead Time รอของ (วัน)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={partForm.leadTimeDays}
+                    onChange={(e) => setPartForm({ ...partForm, leadTimeDays: Number(e.target.value) })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-400 font-semibold mb-1">รายละเอียดสเปก / หมายเหตุเพิ่มเติม</label>
+                  <input
+                    type="text"
+                    value={partForm.specifications}
+                    onChange={(e) => setPartForm({ ...partForm, specifications: e.target.value })}
+                    placeholder="ระบุขนาด, เบอร์, รุ่นเทียบเคียง ฯลฯ"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPartForm(null);
+                    setEditingPart(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold cursor-pointer"
+                >
+                  {editingPart ? 'บันทึกการแก้ไข' : 'เพิ่มอะไหล่เข้าคลัง'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
+      {/* =========================================================
+          MODAL 2: STOCK MOVEMENT (RECEIVE IN / ISSUE OUT / ADJUST)
+         ========================================================= */}
+      {movementForm && selectedMovementPart && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-[#0b1222] border border-slate-700 rounded-2xl w-full max-w-xl max-h-[92vh] overflow-y-auto shadow-2xl">
+            <div className="sticky top-0 z-10 bg-[#0b1222] border-b border-slate-800 px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {movementForm.type === 'IN' ? (
+                  <ArrowDownCircle size={19} className="text-emerald-400" />
+                ) : movementForm.type === 'OUT' ? (
+                  <ArrowUpCircle size={19} className="text-amber-400" />
+                ) : (
+                  <Sliders size={19} className="text-sky-400" />
+                )}
+                <h3 className="text-base font-extrabold text-white">
+                  {movementForm.type === 'IN'
+                    ? 'บันทึกรับเข้าอะไหล่ (Stock IN)'
+                    : movementForm.type === 'OUT'
+                    ? 'บันทึกจ่ายออก / เบิกอะไหล่ (Stock OUT)'
+                    : 'ปรับยอดตรวจนับสต๊อก (Stock Adjust)'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMovementForm(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveMovement} className="p-5 space-y-4 text-xs">
+              {/* Type Switcher */}
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { id: 'IN', label: '+ รับเข้า (IN)', activeClass: 'bg-emerald-500 text-slate-950' },
+                    { id: 'OUT', label: '- จ่ายออก (OUT)', activeClass: 'bg-amber-500 text-slate-950' },
+                    { id: 'ADJUST', label: 'ปรับยอดตรวจนับ', activeClass: 'bg-sky-500 text-slate-950' }
+                  ] as { id: StockTransactionType; label: string; activeClass: string }[]
+                ).map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() =>
+                      setMovementForm((prev) =>
+                        prev ? { ...prev, type: t.id, targetBalance: selectedMovementPart.quantity } : prev
+                      )
+                    }
+                    className={`py-2 rounded-xl font-extrabold transition cursor-pointer ${
+                      movementForm.type === t.id
+                        ? t.activeClass
+                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Select Part */}
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">รายการอะไหล่ *</label>
+                <select
+                  value={movementForm.partId}
+                  onChange={(e) => {
+                    const p = spareParts.find((x) => x.id === e.target.value);
+                    setMovementForm((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            partId: e.target.value,
+                            unitPrice: p?.pricePerUnit || 0,
+                            supplier: p?.supplier || '',
+                            machineName: p?.machineIds?.[0] || '',
+                            targetBalance: p?.quantity || 0
+                          }
+                        : prev
+                    );
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-semibold"
+                >
+                  {spareParts.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.id} — {p.name} (คงเหลือ {p.quantity} {p.unit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date + Quantity + Live Balance Preview */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-950/60 border border-slate-800 rounded-xl p-3">
+                <div>
+                  <label className="block text-cyan-300 font-bold mb-1">
+                    {movementForm.type === 'IN'
+                      ? 'วันที่รับเข้าจริง *'
+                      : movementForm.type === 'OUT'
+                      ? 'วันที่จ่ายออกจริง *'
+                      : 'วันที่ตรวจนับ *'}
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={movementForm.date}
+                    onChange={(e) => setMovementForm({ ...movementForm, date: e.target.value })}
+                    className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono"
+                  />
+                </div>
+
+                {movementForm.type === 'ADJUST' ? (
+                  <div>
+                    <label className="block text-sky-400 font-bold mb-1">ยอดตรวจนับจริงใหม่ *</label>
+                    <input
+                      type="number"
+                      min={0}
+                      required
+                      value={movementForm.targetBalance}
+                      onChange={(e) => setMovementForm({ ...movementForm, targetBalance: Number(e.target.value) })}
+                      className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-sky-500/40 text-white font-mono font-bold"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">
+                      จำนวน ({selectedMovementPart.unit}) *
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={movementForm.type === 'OUT' ? Math.max(1, selectedMovementPart.quantity) : undefined}
+                      required
+                      value={movementForm.quantity}
+                      onChange={(e) => setMovementForm({ ...movementForm, quantity: Number(e.target.value) })}
+                      className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono font-bold"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">ยอดคงเหลือหลังบันทึก</label>
+                  <div className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 font-mono font-extrabold text-center">
+                    <span className="text-slate-400">{selectedMovementPart.quantity}</span>
+                    <span className="mx-1.5 text-slate-500">→</span>
+                    <span
+                      className={
+                        movementForm.type === 'IN'
+                          ? 'text-emerald-400'
+                          : movementForm.type === 'OUT'
+                          ? 'text-amber-400'
+                          : 'text-sky-400'
+                      }
+                    >
+                      {movementForm.type === 'IN'
+                        ? selectedMovementPart.quantity + Math.abs(Number(movementForm.quantity) || 0)
+                        : movementForm.type === 'OUT'
+                        ? Math.max(0, selectedMovementPart.quantity - Math.abs(Number(movementForm.quantity) || 0))
+                        : Math.max(0, Number(movementForm.targetBalance) || 0)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Conditional Fields for IN vs OUT */}
+              {movementForm.type === 'IN' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">เลข Purchase Requisition (PR)</label>
+                    <input
+                      type="text"
+                      value={movementForm.prNo}
+                      onChange={(e) => setMovementForm({ ...movementForm, prNo: e.target.value })}
+                      placeholder="เช่น 430134553"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">เลข Purchase Order (PO)</label>
+                    <input
+                      type="text"
+                      value={movementForm.poNo}
+                      onChange={(e) => setMovementForm({ ...movementForm, poNo: e.target.value })}
+                      placeholder="เช่น 405295746"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">ซัพพลายเออร์ (Supplier)</label>
+                    <input
+                      type="text"
+                      list="inventory-supplier-datalist-tx"
+                      value={movementForm.supplier}
+                      onChange={(e) => setMovementForm({ ...movementForm, supplier: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                    />
+                    <datalist id="inventory-supplier-datalist-tx">
+                      {filterOptions.suppliers.map((s) => (
+                        <option key={s} value={s} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">ราคา/หน่วยรอบนี้ (บาท)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={movementForm.unitPrice}
+                      onChange={(e) => setMovementForm({ ...movementForm, unitPrice: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {movementForm.type === 'OUT' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-amber-300 font-semibold mb-1">ใบเบิก / เลขที่แจ้งซ่อม</label>
+                    <input
+                      type="text"
+                      list="inventory-work-requests-datalist"
+                      value={movementForm.workRequestNo}
+                      onChange={(e) => setMovementForm({ ...movementForm, workRequestNo: e.target.value })}
+                      placeholder="เช่น 164567, 171380"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono"
+                    />
+                    <datalist id="inventory-work-requests-datalist">
+                      {workRequests.slice(0, 60).map((wr) => (
+                        <option key={wr.id} value={wr.ticketNo}>
+                          {wr.machineName} - {wr.problemDetail?.slice(0, 40)}
+                        </option>
+                      ))}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">เครื่องจักรที่เบิกไปติดตั้ง</label>
+                    <input
+                      type="text"
+                      list="inventory-machines-tx-datalist"
+                      value={movementForm.machineName}
+                      onChange={(e) => setMovementForm({ ...movementForm, machineName: e.target.value })}
+                      placeholder="เช่น Ulma, Reject, เครื่องหั่นหมูแดง"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                    />
+                    <datalist id="inventory-machines-tx-datalist">
+                      {filterOptions.machineNames.map((m) => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">
+                    {movementForm.type === 'OUT' ? 'ช่างผู้เบิก' : 'ผู้รับของ / ผู้บันทึก'}
+                  </label>
+                  <input
+                    type="text"
+                    list="inventory-tech-datalist"
+                    value={movementForm.operatorName}
+                    onChange={(e) => setMovementForm({ ...movementForm, operatorName: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                  />
+                  <datalist id="inventory-tech-datalist">
+                    {technicians.map((t) => (
+                      <option key={t} value={t} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">หมายเหตุ</label>
+                  <input
+                    type="text"
+                    value={movementForm.note}
+                    onChange={(e) => setMovementForm({ ...movementForm, note: e.target.value })}
+                    placeholder="ระบุรายละเอียดเพิ่มเติม..."
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setMovementForm(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className={`px-5 py-2 rounded-xl font-extrabold cursor-pointer ${
+                    movementForm.type === 'IN'
+                      ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                      : movementForm.type === 'OUT'
+                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                      : 'bg-sky-500 hover:bg-sky-400 text-slate-950'
+                  }`}
+                >
+                  ยืนยันบันทึกรายการ
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Part Confirmation Modal */}
+      {deletePartTarget && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0b1222] border border-rose-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-rose-400">
+              <Trash2 size={20} />
+              <h3 className="text-base font-extrabold text-white">ยืนยันการลบอะไหล่</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              ต้องการลบรายการ <strong className="text-white">{deletePartTarget.id} — {deletePartTarget.name}</strong> ออกจากคลังใช่หรือไม่?
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletePartTarget(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeletePart}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold cursor-pointer"
+              >
+                ยืนยันลบรายการ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0b1222] border border-rose-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-rose-400">
+              <Trash2 size={20} />
+              <h3 className="text-base font-extrabold text-white">ยืนยันลบอะไหล่หลายรายการ</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              ต้องการลบอะไหล่ที่เลือกทั้งหมด <strong className="text-rose-300">{selectedPartIds.length} รายการ</strong> ออกจากคลังใช่หรือไม่?
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBulkDelete}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold cursor-pointer"
+              >
+                ยืนยันลบทั้งหมด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Transaction Confirmation Modal */}
+      {deleteTxTarget && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0b1222] border border-rose-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-rose-400">
+              <Trash2 size={20} />
+              <h3 className="text-base font-extrabold text-white">ยืนยันลบประวัติเคลื่อนไหว</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              ต้องการลบประวัติรายการ <strong className="text-white">{deleteTxTarget.partName}</strong> วันที่ {formatThaiShortDate(deleteTxTarget.date)} ใช่หรือไม่? (ยอดคงเหลือปัจจุบันในคลังจะไม่ถูกเปลี่ยนแปลง)
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTxTarget(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteTx}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold cursor-pointer"
+              >
+                ยืนยันลบประวัติ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

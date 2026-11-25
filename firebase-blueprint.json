@@ -80,18 +80,50 @@
     },
     "spareParts": {
       "title": "Spare Parts",
-      "description": "Spare parts inventory and warehouse stock tracking",
+      "description": "Spare parts inventory master with Min/Max thresholds, supplier, and warehouse stock tracking",
       "properties": {
-        "id": { "type": "string", "description": "Part code or ID" },
-        "name": { "type": "string", "description": "Part name" },
+        "id": { "type": "string", "description": "Part code or SKU" },
+        "name": { "type": "string", "description": "Part name and specifications" },
         "category": { "type": "string", "description": "Part category" },
-        "stock": { "type": "number", "description": "Current quantity in stock" },
-        "minStock": { "type": "number", "description": "Minimum safety stock level" },
-        "unit": { "type": "string", "description": "Measurement unit" },
-        "price": { "type": "number", "description": "Unit price" },
-        "machineId": { "type": "string", "description": "Target machine code" }
+        "quantity": { "type": "number", "description": "Current quantity in stock" },
+        "minRequired": { "type": "number", "description": "Minimum safety stock level (Min)" },
+        "maxStock": { "type": "number", "description": "Maximum target stock level (Max)" },
+        "unit": { "type": "string", "description": "Measurement unit (EA, PC, ชิ้น)" },
+        "location": { "type": "string", "description": "Storage location / shelf" },
+        "pricePerUnit": { "type": "number", "description": "Unit valuation price (THB)" },
+        "supplier": { "type": "string", "description": "Primary supplier name" },
+        "lastReceiveDate": { "type": "string", "description": "Last stock-in date YYYY-MM-DD" },
+        "lastIssueDate": { "type": "string", "description": "Last stock-out date YYYY-MM-DD" },
+        "lastPRNo": { "type": "string", "description": "Latest Purchase Requisition number" },
+        "lastPONo": { "type": "string", "description": "Latest Purchase Order number" },
+        "machineIds": { "type": "array", "description": "Target machine codes or names" }
       },
       "required": ["id", "name"]
+    },
+    "stockTransactions": {
+      "title": "Stock Transactions",
+      "description": "Spare parts receive (IN), issue (OUT), and audit adjustment (ADJUST) movement history",
+      "properties": {
+        "id": { "type": "string", "description": "Transaction ID" },
+        "partId": { "type": "string", "description": "Spare part SKU ID" },
+        "partName": { "type": "string", "description": "Spare part name snapshot" },
+        "type": { "type": "string", "description": "Movement type: IN, OUT, or ADJUST" },
+        "date": { "type": "string", "description": "Transaction date YYYY-MM-DD" },
+        "quantity": { "type": "number", "description": "Quantity moved" },
+        "balanceBefore": { "type": "number", "description": "Stock balance prior to movement" },
+        "balanceAfter": { "type": "number", "description": "Stock balance after movement" },
+        "unit": { "type": "string", "description": "Measurement unit" },
+        "unitPrice": { "type": "number", "description": "Unit price at transaction time" },
+        "totalValue": { "type": "number", "description": "Total movement value (THB)" },
+        "prNo": { "type": "string", "description": "Purchase Requisition number" },
+        "poNo": { "type": "string", "description": "Purchase Order number" },
+        "supplier": { "type": "string", "description": "Supplier name" },
+        "machineName": { "type": "string", "description": "Target machine name" },
+        "workRequestNo": { "type": "string", "description": "Issue slip / Work request number" },
+        "operatorName": { "type": "string", "description": "Technician or operator name" },
+        "note": { "type": "string", "description": "Additional notes" }
+      },
+      "required": ["id", "partId", "type", "date", "quantity"]
     },
     "improvements": {
       "title": "Improvements",
